@@ -1,0 +1,45 @@
+name: pointage_mobile
+description: "Application de pointage géolocalisée sécurisée avec mode hors-ligne"
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Géolocalisation & Anti-triche
+  geolocator: ^13.0.1
+  
+  # Réseau & Signature Wi-Fi
+  network_info_plus: ^5.0.1
+  connectivity_plus: ^6.0.5
+
+  # Identification du smartphone (Device Binding)
+  device_info_plus: ^10.1.0
+
+  # Biométrie (Touch ID / Face ID / Empreinte)
+  local_auth: ^2.2.0
+
+  # Caméra & Import Galerie pour QR Code d'activation (WhatsApp)
+  camera: ^0.11.0+1
+  image_picker: ^1.1.2
+  mobile_scanner: ^5.2.3
+
+  # Base de données locale & Mode hors-ligne
+  sqflite: ^2.3.3+1
+  path: ^1.9.0
+
+  # Client API & Utilitaires
+  http: ^1.2.1
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
