@@ -191,18 +191,30 @@
         }
 
         function navigateTab(tabId) {
-            ['live', 'employees', 'justifications', 'company-settings', 'planning', 'sites', 'reports', 'security'].forEach(t => {
+            const tabs = ['live', 'employees', 'justifications', 'planning', 'sites', 'reports', 'security', 'company-settings'];
+            tabs.forEach(t => {
                 const el = document.getElementById('tab-' + t);
-                const btn = document.getElementById('nav-' + t);
-                if (el) el.classList.toggle('hidden', t !== tabId);
-                if (btn) {
+                const deskBtn = document.getElementById('nav-' + t);
+                const mobBtn = document.getElementById('mob-nav-' + t);
+                if (el) {
+                    el.classList.toggle('hidden', t !== tabId);
+                }
+                if (deskBtn) {
                     if (t === tabId) {
-                        btn.className = "w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl bg-blue-600 text-white font-semibold transition";
+                        deskBtn.className = "w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl bg-blue-600 text-white font-semibold transition";
                     } else {
-                        btn.className = "w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition";
+                        deskBtn.className = "w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition";
+                    }
+                }
+                if (mobBtn) {
+                    if (t === tabId) {
+                        mobBtn.className = "whitespace-nowrap px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold transition";
+                    } else {
+                        mobBtn.className = "whitespace-nowrap px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 font-semibold transition";
                     }
                 }
             });
+
             const titles = {
                 'live': 'Supervision en Temps Réel',
                 'employees': 'Employés & Enrôlement Sécurisé',
@@ -213,7 +225,9 @@
                 'security': 'Matrice de Sécurité & Anti-Triche',
                 'company-settings': 'Configuration de l\'Entreprise'
             };
-            document.getElementById('pageTitle').textContent = titles[tabId] || 'Portail Entreprise';
+            const titleEl = document.getElementById('pageTitle');
+            if (titleEl) titleEl.textContent = titles[tabId] || 'Portail Entreprise';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         // Modales
