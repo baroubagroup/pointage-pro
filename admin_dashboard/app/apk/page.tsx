@@ -5,7 +5,7 @@ import Link from 'next/link';
 
 export default function ApkDownloadPage() {
   const [downloadStarted, setDownloadStarted] = useState(false);
-  const CDN_APK_URL = 'https://ylrnxuphtaoazlhlmnsd.supabase.co/storage/v1/object/public/apk_downloads/pointage-pro.apk';
+  const CDN_APK_URL = 'https://ylrnxuphtaoazlhlmnsd.supabase.co/storage/v1/object/public/apk_downloads/pointage-pro-v2.apk';
 
   React.useEffect(() => {
     // Déclenchement automatique 500ms après l'ouverture de la page
@@ -19,7 +19,7 @@ export default function ApkDownloadPage() {
     setDownloadStarted(true);
     // Déclenchement direct du téléchargement
     const link = document.createElement('a');
-    link.href = '/pointage-pro.apk';
+    link.href = CDN_APK_URL;
     link.setAttribute('download', 'pointage-pro.apk');
     document.body.appendChild(link);
     link.click();
