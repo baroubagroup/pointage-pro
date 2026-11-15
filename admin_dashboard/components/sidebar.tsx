@@ -38,7 +38,7 @@ export function Sidebar() {
       const supabase = createClient();
       await supabase.auth.signOut();
     } catch {}
-    router.push('/login');
+    router.push('/login?logout=true');
   };
 
   return (
