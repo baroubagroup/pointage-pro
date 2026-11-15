@@ -8,8 +8,8 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // 1. API routes pass through directly (e.g. CSV exports, WiFi status)
-  if (pathname.startsWith('/api')) {
+  // 1. API routes and APK downloads pass through directly (no authentication check)
+  if (pathname.startsWith('/api') || pathname.startsWith('/apk') || pathname.endsWith('.apk')) {
     return supabaseResponse;
   }
 
