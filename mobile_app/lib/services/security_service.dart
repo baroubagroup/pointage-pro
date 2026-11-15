@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:local_auth/local_auth.dart';
@@ -47,6 +48,7 @@ class SecurityService {
   /// 2. Authentification biométrique native (FaceID / TouchID / Empreinte)
   Future<bool> authenticateBiometric() async {
     try {
+      if (kIsWeb) return true;
       bool canCheckBiometrics = await _localAuth.canCheckBiometrics;
       bool isDeviceSupported = await _localAuth.isDeviceSupported();
 
@@ -70,6 +72,20 @@ class SecurityService {
 
   /// 3. Empreinte unique du téléphone (Device Binding)
   Future<DeviceMetadata> getDeviceMetadata() async {
+    if (kIsWeb) {
+      return DeviceMetadata(
+        deviceId: "DEV-WEB-TEST-CHROME",
+        model: "Navigateur Web Chrome",
+      );
+    }
+
+    if (Platform.isWindows) {
+      return DeviceMetadata(
+        deviceId: "DEV-WIN-TEST-DESKTOP",
+        model: "Poste de Travail Windows",
+      );
+    }
+
     if (Platform.isAndroid) {
       AndroidDeviceInfo androidInfo = await _deviceInfo.androidInfo;
       return DeviceMetadata(
@@ -89,6 +105,7 @@ class SecurityService {
   /// 4. Détection du Wi-Fi d'entreprise (BSSID / MAC de la box)
   Future<String?> getConnectedWifiBssid() async {
     try {
+      if (kIsWeb) return "00:11:22:33:44:55";
       String? bssid = await _networkInfo.getWifiBSSID();
       return bssid;
     } catch (_) {

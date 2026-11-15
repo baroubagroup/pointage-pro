@@ -23,10 +23,10 @@ class _ClockInScreenState extends State<ClockInScreen> {
   String? _wifiBssid;
   int _pendingSyncCount = 0;
 
-  // Données de simulation pour la session employé
-  final String _currentUserId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
-  final String _establishmentId = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
-  final String _establishmentName = "Boutique Centrale - Siège";
+  // Données pour la session employé liée à Supabase
+  final String _currentUserId = "00000000-0000-0000-0000-000000000101";
+  final String _establishmentId = "00000000-0000-0000-0000-000000000010";
+  final String _establishmentName = "Siège Principal - Agence 1";
 
   @override
   void initState() {
