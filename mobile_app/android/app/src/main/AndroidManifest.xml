@@ -1,8 +1,31 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Permissions Géolocalisation & Anti-triche (Obligatoires pour Geolocator) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Permissions Caméra (Pour le scanner de QR Code d'activation) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <!-- Permissions Réseau & Synchronisation Supabase -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Permissions Wi-Fi BSSID (Contrôle de la box Internet de l'entreprise) -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+
+    <!-- Permissions Biométrie (Empreinte digitale / Reconnaissance faciale) -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+
     <application
-        android:label="pointage_mobile"
+        android:label="PointagePro"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
