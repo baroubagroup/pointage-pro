@@ -46,6 +46,10 @@ android {
             excludes += listOf("/META-INF/{AL2.0,LGPL2.1}")
         }
         jniLibs {
+            excludes += listOf(
+                "lib/x86_64/**",
+                "lib/armeabi-v7a/**"
+            )
             pickFirsts += listOf(
                 "**/libc++_shared.so",
                 "**/libflutter.so"
