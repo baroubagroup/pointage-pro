@@ -13,8 +13,8 @@ class OfflineSyncService {
 
   Database? _db;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
-  final String _backendApiUrl = "https://votre-projet.supabase.co/rest/v1/rpc/process_attendance_punch";
-  final String _apiKey = "VOTRE_CLE_ANON_SUPABASE";
+  final String _backendApiUrl = "https://ylrnxuphtaoazlhlmnsd.supabase.co/rest/v1/rpc/process_pointage_punch";
+  final String _apiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlscm54dXBodGFvYXpsaGxtbnNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzMDc3NDgsImV4cCI6MjEwMTg4Mzc0OH0._F9Kr-vgD_nahWhVfYJDhP8xRhDw_HyukIHWw5yOC8g";
 
   // Stream pour notifier l'UI du nombre de pointages en attente
   final _pendingCountController = StreamController<int>.broadcast();
