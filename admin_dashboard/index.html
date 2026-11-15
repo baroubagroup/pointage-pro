@@ -877,13 +877,13 @@
         // ==============================================================================
         const SUPABASE_URL = 'https://ylrnxuphtaoazlhlmnsd.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlscm54dXBodGFvYXpsaGxtbnNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzMDc3NDgsImV4cCI6MjEwMTg4Mzc0OH0._F9Kr-vgD_nahWhVfYJDhP8xRhDw_HyukIHWw5yOC8g';
-        const supabase = (window.supabase && window.supabase.createClient) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+        const supabaseClient = (window.supabase && window.supabase.createClient) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
         async function initSupabaseLiveSync() {
-            if (!supabase) return;
+            if (!supabaseClient) return;
             try {
                 // Charger les sites réels
-                const { data: estData } = await supabase.from('pointage_establishments').select('*').eq('is_active', true);
+                const { data: estData } = await supabaseClient.from('pointage_establishments').select('*').eq('is_active', true);
                 if (estData && estData.length > 0) {
                     sitesData = estData.map(e => ({
                         id: e.id,
@@ -900,7 +900,7 @@
                 }
 
                 // Charger les employés réels
-                const { data: empData } = await supabase.from('pointage_employees').select('*, pointage_establishments(name)');
+                const { data: empData } = await supabaseClient.from('pointage_employees').select('*, pointage_establishments(name)');
                 if (empData && empData.length > 0) {
                     employeesData = empData.map(e => ({
                         id: e.enrollment_token || e.id.substring(0, 8),
@@ -917,7 +917,7 @@
                 }
 
                 // Écouter les pointages en temps réel
-                supabase.channel('public_pointage_logs')
+                supabaseClient.channel('public_pointage_logs')
                     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pointage_logs' }, payload => {
                         fetchLiveData();
             initSupabaseLiveSync();
