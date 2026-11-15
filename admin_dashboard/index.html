@@ -160,7 +160,7 @@
             <!-- ======================================================== -->
             <!-- 1. VUE SUPERVISION LIVE -->
             <!-- ======================================================== -->
-            <div id="tab-live" class="space-y-6">
+            <div id="tab-live" style="display: block;" class="space-y-6">
                 <!-- Cartes Métriques -->
                 <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
@@ -236,7 +236,7 @@
             <!-- ======================================================== -->
             <!-- 2. VUE EMPLOYÉS & ENRÔLEMENT -->
             <!-- ======================================================== -->
-            <div id="tab-employees" class="space-y-6 hidden">
+            <div id="tab-employees" style="display: none;" class="space-y-6">
                 <div class="flex items-center justify-between">
                     <div>
                         <h2 class="text-base font-bold text-slate-900">Effectif & Activation 0-Mot de Passe</h2>
@@ -259,7 +259,69 @@
                             </tr>
                         </thead>
                         <tbody id="employeesTableBody" class="divide-y divide-slate-100">
-                            <!-- Rempli par JavaScript dynamiquement -->
+                            <tr class="hover:bg-slate-50 transition">
+                                <td class="py-3 px-4">
+                                    <div class="font-bold text-slate-900">Amina Traoré</div>
+                                    <div class="text-[11px] text-slate-400">EMP-001 • +225 07 00 00 01</div>
+                                </td>
+                                <td class="py-3 px-4">
+                                    <div class="font-semibold text-slate-800">Responsable Vente</div>
+                                    <div class="text-[11px] text-blue-600 font-medium">📍 Boutique Centrale - Siège</div>
+                                    <div class="text-[10px] text-slate-400">Shift Vente (08h30 - 17h30)</div>
+                                </td>
+                                <td class="py-3 px-4">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700">
+                                        <i class="fa-solid fa-mobile-screen mr-1"></i> Samsung Galaxy A54
+                                    </span>
+                                </td>
+                                <td class="py-3 px-4 text-right space-x-1">
+                                    <button onclick="triggerActivation('Amina Traoré', 'EMP-001', '+225 07 00 00 01')" class="bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold px-2.5 py-1.5 rounded-lg border border-blue-200 transition">
+                                        <i class="fa-brands fa-whatsapp text-emerald-600 mr-1"></i> Inviter / QR
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr class="hover:bg-slate-50 transition">
+                                <td class="py-3 px-4">
+                                    <div class="font-bold text-slate-900">Mamadou Diallo</div>
+                                    <div class="text-[11px] text-slate-400">EMP-002 • +225 07 00 00 02</div>
+                                </td>
+                                <td class="py-3 px-4">
+                                    <div class="font-semibold text-slate-800">Gestionnaire Stock</div>
+                                    <div class="text-[11px] text-blue-600 font-medium">📍 Entrepôt Logistique Zone Nord</div>
+                                    <div class="text-[10px] text-slate-400">Shift Coupure Midi (07h30 - 17h30)</div>
+                                </td>
+                                <td class="py-3 px-4">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-orange-50 text-orange-700">
+                                        <i class="fa-solid fa-mobile-screen mr-1"></i> Nouvel appareil
+                                    </span>
+                                </td>
+                                <td class="py-3 px-4 text-right space-x-1">
+                                    <button onclick="triggerActivation('Mamadou Diallo', 'EMP-002', '+225 07 00 00 02')" class="bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold px-2.5 py-1.5 rounded-lg border border-blue-200 transition">
+                                        <i class="fa-brands fa-whatsapp text-emerald-600 mr-1"></i> Inviter / QR
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr class="hover:bg-slate-50 transition">
+                                <td class="py-3 px-4">
+                                    <div class="font-bold text-slate-900">Koffi Konan</div>
+                                    <div class="text-[11px] text-slate-400">EMP-003 • +225 07 00 00 03</div>
+                                </td>
+                                <td class="py-3 px-4">
+                                    <div class="font-semibold text-slate-800">Caisse Centrale</div>
+                                    <div class="text-[11px] text-blue-600 font-medium">📍 Boutique Centrale - Siège</div>
+                                    <div class="text-[10px] text-slate-400">Shift Vente (08h30 - 17h30)</div>
+                                </td>
+                                <td class="py-3 px-4">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700">
+                                        <i class="fa-solid fa-mobile-screen mr-1"></i> Samsung Galaxy S22
+                                    </span>
+                                </td>
+                                <td class="py-3 px-4 text-right space-x-1">
+                                    <button onclick="triggerActivation('Koffi Konan', 'EMP-003', '+225 07 00 00 03')" class="bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold px-2.5 py-1.5 rounded-lg border border-blue-200 transition">
+                                        <i class="fa-brands fa-whatsapp text-emerald-600 mr-1"></i> Inviter / QR
+                                    </button>
+                                </td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -268,7 +330,7 @@
             <!-- ======================================================== -->
             <!-- SECTION : JUSTIFICATIONS DES RETARDS & ABSENCES (100% TEXTE) -->
             <!-- ======================================================== -->
-            <div id="tab-justifications" class="space-y-6 hidden">
+            <div id="tab-justifications" style="display: none;" class="space-y-6">
                 <div class="flex items-center justify-between">
                     <div>
                         <h2 class="text-base font-bold text-slate-900">Demandes de Justification (Retards & Absences)</h2>
@@ -289,12 +351,38 @@
                             </tr>
                         </thead>
                         <tbody id="justificationsTableBody" class="divide-y divide-slate-100 font-normal">
-                            <!-- Rempli par JavaScript -->
+                            <tr class="hover:bg-slate-50 transition">
+                                <td class="py-3 px-4">
+                                    <div class="font-bold text-slate-900">Mamadou Diallo</div>
+                                    <div class="text-[11px] text-slate-400">Gestionnaire Stock</div>
+                                </td>
+                                <td class="py-3 px-4 font-semibold text-slate-800">Retard Matin (+18 min)</td>
+                                <td class="py-3 px-4"><span class="bg-slate-100 px-2 py-1 rounded-md text-[11px] font-medium">🚗 Embouteillage / Panne transport</span></td>
+                                <td class="py-3 px-4 text-slate-600 italic">"Gros ralentissement sur l'autoroute du Nord suite à un camion en panne."</td>
+                                <td class="py-3 px-4"><span class="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full text-[10px]">En attente d'arbitrage</span></td>
+                                <td class="py-3 px-4 text-right space-x-1">
+                                    <button onclick="arbitrateJustif('j_001', true)" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-2.5 py-1.5 rounded-lg text-[11px] transition">Approuver</button>
+                                    <button onclick="arbitrateJustif('j_001', false)" class="bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-700 font-semibold px-2.5 py-1.5 rounded-lg text-[11px] border border-slate-200 transition">Refuser</button>
+                                </td>
+                            </tr>
+                            <tr class="hover:bg-slate-50 transition">
+                                <td class="py-3 px-4">
+                                    <div class="font-bold text-slate-900">Amina Traoré</div>
+                                    <div class="text-[11px] text-slate-400">Responsable Vente</div>
+                                </td>
+                                <td class="py-3 px-4 font-semibold text-slate-800">Sortie Déjeuner (+15 min)</td>
+                                <td class="py-3 px-4"><span class="bg-slate-100 px-2 py-1 rounded-md text-[11px] font-medium">💼 Rendez-vous Professionnel</span></td>
+                                <td class="py-3 px-4 text-slate-600 italic">"Attente de la livraison d'un fournisseur partenaire à proximité."</td>
+                                <td class="py-3 px-4"><span class="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full text-[10px]">✓ Justifié (Approuvé)</span></td>
+                                <td class="py-3 px-4 text-right space-x-1">
+                                    <span class="text-slate-400 text-[11px]">Traité</span>
+                                </td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
             </div>
-            <div id="tab-planning" class="space-y-6 hidden">
+            <div id="tab-planning" style="display: none;" class="space-y-6">
                 <div class="flex items-center justify-between">
                     <div>
                         <h2 class="text-base font-bold text-slate-900">Plannings & Gestion des Horaires</h2>
@@ -308,14 +396,43 @@
 
                 <!-- Grille des Équipes & Horaires -->
                 <div id="shiftsGrid" class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <!-- Généré par JavaScript -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="font-bold text-sm text-slate-900">Shift Coupure Midi (Commerce)</span>
+                            <span class="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Fractionné</span>
+                        </div>
+                        <div class="space-y-1.5 text-xs text-slate-600">
+                            <p><i class="fa-regular fa-clock mr-1 text-slate-400"></i> <strong>Horaires :</strong> 07h30 - 12h00 & 15h00 - 17h30</p>
+                            <p><i class="fa-solid fa-coffee mr-1 text-slate-400"></i> <strong>Pause :</strong> 3h00 (12h00 à 15h00)</p>
+                            <p><i class="fa-solid fa-shield mr-1 text-slate-400"></i> <strong>Tolérance Grâce :</strong> 5 minutes</p>
+                        </div>
+                        <div class="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                            <span class="text-slate-400 font-medium">2 employé(s)</span>
+                            <button class="text-blue-600 font-semibold hover:underline">Modifier</button>
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="font-bold text-sm text-slate-900">Shift Vente & Accueil Continu</span>
+                            <span class="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Continu</span>
+                        </div>
+                        <div class="space-y-1.5 text-xs text-slate-600">
+                            <p><i class="fa-regular fa-clock mr-1 text-slate-400"></i> <strong>Horaires :</strong> 08h30 - 17h30</p>
+                            <p><i class="fa-solid fa-coffee mr-1 text-slate-400"></i> <strong>Pause :</strong> 1h00 déjeuner</p>
+                            <p><i class="fa-solid fa-shield mr-1 text-slate-400"></i> <strong>Tolérance Grâce :</strong> 5 minutes</p>
+                        </div>
+                        <div class="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                            <span class="text-slate-400 font-medium">1 employé(s)</span>
+                            <button class="text-blue-600 font-semibold hover:underline">Modifier</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
             <!-- ======================================================== -->
             <!-- 4. VUE SITES & GÉOFENCING AVEC CAPTURE GPS -->
             <!-- ======================================================== -->
-            <div id="tab-sites" class="space-y-6 hidden">
+            <div id="tab-sites" style="display: none;" class="space-y-6">
                 <div class="flex items-center justify-between">
                     <div>
                         <h2 class="text-base font-bold text-slate-900">Établissements & Périmètres GPS</h2>
@@ -328,14 +445,65 @@
                 </div>
 
                 <div id="sitesGrid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Généré par JavaScript -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-blue-600 text-lg">🏬</span>
+                                <div>
+                                    <span class="font-bold text-slate-900 text-sm">Boutique Centrale - Siège</span>
+                                    <p class="text-[11px] text-slate-400">Abidjan (Marcory Zone 4)</p>
+                                </div>
+                            </div>
+                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Actif</span>
+                        </div>
+                        <div class="p-3 bg-slate-50 rounded-xl space-y-2 text-xs text-slate-600">
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Coordonnées GPS :</span>
+                                <span class="font-mono font-medium">5.30966, -4.00483</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Rayon Autorisé :</span>
+                                <span class="font-bold text-emerald-600">80 mètres</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Signature Wi-Fi (BSSID) :</span>
+                                <span class="font-mono text-blue-600 font-bold">aa:bb:cc:dd:ee:ff, 68:9e:29:3b:43:08</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-blue-600 text-lg">🏭</span>
+                                <div>
+                                    <span class="font-bold text-slate-900 text-sm">Entrepôt Logistique Zone Nord</span>
+                                    <p class="text-[11px] text-slate-400">Abidjan (Yopougon Zone Ind.)</p>
+                                </div>
+                            </div>
+                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Actif</span>
+                        </div>
+                        <div class="p-3 bg-slate-50 rounded-xl space-y-2 text-xs text-slate-600">
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Coordonnées GPS :</span>
+                                <span class="font-mono font-medium">5.34210, -4.08920</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Rayon Autorisé :</span>
+                                <span class="font-bold text-emerald-600">120 mètres</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Signature Wi-Fi (BSSID) :</span>
+                                <span class="font-mono text-blue-600 font-bold">12:34:56:78:9a:bc</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
             <!-- ======================================================== -->
             <!-- 5. VUE RAPPORTS & PAIE -->
             <!-- ======================================================== -->
-            <div id="tab-reports" class="space-y-6 hidden">
+            <div id="tab-reports" style="display: none;" class="space-y-6">
                 <div class="flex items-center justify-between">
                     <div>
                         <h2 class="text-base font-bold text-slate-900">Rapports d'Assiduité & Préparation de la Paie</h2>
@@ -362,7 +530,26 @@
                                 <th class="py-3 px-4 text-right">Fiche Paie</th>
                             </tr>
                         </thead>
-                        <tbody id="payrollTableBody" class="divide-y divide-slate-100"></tbody>
+                        <tbody id="payrollTableBody" class="divide-y divide-slate-100">
+        <tr class="hover:bg-slate-50 transition">
+            <td class="py-3 px-4 font-bold text-slate-900">Amina Traoré</td>
+            <td class="py-3 px-4 font-medium text-slate-700">154h 00</td>
+            <td class="py-3 px-4 font-bold text-slate-900">156h 30</td>
+            <td class="py-3 px-4 font-bold text-emerald-600">+2h 30</td>
+            <td class="py-3 px-4 text-emerald-600 font-medium">0 min</td>
+            <td class="py-3 px-4"><span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">100%</span></td>
+            <td class="py-3 px-4 text-right"><button onclick="exportDataCSV()" class="text-xs text-blue-600 hover:underline font-semibold">Exporter</button></td>
+        </tr>
+        <tr class="hover:bg-slate-50 transition">
+            <td class="py-3 px-4 font-bold text-slate-900">Mamadou Diallo</td>
+            <td class="py-3 px-4 font-medium text-slate-700">154h 00</td>
+            <td class="py-3 px-4 font-bold text-slate-900">152h 15</td>
+            <td class="py-3 px-4 text-slate-400">0h 00</td>
+            <td class="py-3 px-4 text-amber-600 font-bold">+48 min</td>
+            <td class="py-3 px-4"><span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full">88%</span></td>
+            <td class="py-3 px-4 text-right"><button onclick="exportDataCSV()" class="text-xs text-blue-600 hover:underline font-semibold">Exporter</button></td>
+        </tr>
+    </tbody>
                     </table>
                 </div>
             </div>
@@ -370,7 +557,7 @@
             <!-- ======================================================== -->
             <!-- 6. VUE POLITIQUE SÉCURITÉ & ANTI-TRICHE -->
             <!-- ======================================================== -->
-            <div id="tab-security" class="space-y-6 hidden">
+            <div id="tab-security" style="display: none;" class="space-y-6">
                 <div class="flex items-center justify-between">
                     <div>
                         <h2 class="text-base font-bold text-slate-900">Matrice de Sécurité & Paramètres Anti-Fraude</h2>
@@ -430,7 +617,7 @@
             <!-- ======================================================== -->
             <!-- 7. PARAMÈTRES DE L'ENTREPRISE AVEC VILLE & SITUATION -->
             <!-- ======================================================== -->
-            <div id="tab-company-settings" class="space-y-6 hidden">
+            <div id="tab-company-settings" style="display: none;" class="space-y-6">
                 <div>
                     <h2 class="text-base font-bold text-slate-900">Configuration Complète de l'Entreprise</h2>
                     <p class="text-xs text-slate-500">Paramètres généraux, ville, coordonnées géographiques et fuseau horaire</p>
@@ -1324,16 +1511,25 @@
         }
 
 
-        window.onload = function() {
-            renderEmployees();
-            renderJustifications();
-            renderShifts();
-            renderSites();
-            renderPayroll();
-            fetchLiveData();
-            initSupabaseLiveSync();
-            setInterval(fetchLiveData, 3000);
-        };
+        function initializeDashboard() {
+            try {
+                renderEmployees();
+                renderJustifications();
+                renderShifts();
+                renderSites();
+                renderPayroll();
+                fetchLiveData();
+                initSupabaseLiveSync();
+            } catch (err) {
+                console.error("Erreur initialisation dashboard:", err);
+            }
+        }
+
+        // Exécution immédiate + événements pour 100% de fiabilité
+        initializeDashboard();
+        document.addEventListener('DOMContentLoaded', initializeDashboard);
+        window.addEventListener('load', initializeDashboard);
+        setInterval(fetchLiveData, 4000);
 </script>
 </body>
 </html>
