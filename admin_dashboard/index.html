@@ -33,36 +33,36 @@
 
             <!-- Menu Navigation -->
             <nav class="p-4 space-y-1 text-sm font-medium">
-                <button onclick="navigateTab('live')" id="nav-live" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl bg-blue-600 text-white font-semibold transition">
+                <button onclick="navigateTab('live')" id="nav-live" class="cursor-pointer w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl bg-blue-600 text-white font-semibold transition">
                     <i class="fa-solid fa-chart-pie w-5 text-center"></i>
                     <span>Supervision Live</span>
                 </button>
-                <button onclick="navigateTab('employees')" id="nav-employees" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                <button onclick="navigateTab('employees')" id="nav-employees" class="cursor-pointer w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
                     <i class="fa-solid fa-users w-5 text-center"></i>
                     <span>Employés & Enrôlement</span>
                 </button>
-                <button onclick="navigateTab('justifications')" id="nav-justifications" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                <button onclick="navigateTab('justifications')" id="nav-justifications" class="cursor-pointer w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
                     <i class="fa-solid fa-clipboard-check w-5 text-center"></i>
                     <span>Justifications Retards</span>
                     <span id="badgeJustifCount" class="ml-auto bg-amber-500 text-slate-900 font-extrabold text-[10px] px-1.5 py-0.2 rounded-full">1</span>
                 </button>
-                <button onclick="navigateTab('planning')" id="nav-planning" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                <button onclick="navigateTab('planning')" id="nav-planning" class="cursor-pointer w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
                     <i class="fa-solid fa-calendar-days w-5 text-center"></i>
                     <span>Plannings & Horaires</span>
                 </button>
-                <button onclick="navigateTab('sites')" id="nav-sites" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                <button onclick="navigateTab('sites')" id="nav-sites" class="cursor-pointer w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
                     <i class="fa-solid fa-map-location-dot w-5 text-center"></i>
                     <span>Sites & Géofencing</span>
                 </button>
-                <button onclick="navigateTab('reports')" id="nav-reports" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                <button onclick="navigateTab('reports')" id="nav-reports" class="cursor-pointer w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
                     <i class="fa-solid fa-file-lines w-5 text-center"></i>
                     <span>Relevé d'Assiduité</span>
                 </button>
-                <button onclick="navigateTab('security')" id="nav-security" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                <button onclick="navigateTab('security')" id="nav-security" class="cursor-pointer w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
                     <i class="fa-solid fa-shield-halved w-5 text-center"></i>
                     <span>Politique Sécurité</span>
                 </button>
-                <button onclick="navigateTab('company-settings')" id="nav-company-settings" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                <button onclick="navigateTab('company-settings')" id="nav-company-settings" class="cursor-pointer w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
                     <i class="fa-solid fa-sliders w-5 text-center"></i>
                     <span>Paramètres Entreprise</span>
                 </button>
@@ -489,7 +489,7 @@
     <!-- ======================================================== -->
 
     <!-- 1. MODALE AJOUTER UN EMPLOYÉ -->
-    <div id="addEmployeeModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div id="addEmployeeModal" onclick="if(event.target===this)closeModal('addEmployeeModal')" style="display: none;" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center p-4">
         <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div class="flex justify-between items-center pb-2 border-b border-slate-100">
                 <h3 class="font-bold text-slate-900 text-base">Ajouter un Nouvel Employé</h3>
@@ -536,7 +536,7 @@
     </div>
 
     <!-- 2. MODALE AJOUTER UN SITE / ÉTABLISSEMENT -->
-    <div id="addSiteModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div id="addSiteModal" onclick="if(event.target===this)closeModal('addSiteModal')" style="display: none;" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center p-4">
         <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div class="flex justify-between items-center pb-2 border-b border-slate-100">
                 <h3 class="font-bold text-slate-900 text-base">Ajouter un Lieu de Travail (Site)</h3>
@@ -594,7 +594,7 @@
     </div>
 
     <!-- 3. MODALE NOUVEAU SHIFT / HORAIRES FRACTIONNÉS -->
-    <div id="addShiftModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div id="addShiftModal" onclick="if(event.target===this)closeModal('addShiftModal')" style="display: none;" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center p-4">
         <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div class="flex justify-between items-center pb-2 border-b border-slate-100">
                 <h3 class="font-bold text-slate-900 text-base">Configurer un Planning / Horaires</h3>
@@ -646,7 +646,7 @@
     </div>
 
     <!-- 4. MODALE ENRÔLEMENT WHATSAPP / QR CODE -->
-    <div id="activationModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div id="activationModal" onclick="if(event.target===this)closeModal('activationModal')" style="display: none;" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center p-4">
         <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div class="flex justify-between items-center pb-2 border-b border-slate-100">
                 <span class="text-xs font-bold uppercase tracking-wider text-blue-600">Enrôlement 0-Mot de Passe</span>
@@ -916,8 +916,19 @@
         }
 
         // Modales
-        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+        function openModal(id) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.style.display = 'flex';
+            }
+        }
+
+        function closeModal(id) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.style.display = 'none';
+            }
+        }
 
         // Rendu des Employés
         function renderEmployees() {
