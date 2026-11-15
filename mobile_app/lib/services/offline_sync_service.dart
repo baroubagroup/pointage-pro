@@ -112,7 +112,7 @@ class OfflineSyncService {
             "Authorization": "Bearer $_apiKey",
           },
           body: jsonEncode({
-            "p_user_id": punch.userId,
+            "p_employee_id": punch.userId,
             "p_establishment_id": punch.establishmentId,
             "p_punch_type": punch.type == PunchType.checkIn
                 ? "CHECK_IN"

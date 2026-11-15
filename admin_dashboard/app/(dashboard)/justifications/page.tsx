@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Header } from '@/components/header';
-import { ClipboardCheck, Check, X, ShieldAlert, Clock, MessageSquare } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
+import { ClipboardCheck, Check, X, ShieldAlert, Clock, MessageSquare, RefreshCw } from 'lucide-react';
 
 interface Justification {
   id: string;
@@ -16,7 +17,7 @@ interface Justification {
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
 }
 
-const INITIAL_JUSTIFICATIONS: Justification[] = [
+const FALLBACK_JUSTIFICATIONS: Justification[] = [
   {
     id: 'justif-1',
     name: 'Traoré Fatou',
@@ -42,9 +43,57 @@ const INITIAL_JUSTIFICATIONS: Justification[] = [
 ];
 
 export default function JustificationsPage() {
-  const [items, setItems] = useState<Justification[]>(INITIAL_JUSTIFICATIONS);
+  const [items, setItems] = useState<Justification[]>(FALLBACK_JUSTIFICATIONS);
+  const [loading, setLoading] = useState(false);
 
-  const handleArbitrate = (id: string, isApproved: boolean) => {
+  const fetchJustifications = async () => {
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('pointage_justifications')
+        .select('*, pointage_employees(full_name, role)')
+        .order('created_at', { ascending: false });
+
+      if (data && data.length > 0) {
+        const mapped: Justification[] = data.map((d: any) => ({
+          id: d.id,
+          name: d.pointage_employees?.full_name || 'Collaborateur',
+          role: d.pointage_employees?.role || 'Employé',
+          date: new Date(d.created_at).toLocaleDateString('fr-FR'),
+          type: 'Retard / Absence',
+          delayMinutes: 15,
+          category: 'Déclaration Mobile',
+          reason: d.reason_text || 'Motif déclaré sur smartphone',
+          status: d.status === 'APPROVED' ? 'APPROVED' : (d.status === 'REJECTED' ? 'REJECTED' : 'PENDING')
+        }));
+        setItems(mapped);
+      }
+    } catch (err) {
+      console.warn('Using local justifications fallback:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchJustifications();
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel('realtime_justifications_page')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pointage_justifications' }, () => {
+        fetchJustifications();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const handleArbitrate = async (id: string, isApproved: boolean) => {
+    // Optimistic UI update
     setItems(prev => prev.map(item => {
       if (item.id === id) {
         return {
@@ -54,6 +103,20 @@ export default function JustificationsPage() {
       }
       return item;
     }));
+
+    try {
+      const supabase = createClient();
+      await supabase
+        .from('pointage_justifications')
+        .update({
+          status: isApproved ? 'APPROVED' : 'REJECTED',
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: 'Direction Gérance'
+        })
+        .eq('id', id);
+    } catch (err) {
+      console.error('Error updating justification status in Supabase:', err);
+    }
   };
 
   const pendingCount = items.filter(x => x.status === 'PENDING').length;
@@ -63,9 +126,19 @@ export default function JustificationsPage() {
       <Header
         title="Demandes de Justification (Retards & Absences)"
         subtitle="Validation managériale des motifs sans stockage photo pour préserver la confidentialité"
+        actionButton={
+          <button
+            onClick={fetchJustifications}
+            disabled={loading}
+            className="p-2 text-slate-500 hover:text-slate-700 bg-white border border-slate-200 rounded-xl transition shadow-sm"
+            title="Rafraîchir depuis Supabase"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        }
       />
 
-      {/* Note d'architecture */}
+      {/* Note d'architecture 100% textuel */}
       <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 shadow-sm flex items-center justify-between">
         <div>
           <h3 className="font-extrabold text-sm mb-1 flex items-center gap-2">
@@ -120,41 +193,46 @@ export default function JustificationsPage() {
                   </td>
                   <td className="py-3.5 px-4">
                     {item.status === 'PENDING' && (
-                      <span className="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full text-[10px]">
-                        En attente
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 font-extrabold text-[11px]">
+                        <Clock className="w-3 h-3 text-amber-600" />
+                        <span>En attente</span>
                       </span>
                     )}
                     {item.status === 'APPROVED' && (
-                      <span className="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full text-[10px]">
-                        ✓ Régularisé (Approuvé)
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 font-extrabold text-[11px]">
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        <span>Validé</span>
                       </span>
                     )}
                     {item.status === 'REJECTED' && (
-                      <span className="bg-red-100 text-red-800 font-bold px-2 py-0.5 rounded-full text-[10px]">
-                        ✗ Rejeté (Non justifié)
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-500/10 text-red-600 font-extrabold text-[11px]">
+                        <X className="w-3 h-3 text-red-600" />
+                        <span>Refusé</span>
                       </span>
                     )}
                   </td>
-                  <td className="py-3.5 px-6 text-right space-x-1.5">
+                  <td className="py-3.5 px-6 text-right">
                     {item.status === 'PENDING' ? (
-                      <>
+                      <div className="flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => handleArbitrate(item.id, true)}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1.5 rounded-lg text-xs transition inline-flex items-center gap-1"
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition flex items-center gap-1 text-[11px]"
+                          title="Approuver ce motif"
                         >
                           <Check className="w-3 h-3" />
                           <span>Approuver</span>
                         </button>
                         <button
                           onClick={() => handleArbitrate(item.id, false)}
-                          className="bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-700 font-bold px-2.5 py-1.5 rounded-lg text-xs border border-slate-200 transition inline-flex items-center gap-1"
+                          className="px-2.5 py-1 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 transition flex items-center gap-1 text-[11px]"
+                          title="Refuser ce motif"
                         >
                           <X className="w-3 h-3" />
                           <span>Refuser</span>
                         </button>
-                      </>
+                      </div>
                     ) : (
-                      <span className="text-slate-400 text-xs italic">Dossier clôturé</span>
+                      <span className="text-[11px] text-slate-400 font-medium">Arbitré</span>
                     )}
                   </td>
                 </tr>

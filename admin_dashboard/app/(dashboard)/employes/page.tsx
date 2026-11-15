@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Header } from '@/components/header';
-import { UserPlus, QrCode, Smartphone, Share2, Unlink, CheckCircle2, Clock, X } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
+import { UserPlus, QrCode, Smartphone, Share2, Unlink, CheckCircle2, Clock, X, RefreshCw } from 'lucide-react';
 
 interface Employee {
   id: string;
@@ -16,7 +17,7 @@ interface Employee {
   token: string;
 }
 
-const INITIAL_EMPLOYEES: Employee[] = [
+const FALLBACK_EMPLOYEES: Employee[] = [
   {
     id: 'emp-1',
     name: 'Kouassi Jean-Marc',
@@ -53,7 +54,8 @@ const INITIAL_EMPLOYEES: Employee[] = [
 ];
 
 export default function EmployeesPage() {
-  const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
+  const [employees, setEmployees] = useState<Employee[]>(FALLBACK_EMPLOYEES);
+  const [loading, setLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showQrModal, setShowQrModal] = useState<Employee | null>(null);
 
@@ -63,11 +65,58 @@ export default function EmployeesPage() {
   const [newPhone, setNewPhone] = useState('+225 ');
   const [newSite, setNewSite] = useState('Boutique Centrale - Siège');
 
-  const handleAddEmployee = (e: React.FormEvent) => {
+  const fetchEmployees = async () => {
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('pointage_employees')
+        .select('*, pointage_establishments(name)')
+        .order('created_at', { ascending: false });
+
+      if (data && data.length > 0) {
+        const mapped: Employee[] = data.map((d: any) => ({
+          id: d.id,
+          name: d.full_name,
+          role: d.role === 'EMPLOYEE' ? 'Collaborateur' : d.role,
+          phone: d.phone || '+225 --',
+          site: d.pointage_establishments?.name || 'Boutique Centrale - Siège',
+          shift: '07h30 - 17h30 (Fractionné)',
+          device: d.device_model ? `${d.device_model} (Lié)` : 'En attente d\'activation',
+          isBound: Boolean(d.bound_device_id || d.is_enrolled),
+          token: d.enrollment_token || 'PPRO-TOKEN'
+        }));
+        setEmployees(mapped);
+      }
+    } catch (err) {
+      console.warn('Using local employees fallback:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEmployees();
+
+    // Subscribe to realtime changes on pointage_employees
+    const supabase = createClient();
+    const channel = supabase
+      .channel('realtime_employees_page')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pointage_employees' }, () => {
+        fetchEmployees();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
 
-    const token = 'ACT-' + Math.floor(1000 + Math.random() * 9000) + '-' + newName.substring(0, 2).toUpperCase();
+    const token = 'PPRO-' + Math.floor(100000 + Math.random() * 900000);
     const newEmp: Employee = {
       id: 'emp-' + Date.now(),
       name: newName,
@@ -80,17 +129,45 @@ export default function EmployeesPage() {
       token
     };
 
+    // Optimistic UI update
     setEmployees(prev => [newEmp, ...prev]);
     setShowAddModal(false);
     setShowQrModal(newEmp);
+
+    // Save to Supabase
+    try {
+      const supabase = createClient();
+      await supabase.from('pointage_employees').insert({
+        org_id: '00000000-0000-0000-0000-000000000001',
+        default_establishment_id: '00000000-0000-0000-0000-000000000010',
+        full_name: newName,
+        email: `${newName.toLowerCase().replace(/[^a-z0-9]/g, '')}@pointagepro.ci`,
+        phone: newPhone,
+        role: 'EMPLOYEE',
+        enrollment_token: token,
+        is_enrolled: false,
+        is_active: true
+      });
+    } catch (err) {
+      console.error('Error inserting employee in Supabase:', err);
+    }
 
     setNewName('');
     setNewPhone('+225 ');
   };
 
-  const handleUnbindDevice = (id: string) => {
+  const handleUnbindDevice = async (id: string) => {
     if (confirm("Voulez-vous réinitialiser l'appareil associé pour ce collaborateur ? Il devra scanner à nouveau un code d'activation.")) {
       setEmployees(prev => prev.map(e => e.id === id ? { ...e, isBound: false, device: 'En attente d\'activation' } : e));
+      try {
+        const supabase = createClient();
+        await supabase
+          .from('pointage_employees')
+          .update({ bound_device_id: null, device_model: null, is_enrolled: false })
+          .eq('id', id);
+      } catch (err) {
+        console.error('Error unbinding device in Supabase:', err);
+      }
     }
   };
 
@@ -100,13 +177,23 @@ export default function EmployeesPage() {
         title="Employés & Enrôlement Sécurisé"
         subtitle="Gestion des collaborateurs, enrôlement 0-mot de passe et liaison matérielle unique"
         actionButton={
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-sm"
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>Enrôler un Collaborateur</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchEmployees}
+              disabled={loading}
+              className="p-2 text-slate-500 hover:text-slate-700 bg-white border border-slate-200 rounded-xl transition shadow-sm"
+              title="Rafraîchir depuis Supabase"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-sm"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Enrôler un Collaborateur</span>
+            </button>
+          </div>
         }
       />
 
@@ -118,25 +205,31 @@ export default function EmployeesPage() {
             Système d'Enrôlement 0-Mot de Passe Inviolable
           </h3>
           <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-            Vos collaborateurs n'ont pas d'identifiant ni de mot de passe à retenir. Vous générez une invitation WhatsApp ou un QR Code unique : leur smartphone est verrouillé à leur compte lors du 1er pointage et devient leur badge biométrique infalsifiable.
+            L'employé n'a pas d'identifiant ni de mot de passe à retenir. Il active son application soit par <strong>scan direct du QR Code</strong>, soit en recevant l'invitation sur <strong>WhatsApp</strong> et en l'important depuis sa galerie photo. Le jeton est cryptographiquement brûlé dès la 1ère liaison matérielle.
           </p>
         </div>
       </div>
 
-      {/* Table des employés */}
+      {/* Tableau des Employés */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="font-bold text-slate-800 text-sm">Effectif des Collaborateurs ({employees.length})</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold text-slate-800 text-sm">Effectif Enregistré</h3>
+            <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full font-semibold">
+              {employees.length} collaborateurs
+            </span>
+          </div>
         </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/75 border-b border-slate-200/80 text-slate-400 font-bold uppercase tracking-wider">
                 <th className="py-3 px-6">Collaborateur</th>
                 <th className="py-3 px-4">Contact</th>
-                <th className="py-3 px-4">Établissement & Planning</th>
-                <th className="py-3 px-4">Statut Appareil Mobile</th>
-                <th className="py-3 px-6 text-right">Actions</th>
+                <th className="py-3 px-4">Établissement Attribué</th>
+                <th className="py-3 px-4">Statut Liaison Matérielle</th>
+                <th className="py-3 px-6 text-right">Actions Sécurité</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -146,42 +239,48 @@ export default function EmployeesPage() {
                     <div>{emp.name}</div>
                     <div className="text-[11px] text-slate-400 font-normal">{emp.role}</div>
                   </td>
-                  <td className="py-3.5 px-4 font-mono font-medium text-slate-600">{emp.phone}</td>
-                  <td className="py-3.5 px-4">
-                    <div className="font-medium text-slate-800">{emp.site}</div>
+                  <td className="py-3.5 px-4 font-mono text-slate-600">
+                    {emp.phone}
+                  </td>
+                  <td className="py-3.5 px-4 text-slate-600">
+                    <div>{emp.site}</div>
                     <div className="text-[11px] text-slate-400">{emp.shift}</div>
                   </td>
                   <td className="py-3.5 px-4">
                     {emp.isBound ? (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                        {emp.device}
-                      </span>
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 font-semibold text-[11px] border border-emerald-500/20">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                        <span>{emp.device}</span>
+                      </div>
                     ) : (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
-                        <Clock className="w-3 h-3 text-amber-600" />
-                        En attente du 1er pointage
-                      </span>
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 font-semibold text-[11px] border border-amber-500/20">
+                        <Clock className="w-3 h-3 text-amber-500" />
+                        <span>En attente d'activation</span>
+                      </div>
                     )}
                   </td>
-                  <td className="py-3.5 px-6 text-right space-x-2">
-                    <button
-                      onClick={() => setShowQrModal(emp)}
-                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs transition inline-flex items-center gap-1.5"
-                    >
-                      <QrCode className="w-3 h-3" />
-                      <span>Invitation</span>
-                    </button>
-                    {emp.isBound && (
+                  <td className="py-3.5 px-6 text-right">
+                    <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() => handleUnbindDevice(emp.id)}
-                        className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-bold text-xs transition inline-flex items-center gap-1.5"
-                        title="Dissocier en cas de perte de téléphone"
+                        onClick={() => setShowQrModal(emp)}
+                        className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold transition flex items-center gap-1 text-[11px]"
+                        title="Afficher le QR code d'enrôlement ou lien WhatsApp"
                       >
-                        <Unlink className="w-3 h-3" />
-                        <span>Dissocier</span>
+                        <QrCode className="w-3.5 h-3.5" />
+                        <span>Activation</span>
                       </button>
-                    )}
+
+                      {emp.isBound && (
+                        <button
+                          onClick={() => handleUnbindDevice(emp.id)}
+                          className="px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 font-semibold transition flex items-center gap-1 text-[11px]"
+                          title="Délier l'appareil (en cas de perte ou changement de smartphone)"
+                        >
+                          <Unlink className="w-3.5 h-3.5" />
+                          <span>Délier</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -190,122 +289,130 @@ export default function EmployeesPage() {
         </div>
       </div>
 
-      {/* Modal Ajout Employé */}
+      {/* MODAL 1 : Enrôler un nouveau collaborateur */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative">
-            <button
-              onClick={() => setShowAddModal(false)}
-              className="absolute right-5 top-5 text-slate-400 hover:text-slate-600"
-            >
-              <X className="w-5 h-5" />
-            </button>
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-blue-600" />
+                Enrôler un Nouveau Collaborateur
+              </h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-            <h3 className="font-extrabold text-base text-slate-900 mb-1">Nouveau Collaborateur</h3>
-            <p className="text-xs text-slate-500 mb-4">Génère automatiquement une clé d'activation mobile sécurisée.</p>
-
-            <form onSubmit={handleAddEmployee} className="space-y-4">
+            <form onSubmit={handleAddEmployee} className="space-y-4 mt-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Nom & Prénoms</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Nom Complet</label>
                 <input
                   type="text"
                   required
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Ex: Bakayoko Souleymane"
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="ex: Kouamé David"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Poste / Fonction</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Fonction / Poste</label>
                 <input
                   type="text"
                   required
                   value={newRole}
                   onChange={(e) => setNewRole(e.target.value)}
-                  placeholder="Ex: Chauffeur Livreur"
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="ex: Responsable Logistique"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Numéro Mobile (WhatsApp)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Numéro WhatsApp (pour invitation)</label>
                 <input
-                  type="tel"
+                  type="text"
                   required
                   value={newPhone}
                   onChange={(e) => setNewPhone(e.target.value)}
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                  placeholder="+225 07..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none font-mono"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Établissement Principal</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Site de Rattachement</label>
                 <select
                   value={newSite}
                   onChange={(e) => setNewSite(e.target.value)}
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
                 >
                   <option value="Boutique Centrale - Siège">Boutique Centrale - Siège</option>
                   <option value="Entrepôt Logistique Zone Nord">Entrepôt Logistique Zone Nord</option>
+                  <option value="Chantier Plateau">Chantier Plateau</option>
                 </select>
               </div>
 
-              <button
-                type="submit"
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3 rounded-xl transition shadow-md mt-2"
-              >
-                Générer l'Invitation & le Code
-              </button>
+              <div className="pt-2 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 rounded-xl text-slate-500 hover:bg-slate-100 font-semibold text-xs"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20"
+                >
+                  Créer et Générer l'Invitation
+                </button>
+              </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Modal QR Code & WhatsApp */}
+      {/* MODAL 2 : QR Code & Partage WhatsApp */}
       {showQrModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center relative">
-            <button
-              onClick={() => setShowQrModal(null)}
-              className="absolute right-5 top-5 text-slate-400 hover:text-slate-600"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
-              <QrCode className="w-6 h-6" />
-            </div>
-
-            <h3 className="font-extrabold text-base text-slate-900 mb-1">{showQrModal.name}</h3>
-            <p className="text-xs text-slate-500 mb-4">Code d'activation unique pour son smartphone</p>
-
-            {/* Code Visuel */}
-            <div className="bg-slate-100 p-4 rounded-2xl mb-4 font-mono font-extrabold text-lg tracking-widest text-blue-700 border border-dashed border-blue-300">
-              {showQrModal.token}
-            </div>
-
-            <div className="space-y-2">
-              <a
-                href={`https://wa.me/${showQrModal.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                  `Bonjour ${showQrModal.name}, voici votre lien d'activation sécurisé pour l'application PointagePro : https://pointage-pro-kappa.vercel.app/app/activate?token=${showQrModal.token}`
-                )}`}
-                target="_blank"
-                rel="noreferrer"
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2"
-              >
-                <Share2 className="w-4 h-4" />
-                <span>Envoyer sur WhatsApp</span>
-              </a>
-
-              <button
-                onClick={() => setShowQrModal(null)}
-                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 rounded-xl transition"
-              >
-                Fermer
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 text-center">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <span className="font-bold text-slate-800 text-xs">Jeton d'Enrôlement 0-Mot de Passe</span>
+              <button onClick={() => setShowQrModal(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
               </button>
             </div>
+
+            <h4 className="font-extrabold text-slate-900 text-base">{showQrModal.name}</h4>
+            <p className="text-xs text-slate-400 mt-0.5">{showQrModal.role}</p>
+
+            {/* QR Code Container */}
+            <div className="my-5 p-4 bg-slate-50 rounded-2xl border border-slate-200 inline-block shadow-inner">
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(JSON.stringify({ token: showQrModal.token, empId: showQrModal.id, name: showQrModal.name }))}`}
+                alt="QR Code Enrôlement"
+                className="w-44 h-44 rounded-xl mx-auto"
+              />
+            </div>
+
+            <div className="bg-slate-100 p-2.5 rounded-xl font-mono text-[11px] text-slate-700 font-bold mb-4">
+              Jeton : {showQrModal.token}
+            </div>
+
+            <p className="text-[11px] text-slate-500 mb-5 leading-relaxed">
+              Faites scanner ce QR Code sur le smartphone de l'employé, ou transmettez-lui l'invitation sur WhatsApp.
+            </p>
+
+            <a
+              href={`https://api.whatsapp.com/send?phone=${encodeURIComponent(showQrModal.phone.replace(/[^0-9+]/g, ''))}&text=${encodeURIComponent(`Bonjour ${showQrModal.name}, voici votre invitation officielle pour activer votre application de pointage sécurisée PointagePro.\n\nCode d'activation unique : ${showQrModal.token}\n\nOuvrez l'application et choisissez "Importer depuis WhatsApp" ou scannez ce code.`)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 transition"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>Envoyer l'Invitation par WhatsApp</span>
+            </a>
           </div>
         </div>
       )}
