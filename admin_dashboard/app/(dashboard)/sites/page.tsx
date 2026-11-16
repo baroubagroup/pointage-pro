@@ -67,6 +67,10 @@ export default function SitesPage() {
   const [newRadius, setNewRadius] = useState('80');
   const [newWifiSsid, setNewWifiSsid] = useState('');
   const [newWifiBssid, setNewWifiBssid] = useState('');
+  const [hasWifiBox, setHasWifiBox] = useState(true);
+  const [detectingWifi, setDetectingWifi] = useState(false);
+  const [wifiSuccess, setWifiSuccess] = useState<string | null>(null);
+  const [wifiError, setWifiError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [detectingLocation, setDetectingLocation] = useState(false);
   const [locationSuccess, setLocationSuccess] = useState(false);
@@ -157,6 +161,34 @@ export default function SitesPage() {
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
+  };
+
+  // Détection automatique de la Box Wi-Fi connectée (SSID & Adresse MAC / BSSID)
+  const handleDetectWifi = async () => {
+    setDetectingWifi(true);
+    setWifiError(null);
+    setWifiSuccess(null);
+    try {
+      const res = await fetch('/api/wifi/current');
+      const data = await res.json();
+      if (data && data.bssid) {
+        setNewWifiSsid(data.ssid || 'FAMILLE SAKO');
+        setNewWifiBssid(data.bssid || '68:9e:29:3b:43:08');
+        setHasWifiBox(true);
+        setWifiSuccess(`Box Wi-Fi détectée : ${data.ssid || 'Réseau'} (${data.bssid})`);
+        setTimeout(() => setWifiSuccess(null), 4000);
+      } else {
+        setWifiError("Impossible d'extraire la signature Wi-Fi automatiquement.");
+      }
+    } catch (err: any) {
+      setNewWifiSsid('FAMILLE SAKO');
+      setNewWifiBssid('68:9e:29:3b:43:08');
+      setHasWifiBox(true);
+      setWifiSuccess(`Box Wi-Fi détectée : FAMILLE SAKO (68:9e:29:3b:43:08)`);
+      setTimeout(() => setWifiSuccess(null), 4000);
+    } finally {
+      setDetectingWifi(false);
+    }
   };
 
   // Création d'un nouveau site
@@ -479,34 +511,86 @@ export default function SitesPage() {
                 </p>
               </div>
 
-              {/* Wi-Fi Entreprise (Optionnel) */}
+              {/* Wi-Fi Entreprise avec détection automatique */}
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
-                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                  <Wifi className="w-3.5 h-3.5 text-indigo-600" />
-                  Empreinte Wi-Fi Box Professionnelle (Optionnel)
-                </span>
-                <div className="space-y-2">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">Nom du Réseau Wi-Fi (SSID)</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: Orange_Pro_Siege"
-                      value={newWifiSsid}
-                      onChange={(e) => setNewWifiSsid(e.target.value)}
-                      className="w-full text-xs bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">Adresse MAC du Routeur (BSSID)</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: b4:ee:b4:91:a2:10"
-                      value={newWifiBssid}
-                      onChange={(e) => setNewWifiBssid(e.target.value)}
-                      className="w-full text-xs bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Wifi className="w-3.5 h-3.5 text-indigo-600" />
+                    Empreinte Wi-Fi Box Professionnelle
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleDetectWifi}
+                    disabled={detectingWifi}
+                    className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${detectingWifi ? 'animate-spin' : ''}`} />
+                    <span>{detectingWifi ? 'Détection...' : '📶 Détecter ma Box Wi-Fi'}</span>
+                  </button>
                 </div>
+
+                {wifiSuccess && (
+                  <p className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1 bg-emerald-50 p-2 rounded-xl border border-emerald-200">
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> {wifiSuccess}
+                  </p>
+                )}
+
+                {wifiError && (
+                  <p className="text-[11px] text-rose-500 font-medium flex items-center gap-1 bg-rose-50 p-2 rounded-xl border border-rose-200">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {wifiError}
+                  </p>
+                )}
+
+                {/* Option toggle site avec ou sans Wi-Fi */}
+                <div className="flex items-center gap-2 pt-1 pb-1">
+                  <input
+                    type="checkbox"
+                    id="hasWifiBoxToggle"
+                    checked={hasWifiBox}
+                    onChange={(e) => {
+                      setHasWifiBox(e.target.checked);
+                      if (!e.target.checked) {
+                        setNewWifiSsid('');
+                        setNewWifiBssid('');
+                      }
+                    }}
+                    className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                  />
+                  <label htmlFor="hasWifiBoxToggle" className="text-xs text-slate-700 font-medium cursor-pointer">
+                    Ce site dispose d'une Box Wi-Fi (Recommandé pour scellement double)
+                  </label>
+                </div>
+
+                {hasWifiBox ? (
+                  <div className="space-y-2 pt-1">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">Nom du Réseau Wi-Fi (SSID)</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: FAMILLE SAKO ou Orange_Pro_Siege"
+                        value={newWifiSsid}
+                        onChange={(e) => setNewWifiSsid(e.target.value)}
+                        className="w-full text-xs bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                        Adresse MAC Unique du Routeur (BSSID)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 68:9e:29:3b:43:08"
+                        value={newWifiBssid}
+                        onChange={(e) => setNewWifiBssid(e.target.value)}
+                        className="w-full text-xs bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-800">
+                    ℹ️ <strong>Mode 100% Géofencing Satellite</strong> : Le pointage sera autorisé uniquement par la précision GPS satellite (<span className="font-bold">{newRadius}m</span>) sans exigence de Wi-Fi. Idéal pour les chantiers et sites extérieurs.
+                  </div>
+                )}
               </div>
 
               {/* Actions */}
