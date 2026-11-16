@@ -5,17 +5,17 @@ const nextConfig = {
     return [
       {
         source: '/pointage-pro.apk',
-        destination: 'https://ylrnxuphtaoazlhlmnsd.supabase.co/storage/v1/object/public/apk_downloads/pointage-pro-v2.apk',
+        destination: 'https://ylrnxuphtaoazlhlmnsd.supabase.co/storage/v1/object/public/apk_downloads/pointage-pro-v3.apk',
         permanent: false,
       },
       {
-        source: '/pointage-pro-v2.apk',
-        destination: 'https://ylrnxuphtaoazlhlmnsd.supabase.co/storage/v1/object/public/apk_downloads/pointage-pro-v2.apk',
+        source: '/pointage-pro-v3.apk',
+        destination: 'https://ylrnxuphtaoazlhlmnsd.supabase.co/storage/v1/object/public/apk_downloads/pointage-pro-v3.apk',
         permanent: false,
       },
       {
         source: '/pointage.apk',
-        destination: 'https://ylrnxuphtaoazlhlmnsd.supabase.co/storage/v1/object/public/apk_downloads/pointage-pro-v2.apk',
+        destination: 'https://ylrnxuphtaoazlhlmnsd.supabase.co/storage/v1/object/public/apk_downloads/pointage-pro-v3.apk',
         permanent: false,
       },
       {

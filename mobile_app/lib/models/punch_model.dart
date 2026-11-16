@@ -21,6 +21,7 @@ class PunchModel {
   final double latitude;
   final double longitude;
   final double accuracyMeters;
+  final double distanceToSiteMeters;
   final bool isMockLocation;
   final String deviceId;
   final String deviceModel;
@@ -38,6 +39,7 @@ class PunchModel {
     required this.latitude,
     required this.longitude,
     required this.accuracyMeters,
+    this.distanceToSiteMeters = 0.0,
     required this.isMockLocation,
     required this.deviceId,
     required this.deviceModel,
@@ -57,6 +59,7 @@ class PunchModel {
       'latitude': latitude,
       'longitude': longitude,
       'accuracy_meters': accuracyMeters,
+      'distance_to_site_meters': distanceToSiteMeters,
       'is_mock_location': isMockLocation ? 1 : 0,
       'device_id': deviceId,
       'device_model': deviceModel,
@@ -74,9 +77,12 @@ class PunchModel {
       establishmentId: map['establishment_id'],
       type: PunchType.values.byName(map['punch_type']),
       recordedAtUtc: DateTime.parse(map['recorded_at_utc']),
-      latitude: map['latitude'],
-      longitude: map['longitude'],
-      accuracyMeters: map['accuracy_meters'],
+      latitude: (map['latitude'] as num).toDouble(),
+      longitude: (map['longitude'] as num).toDouble(),
+      accuracyMeters: (map['accuracy_meters'] as num).toDouble(),
+      distanceToSiteMeters: map['distance_to_site_meters'] != null 
+          ? (map['distance_to_site_meters'] as num).toDouble() 
+          : 0.0,
       isMockLocation: map['is_mock_location'] == 1,
       deviceId: map['device_id'],
       deviceModel: map['device_model'],
@@ -87,5 +93,31 @@ class PunchModel {
           ? (map['flag_reasons'] as String).split(',')
           : [],
     );
+  }
+
+  String get label {
+    switch (type) {
+      case PunchType.checkIn:
+        return 'Arrivée (Prise de Poste)';
+      case PunchType.breakStart:
+        return 'Départ Pause Déjeuner';
+      case PunchType.breakEnd:
+        return 'Reprise Pause';
+      case PunchType.checkOut:
+        return 'Départ Définitif';
+    }
+  }
+
+  String get dbPunchType {
+    switch (type) {
+      case PunchType.checkIn:
+        return 'CHECK_IN';
+      case PunchType.breakStart:
+        return 'BREAK_START';
+      case PunchType.breakEnd:
+        return 'BREAK_END';
+      case PunchType.checkOut:
+        return 'CHECK_OUT';
+    }
   }
 }
