@@ -8,6 +8,12 @@ class EmployeeSession {
   final String establishmentName;
   final String? boundDeviceId;
   final String? deviceModel;
+  final String? employeeMatricule;
+  final String? faceEmbeddingVector;
+  final int faceUpdateCount;
+  final double? establishmentLat;
+  final double? establishmentLng;
+  final double? establishmentRadius;
 
   EmployeeSession({
     required this.id,
@@ -19,6 +25,12 @@ class EmployeeSession {
     required this.establishmentName,
     this.boundDeviceId,
     this.deviceModel,
+    this.employeeMatricule,
+    this.faceEmbeddingVector,
+    this.faceUpdateCount = 0,
+    this.establishmentLat,
+    this.establishmentLng,
+    this.establishmentRadius = 80.0,
   });
 
   Map<String, dynamic> toMap() {
@@ -32,6 +44,12 @@ class EmployeeSession {
       'establishment_name': establishmentName,
       'bound_device_id': boundDeviceId,
       'device_model': deviceModel,
+      'employee_matricule': employeeMatricule,
+      'face_embedding_vector': faceEmbeddingVector,
+      'face_update_count': faceUpdateCount,
+      'establishment_lat': establishmentLat,
+      'establishment_lng': establishmentLng,
+      'establishment_radius': establishmentRadius,
     };
   }
 
@@ -46,6 +64,12 @@ class EmployeeSession {
       establishmentName: map['establishment_name'] ?? 'Établissement Principal',
       boundDeviceId: map['bound_device_id'],
       deviceModel: map['device_model'],
+      employeeMatricule: map['employee_matricule'],
+      faceEmbeddingVector: map['face_embedding_vector'],
+      faceUpdateCount: map['face_update_count'] is int ? map['face_update_count'] : 0,
+      establishmentLat: map['establishment_lat'] != null ? (map['establishment_lat'] as num).toDouble() : null,
+      establishmentLng: map['establishment_lng'] != null ? (map['establishment_lng'] as num).toDouble() : null,
+      establishmentRadius: map['establishment_radius'] != null ? (map['establishment_radius'] as num).toDouble() : 80.0,
     );
   }
 
@@ -62,15 +86,18 @@ class EmployeeSession {
   String get displayRole {
     if (role == 'EMPLOYEE') return 'Collaborateur';
     if (role == 'MANAGER') return 'Responsable de Site';
-    if (role == 'ADMIN') return 'Administrateur';
+    if (role == 'ADMIN') return 'Directeur / Gérant';
     return role;
   }
 
   String get matricule {
+    if (employeeMatricule != null && employeeMatricule!.isNotEmpty) {
+      return employeeMatricule!;
+    }
     if (enrollmentToken.isNotEmpty) {
       final clean = enrollmentToken.replaceAll('PPRO-', '').replaceAll('SEC-', '');
-      return 'EMP-2026-$clean';
+      return 'SIP-2026-$clean';
     }
-    return 'EMP-${id.substring(0, 8).toUpperCase()}';
+    return 'SIP-${id.substring(0, 8).toUpperCase()}';
   }
 }

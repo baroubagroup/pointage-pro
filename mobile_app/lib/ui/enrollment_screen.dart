@@ -1,6 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../models/employee_session.dart';
 import '../services/offline_sync_service.dart';
 import '../services/security_service.dart';
@@ -18,11 +21,52 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   final SecurityService _securityService = SecurityService();
   final OfflineSyncService _syncService = OfflineSyncService();
 
+  int _selectedModeIndex = 0; // 0: Scanner, 1: Code Manuel, 2: Mode Inverse
   bool _isProcessing = false;
   final TextEditingController _tokenInputController = TextEditingController();
 
+  // Mode Inverse
+  String? _myDeviceId;
+  String? _myDeviceModel;
+  Timer? _reverseEnrollPollingTimer;
+  bool _isCheckingReverse = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDeviceMetadata();
+  }
+
+  Future<void> _loadDeviceMetadata() async {
+    try {
+      final meta = await _securityService.getDeviceMetadata();
+      if (mounted) {
+        setState(() {
+          _myDeviceId = meta.deviceId;
+          _myDeviceModel = meta.model;
+        });
+      }
+    } catch (e) {
+      print("Erreur metadata: $e");
+    }
+  }
+
+  void _startReverseEnrollmentPolling() {
+    _reverseEnrollPollingTimer?.cancel();
+    _reverseEnrollPollingTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
+      if (_myDeviceId != null && !_isProcessing) {
+        final session = await _syncService.checkReverseEnrollment(_myDeviceId!);
+        if (session != null && mounted) {
+          timer.cancel();
+          _showBindingSuccess(session, _myDeviceModel ?? "Smartphone");
+        }
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _reverseEnrollPollingTimer?.cancel();
     _tokenInputController.dispose();
     super.dispose();
   }
@@ -35,7 +79,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
           backgroundColor: Colors.black,
           appBar: AppBar(
             backgroundColor: Colors.black,
-            title: const Text("Scannez votre QR Code", style: TextStyle(color: Colors.white, fontSize: 16)),
+            title: const Text("Scannez le QR Code Gérant", style: TextStyle(color: Colors.white, fontSize: 16)),
             leading: IconButton(
               icon: const Icon(Icons.arrow_back, color: Colors.white),
               onPressed: () => Navigator.pop(ctx),
@@ -61,7 +105,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
                   width: 250,
                   height: 250,
                   decoration: BoxDecoration(
-                    border: Border.all(color: Colors.blueAccent, width: 3),
+                    border: Border.all(color: const Color(0xFF38BDF8), width: 3),
                     borderRadius: BorderRadius.circular(20),
                   ),
                 ),
@@ -71,7 +115,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
                 left: 20,
                 right: 20,
                 child: Text(
-                  "Placez le QR Code fourni par votre gérant dans le cadre",
+                  "Placez le QR Code de votre invitation dans le cadre",
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white70, fontSize: 13),
                 ),
@@ -91,51 +135,51 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
 
       _showManualTokenDialog(
         title: "Code de votre Invitation WhatsApp",
-        subtitle: "L'image a été importée. Si votre téléphone ne lit pas automatiquement les pixels, saisissez simplement le code d'activation (ex: PPRO-302667).",
+        subtitle: "Image importée. Saisissez le code d'activation figurant sur votre invitation (ex: PPRO-302667).",
       );
     } catch (e) {
       _showError("Impossible d'accéder à la galerie : $e");
     }
   }
 
-  /// 3. Saisie Manuelle du Code d'Activation
-  void _showManualTokenDialog({String? title, String? subtitle}) {
+  /// 3. Saisie Manuelle du Code
+  void _showManualTokenDialog({
+    String title = "Saisie du Code d'Activation",
+    String subtitle = "Renseignez le jeton unique fourni par votre responsable (ex: PPRO-302667 ou 302667) :",
+  }) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        title: Text(
-          title ?? "Saisir mon Code d'Activation",
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Row(
+          children: [
+            const Icon(Icons.vpn_key_rounded, color: Color(0xFF38BDF8), size: 24),
+            const SizedBox(width: 8),
+            Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              subtitle ?? "Indiquez le code unique d'enrôlement figurant sur votre invitation (ex: PPRO-302667 ou 302667).",
-              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-            ),
-            const SizedBox(height: 14),
+            Text(subtitle, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+            const SizedBox(height: 16),
             TextField(
               controller: _tokenInputController,
               autofocus: true,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1),
-              textCapitalization: TextCapitalization.characters,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.5),
               decoration: InputDecoration(
+                hintText: "Ex : PPRO-302667",
+                hintStyle: const TextStyle(color: Color(0xFF64748B), letterSpacing: 1),
                 filled: true,
                 fillColor: const Color(0xFF0F172A),
-                hintText: "PPRO-302667",
-                hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF334155)),
-                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 2),
+                  borderSide: const BorderSide(color: Color(0xFF38BDF8), width: 1.5),
                 ),
+                prefixIcon: const Icon(Icons.qr_code, color: Color(0xFF38BDF8)),
               ),
             ),
           ],
@@ -147,56 +191,73 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
           ),
           ElevatedButton(
             onPressed: () {
-              final token = _tokenInputController.text.trim();
-              if (token.isNotEmpty) {
-                Navigator.pop(ctx);
-                _verifyAndEnroll(token);
+              final code = _tokenInputController.text.trim();
+              Navigator.pop(ctx);
+              if (code.isNotEmpty) {
+                _verifyAndEnroll(code);
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF3B82F6),
-              foregroundColor: Colors.white,
+              backgroundColor: const Color(0xFF38BDF8),
+              foregroundColor: const Color(0xFF0F172A),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            child: const Text("Valider"),
+            child: const Text("Valider", style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
   }
 
-  /// Procédure de vérification réelle auprès de Supabase
-  Future<void> _verifyAndEnroll(String token) async {
+  /// Vérification et Scellement de l'Appareil
+  Future<void> _verifyAndEnroll(String rawToken) async {
     setState(() => _isProcessing = true);
 
     try {
-      // 1. Empreinte matérielle du téléphone (Device Binding)
-      final device = await _securityService.getDeviceMetadata();
-
-      // 2. Biométrie locale (Touch ID / Face ID)
-      bool bioOk = await _securityService.authenticateBiometric();
-      if (!bioOk) {
-        _showError("Authentification biométrique requise pour valider ce téléphone.");
-        setState(() => _isProcessing = false);
-        return;
+      String cleanToken = rawToken.trim();
+      if (cleanToken.startsWith('{') && cleanToken.endsWith('}')) {
+        try {
+          final decoded = jsonDecode(cleanToken);
+          if (decoded['token'] != null) cleanToken = decoded['token'];
+        } catch (_) {}
       }
 
-      // 3. Appel réel à Supabase pour valider le code d'activation
-      final EmployeeSession session = await _syncService.enrollWithToken(
-        token,
-        device.deviceId,
-        device.model,
-      );
+      final device = await _securityService.getDeviceMetadata();
+      final session = await _syncService.enrollWithToken(cleanToken, device.deviceId, device.model);
 
-      _showSuccessActivation(session, device.model);
+      if (mounted) {
+        _showBindingSuccess(session, device.model);
+      }
     } catch (e) {
-      _showError(e.toString().replaceAll("Exception: ", ""));
+      if (mounted) {
+        _showError(e.toString().replaceAll("Exception: ", ""));
+      }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
   }
 
-  void _showSuccessActivation(EmployeeSession session, String deviceModel) {
+  Future<void> _triggerManualReverseCheck() async {
+    if (_myDeviceId == null) return;
+    setState(() => _isCheckingReverse = true);
+
+    final session = await _syncService.checkReverseEnrollment(_myDeviceId!);
+    if (mounted) {
+      setState(() => _isCheckingReverse = false);
+      if (session != null) {
+        _showBindingSuccess(session, _myDeviceModel ?? "Smartphone");
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("En attente : le responsable n'a pas encore validé votre smartphone sur son portail."),
+            backgroundColor: Color(0xFFF59E0B),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showBindingSuccess(EmployeeSession session, String deviceModel) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -205,7 +266,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: const Row(
           children: [
-            Icon(Icons.verified, color: Color(0xFF10B981), size: 30),
+            Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 30),
             SizedBox(width: 10),
             Text("Appareil Scellé !", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
           ],
@@ -218,10 +279,10 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
               "Bienvenue, ${session.fullName} !",
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
             ),
-            const SizedBox(height: 8),
-            Text(
-              "Votre smartphone est désormais associé de manière inaltérable à votre compte collaborateur.",
-              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+            const SizedBox(height: 6),
+            const Text(
+              "Votre smartphone est désormais relié de manière sécurisée et inaltérable à votre compte collaborateur.",
+              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
             ),
             const SizedBox(height: 14),
             Container(
@@ -296,108 +357,107 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: const Color(0xFF0A0F1D),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const Spacer(),
+              const SizedBox(height: 10),
 
               // Logo Empreinte & Gradient
               Container(
-                width: 84,
-                height: 84,
+                width: 80,
+                height: 80,
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF3B82F6), Color(0xFF6366F1)],
+                    colors: [Color(0xFF00F2FE), Color(0xFF4FACFE)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  borderRadius: BorderRadius.circular(26),
+                  borderRadius: BorderRadius.circular(24),
                   boxShadow: [
-                    BoxShadow(color: const Color(0xFF3B82F6).withOpacity(0.35), blurRadius: 20, offset: const Offset(0, 8)),
+                    BoxShadow(color: const Color(0xFF00F2FE).withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 8)),
                   ],
                 ),
-                child: const Icon(Icons.fingerprint, color: Colors.white, size: 50),
+                child: const Icon(Icons.fingerprint, color: Colors.white, size: 48),
+              ),
+
+              const SizedBox(height: 20),
+
+              const Text(
+                "PointagePro Enterprise",
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -0.5),
+              ),
+              const SizedBox(height: 6),
+
+              const Text(
+                "Activez votre compte pour démarrer le pointage satellite inaltérable.",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
               ),
 
               const SizedBox(height: 24),
 
-              const Text(
-                "PointagePro Collaborateur",
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -0.5),
+              // Sélecteur d'Onglets à 3 Modes
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    _buildTabItem(index: 0, title: "Scanner QR", icon: Icons.qr_code_scanner_rounded),
+                    _buildTabItem(index: 1, title: "Code Clé", icon: Icons.pin_outlined),
+                    _buildTabItem(index: 2, title: "Mode Inverse", icon: Icons.qr_code_2_rounded),
+                  ],
+                ),
               ),
-              const SizedBox(height: 8),
 
-              const Text(
-                "Liez ce smartphone à votre profil employé pour activer le pointage satellite inaltérable.",
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13, height: 1.4),
-              ),
-
-              const SizedBox(height: 36),
+              const SizedBox(height: 24),
 
               if (_isProcessing)
                 const Column(
                   children: [
-                    CircularProgressIndicator(color: Color(0xFF3B82F6)),
+                    CircularProgressIndicator(color: Color(0xFF38BDF8)),
                     SizedBox(height: 14),
                     Text(
-                      "Vérification du compte et scellement de l'appareil...",
+                      "Vérification du compte et scellement du smartphone...",
                       style: TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                   ],
                 )
-              else ...[
-                // Option 1 : Scanner QR Code
-                _buildButton(
-                  title: "Scanner le QR Code d'Activation",
-                  subtitle: "Via l'appareil photo du smartphone",
-                  icon: Icons.qr_code_scanner_rounded,
-                  gradient: const [Color(0xFF2563EB), Color(0xFF3B82F6)],
-                  onTap: _startCameraScanner,
+              else if (_selectedModeIndex == 0)
+                _buildScannerTab()
+              else if (_selectedModeIndex == 1)
+                _buildManualTokenTab()
+              else
+                _buildReverseEnrollmentTab(),
+
+              const SizedBox(height: 30),
+
+              // Badge de Sécurité Inaltérable
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withOpacity(0.06)),
                 ),
-
-                const SizedBox(height: 12),
-
-                // Option 2 : Galerie WhatsApp
-                _buildButton(
-                  title: "Importer depuis la Galerie",
-                  subtitle: "Image reçue par WhatsApp ou email",
-                  icon: Icons.photo_library_rounded,
-                  gradient: const [Color(0xFF0F766E), Color(0xFF14B8A6)],
-                  onTap: _importFromGallery,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.shield_rounded, color: Color(0xFF38BDF8), size: 14),
+                    SizedBox(width: 6),
+                    Text(
+                      "Sécurité Satellite UTC • Détection Faux-GPS active",
+                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                    ),
+                  ],
                 ),
-
-                const SizedBox(height: 12),
-
-                // Option 3 : Saisie Manuelle du Code
-                _buildButton(
-                  title: "Saisir mon Code d'Activation",
-                  subtitle: "Code à 6 chiffres (ex: PPRO-302667)",
-                  icon: Icons.pin_outlined,
-                  gradient: const [Color(0xFF334155), Color(0xFF475569)],
-                  onTap: () => _showManualTokenDialog(),
-                ),
-              ],
-
-              const Spacer(),
-
-              const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.shield_outlined, color: Color(0xFF64748B), size: 14),
-                  SizedBox(width: 6),
-                  Text(
-                    "Protocole Anti-Fraude • 1 Employé = 1 Smartphone",
-                    style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                  ),
-                ],
               ),
-              const SizedBox(height: 8),
             ],
           ),
         ),
@@ -405,50 +465,216 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
     );
   }
 
-  Widget _buildButton({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required List<Color> gradient,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(colors: gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(color: gradient.first.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4)),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
+  Widget _buildTabItem({required int index, required String title, required IconData icon}) {
+    final isSelected = _selectedModeIndex == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _selectedModeIndex = index;
+          });
+          if (index == 2) {
+            _startReverseEnrollmentPolling();
+          } else {
+            _reverseEnrollPollingTimer?.cancel();
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF38BDF8) : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
               ),
-              child: Icon(icon, color: Colors.white, size: 22),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 2),
-                  Text(subtitle, style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 11)),
-                ],
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: TextStyle(
+                  color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                ),
               ),
-            ),
-            const Icon(Icons.arrow_forward_ios, color: Colors.white70, size: 14),
-          ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildScannerTab() {
+    return Column(
+      children: [
+        ElevatedButton.icon(
+          onPressed: _startCameraScanner,
+          icon: const Icon(Icons.qr_code_scanner, size: 22),
+          label: const Text("Scanner le QR Code Gérant", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF38BDF8),
+            foregroundColor: const Color(0xFF0F172A),
+            minimumSize: const Size(double.infinity, 52),
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: _importFromGallery,
+          icon: const Icon(Icons.photo_library_outlined, size: 20),
+          label: const Text("Importer depuis la Galerie", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.white,
+            side: BorderSide(color: Colors.white.withOpacity(0.2)),
+            minimumSize: const Size(double.infinity, 50),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildManualTokenTab() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Entrez votre Code ou Clé d'Enrôlement :",
+            style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            "Exemple : PPRO-302667 ou simplement 302667",
+            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _tokenInputController,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+            decoration: InputDecoration(
+              hintText: "PPRO-302667",
+              hintStyle: const TextStyle(color: Color(0xFF64748B)),
+              filled: true,
+              fillColor: const Color(0xFF0F172A),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFF38BDF8), width: 1.5),
+              ),
+              prefixIcon: const Icon(Icons.pin, color: Color(0xFF38BDF8)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: () {
+              final code = _tokenInputController.text.trim();
+              if (code.isNotEmpty) {
+                _verifyAndEnroll(code);
+              } else {
+                _showError("Veuillez saisir votre code d'activation.");
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF38BDF8),
+              foregroundColor: const Color(0xFF0F172A),
+              minimumSize: const Size(double.infinity, 48),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            child: const Text("Activer ce Smartphone", style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReverseEnrollmentTab() {
+    final qrPayload = jsonEncode({
+      "mode": "POINTAGE_REVERSE_ENROLL",
+      "device_id": _myDeviceId ?? "UNKNOWN_DEVICE",
+      "model": _myDeviceModel ?? "Smartphone",
+      "app": "PointagePro",
+    });
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        children: [
+          const Text(
+            "Faites scanner votre téléphone par le Gérant",
+            style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            "Présentez ce QR Code à votre responsable ou superviseur. En le scannant avec son appareil, il vous liera directement.",
+            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+
+          // QR Code généré via qr_flutter
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 12),
+              ],
+            ),
+            child: QrImageView(
+              data: qrPayload,
+              version: QrVersions.auto,
+              size: 190.0,
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // ID Appareil
+          Text(
+            "ID Téléphone : ${_myDeviceId ?? 'En cours...'}",
+            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10, fontFamily: 'monospace'),
+          ),
+
+          const SizedBox(height: 14),
+
+          // Bouton Vérification Manuelle
+          OutlinedButton.icon(
+            onPressed: _isCheckingReverse ? null : _triggerManualReverseCheck,
+            icon: _isCheckingReverse
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                  )
+                : const Icon(Icons.refresh_rounded, size: 16),
+            label: const Text("Vérifier si j'ai été validé", style: TextStyle(fontSize: 12)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF38BDF8),
+              side: const BorderSide(color: Color(0xFF38BDF8)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ],
       ),
     );
   }

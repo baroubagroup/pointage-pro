@@ -3,10 +3,111 @@ import '../models/employee_session.dart';
 import '../services/offline_sync_service.dart';
 import 'enrollment_screen.dart';
 
-class ProfileTab extends StatelessWidget {
+class ProfileTab extends StatefulWidget {
   final EmployeeSession session;
 
   const ProfileTab({super.key, required this.session});
+
+  @override
+  State<ProfileTab> createState() => _ProfileTabState();
+}
+
+class _ProfileTabState extends State<ProfileTab> {
+  late EmployeeSession _currentSession;
+  bool _isUpdatingFace = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentSession = widget.session;
+  }
+
+  Future<void> _handleUpdateFaceSignature() async {
+    if (_currentSession.faceUpdateCount >= 2) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.lock_rounded, color: Color(0xFFEF4444)),
+              SizedBox(width: 8),
+              Text("Quota Atteint", style: TextStyle(color: Colors.white, fontSize: 16)),
+            ],
+          ),
+          content: const Text(
+            "Vous avez utilisé la totalité de vos 2 modifications de signature faciale. Pour des motifs stricts de sécurité anti-usurpation, toute nouvelle mise à jour doit être débloquée par votre Responsable RH.",
+            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6)),
+              child: const Text("Compris"),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.face_retouching_natural_rounded, color: Color(0xFF38BDF8)),
+            SizedBox(width: 8),
+            Text("Mettre à jour l'empreinte faciale", style: TextStyle(color: Colors.white, fontSize: 15)),
+          ],
+        ),
+        content: Text(
+          "Attention : vous avez droit à 2 modifications au total. Il vous restera ${1 - _currentSession.faceUpdateCount} modification(s) après cette opération. Continuer ?",
+          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Annuler", style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38BDF8), foregroundColor: const Color(0xFF0F172A)),
+            child: const Text("Scanner mon visage"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() => _isUpdatingFace = true);
+      final res = await OfflineSyncService().updateFaceSignature(
+        employeeId: _currentSession.id,
+        newVector: "VEC_${DateTime.now().millisecondsSinceEpoch}_512D",
+        currentUpdateCount: _currentSession.faceUpdateCount,
+      );
+      if (mounted) {
+        setState(() => _isUpdatingFace = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res['message'] ?? ''),
+            backgroundColor: res['success'] == true ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+          ),
+        );
+        if (res['success'] == true) {
+          final updated = await OfflineSyncService().getStoredEmployeeSession();
+          if (updated != null && mounted) {
+            setState(() {
+              _currentSession = updated;
+            });
+          }
+        }
+      }
+    }
+  }
 
   Future<void> _handleLogout(BuildContext context) async {
     final confirmed = await showDialog<bool>(
@@ -56,9 +157,9 @@ class ProfileTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: const Color(0xFF0A0F1D),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0F172A),
+        backgroundColor: const Color(0xFF0A0F1D),
         elevation: 0,
         title: const Text(
           "Mon Profil Collaborateur",
@@ -93,18 +194,18 @@ class ProfileTab extends StatelessWidget {
                     height: 78,
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF3B82F6), Color(0xFF6366F1)],
+                        colors: [Color(0xFF00F2FE), Color(0xFF4FACFE)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                       shape: BoxShape.circle,
                       boxShadow: [
-                        BoxShadow(color: const Color(0xFF3B82F6).withOpacity(0.35), blurRadius: 15, offset: const Offset(0, 5)),
+                        BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.35), blurRadius: 15, offset: const Offset(0, 5)),
                       ],
                     ),
                     child: Center(
                       child: Text(
-                        session.initials,
+                        _currentSession.initials,
                         style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w800),
                       ),
                     ),
@@ -113,7 +214,7 @@ class ProfileTab extends StatelessWidget {
                   const SizedBox(height: 14),
 
                   Text(
-                    session.fullName,
+                    _currentSession.fullName,
                     style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 4),
@@ -121,13 +222,13 @@ class ProfileTab extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF3B82F6).withOpacity(0.15),
+                      color: const Color(0xFF38BDF8).withOpacity(0.15),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.3)),
+                      border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.3)),
                     ),
                     child: Text(
-                      session.displayRole,
-                      style: const TextStyle(color: Color(0xFF60A5FA), fontSize: 11, fontWeight: FontWeight.bold),
+                      _currentSession.displayRole,
+                      style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
                     ),
                   ),
 
@@ -142,7 +243,7 @@ class ProfileTab extends StatelessWidget {
                       const Icon(Icons.badge_outlined, color: Color(0xFF94A3B8), size: 16),
                       const SizedBox(width: 6),
                       Text(
-                        "Matricule : ${session.matricule}",
+                        "Matricule : ${_currentSession.matricule}",
                         style: const TextStyle(
                           color: Color(0xFFE2E8F0),
                           fontSize: 13,
@@ -174,14 +275,14 @@ class ProfileTab extends StatelessWidget {
                   _buildDetailRow(
                     icon: Icons.business,
                     label: "Établissement / Site",
-                    value: session.establishmentName,
+                    value: _currentSession.establishmentName,
                     accentColor: const Color(0xFF3B82F6),
                   ),
                   const Divider(color: Color(0xFF334155), height: 1),
                   _buildDetailRow(
                     icon: Icons.phone,
                     label: "Téléphone",
-                    value: session.phone.isNotEmpty ? session.phone : "Non renseigné",
+                    value: _currentSession.phone.isNotEmpty ? _currentSession.phone : "Non renseigné",
                     accentColor: const Color(0xFF10B981),
                   ),
                   const Divider(color: Color(0xFF334155), height: 1),
@@ -197,7 +298,80 @@ class ProfileTab extends StatelessWidget {
 
             const SizedBox(height: 20),
 
-            // Certifications Anti-Triche
+            // Reconnaissance Faciale & Anti-Fraude
+            _buildSectionHeader("Reconnaissance Faciale & Dépannage"),
+            const SizedBox(height: 10),
+
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E293B),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.white.withOpacity(0.06)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.face_unlock_rounded, color: Color(0xFF38BDF8), size: 18),
+                          SizedBox(width: 8),
+                          Text("Signature Faciale Active", style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: _currentSession.faceUpdateCount >= 2 ? const Color(0xFFEF4444).withOpacity(0.2) : const Color(0xFF10B981).withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          "Quota : ${_currentSession.faceUpdateCount} / 2",
+                          style: TextStyle(
+                            color: _currentSession.faceUpdateCount >= 2 ? const Color(0xFFF87171) : const Color(0xFF34D399),
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    "Permet à vos collègues de vous dépanner si votre smartphone est déchargé. Zéro photo enregistrée sur le cloud (comparaison locale en mémoire vive).",
+                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11, height: 1.3),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _isUpdatingFace ? null : _handleUpdateFaceSignature,
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: Text(
+                        _currentSession.faceUpdateCount >= 2
+                            ? "Quota de modifications épuisé"
+                            : "Mettre à jour mon empreinte faciale",
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _currentSession.faceUpdateCount >= 2 ? const Color(0xFF94A3B8) : const Color(0xFF38BDF8),
+                        side: BorderSide(
+                          color: _currentSession.faceUpdateCount >= 2 ? const Color(0xFF475569) : const Color(0xFF38BDF8),
+                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Certifications Cryptographiques
             _buildSectionHeader("Protections Cryptographiques Actives"),
             const SizedBox(height: 10),
 
