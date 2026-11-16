@@ -54,7 +54,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   void _startReverseEnrollmentPolling() {
     _reverseEnrollPollingTimer?.cancel();
     _reverseEnrollPollingTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
-      if (_myDeviceId != null && !_isProcessing) {
+      if (_selectedModeIndex == 2 && _myDeviceId != null && !_isProcessing) {
         final session = await _syncService.checkReverseEnrollment(_myDeviceId!);
         if (session != null && mounted) {
           timer.cancel();

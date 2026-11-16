@@ -302,6 +302,51 @@ class OfflineSyncService {
     return null;
   }
 
+  /// Vérifie auprès de Supabase si cet appareil est toujours lié au collaborateur
+  /// Renvoie false si le manager a dissocié ("délié") l'appareil ou si l'employé est inactif
+  Future<bool> verifyDeviceBindingActive(String employeeId, String deviceId) async {
+    try {
+      final Uri url = Uri.parse(
+        "$_supabaseUrl/rest/v1/pointage_employees?id=eq.$employeeId&select=id,bound_device_id,is_enrolled,is_active&limit=1"
+      );
+      final response = await http.get(url, headers: _headers);
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        if (data.isNotEmpty) {
+          final emp = data.first;
+          final boundDev = emp['bound_device_id'];
+          final isEnrolled = emp['is_enrolled'] == true;
+          final isActive = emp['is_active'] != false;
+          
+          if (!isEnrolled || boundDev == null || boundDev != deviceId || !isActive) {
+            return false;
+          }
+        }
+      }
+    } catch (e) {
+      // En cas de coupure réseau temporaire, on garde la session locale
+      return true;
+    }
+    return true;
+  }
+
+  /// Récupère l'historique des justifications et décisions du manager pour les notifications
+  Future<List<Map<String, dynamic>>> getEmployeeJustifications(String employeeId) async {
+    try {
+      final Uri url = Uri.parse(
+        "$_supabaseUrl/rest/v1/pointage_justifications?employee_id=eq.$employeeId&select=*&order=created_at.desc&limit=20"
+      );
+      final response = await http.get(url, headers: _headers);
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+    } catch (e) {
+      print("Erreur getEmployeeJustifications: $e");
+    }
+    return [];
+  }
+
   // ==================== CONFIGURATION ANTI-TRICHE D'ENTREPRISE ====================
 
   /// Récupère la matrice de sécurité anti-triche définie dans l'admin dashboard

@@ -1,5 +1,5 @@
 import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:local_auth/local_auth.dart';
@@ -49,24 +49,22 @@ class SecurityService {
   Future<bool> authenticateBiometric() async {
     try {
       if (kIsWeb) return true;
-      bool canCheckBiometrics = await _localAuth.canCheckBiometrics;
       bool isDeviceSupported = await _localAuth.isDeviceSupported();
-
-      if (!canCheckBiometrics || !isDeviceSupported) {
-        // Si l'appareil n'a pas de lecteur d'empreinte, on laisse passer (pas de blocage matériel)
+      if (!isDeviceSupported) {
         return true;
       }
 
       return await _localAuth.authenticate(
-        localizedReason: "Confirmez votre identité pour valider votre pointage",
+        localizedReason: "PointagePro : Confirmez votre identité (Empreinte / Face ID / PIN)",
         options: const AuthenticationOptions(
-          biometricOnly: true,
+          biometricOnly: false,
           stickyAuth: true,
+          useErrorDialogs: true,
         ),
       );
     } catch (e) {
-      // En cas de panne du capteur, on autorise mais on trace
-      return true;
+      debugPrint("Erreur authenticateBiometric: $e");
+      return false;
     }
   }
 
