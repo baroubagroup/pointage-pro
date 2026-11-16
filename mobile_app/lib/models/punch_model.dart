@@ -120,4 +120,43 @@ class PunchModel {
         return 'CHECK_OUT';
     }
   }
+
+  PunchModel copyWith({
+    int? id,
+    int? localId,
+    String? userId,
+    String? establishmentId,
+    PunchType? type,
+    DateTime? recordedAtUtc,
+    double? latitude,
+    double? longitude,
+    double? accuracyMeters,
+    double? distanceToSiteMeters,
+    bool? isMockLocation,
+    String? deviceId,
+    String? deviceModel,
+    String? wifiBssid,
+    String? selfiePath,
+    SyncStatus? syncStatus,
+    List<String>? flagReasons,
+  }) {
+    return PunchModel(
+      localId: id ?? localId ?? this.localId,
+      userId: userId ?? this.userId,
+      establishmentId: establishmentId ?? this.establishmentId,
+      type: type ?? this.type,
+      recordedAtUtc: recordedAtUtc ?? this.recordedAtUtc,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      accuracyMeters: accuracyMeters ?? this.accuracyMeters,
+      distanceToSiteMeters: distanceToSiteMeters ?? this.distanceToSiteMeters,
+      isMockLocation: isMockLocation ?? this.isMockLocation,
+      deviceId: deviceId ?? this.deviceId,
+      deviceModel: deviceModel ?? this.deviceModel,
+      wifiBssid: wifiBssid ?? this.wifiBssid,
+      selfiePath: selfiePath ?? this.selfiePath,
+      syncStatus: syncStatus ?? this.syncStatus,
+      flagReasons: flagReasons ?? this.flagReasons,
+    );
+  }
 }

@@ -42,8 +42,13 @@ class OfflineSyncService {
     });
   }
 
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    _pendingCountController.close();
+  }
+
   Future<Database> _initDatabase() async {
-    String dbPath = join(await getDatabasesPath(), 'attendance_offline_v3.db');
+    String dbPath = join(await getDatabasesPath(), 'attendance_offline_v4.db');
     return await openDatabase(
       dbPath,
       version: 1,
@@ -65,7 +70,17 @@ class OfflineSyncService {
             face_update_count INTEGER DEFAULT 0,
             establishment_lat REAL,
             establishment_lng REAL,
-            establishment_radius REAL
+            establishment_radius REAL,
+            schedule_id TEXT,
+            schedule_name TEXT,
+            working_days TEXT,
+            morning_start TEXT,
+            morning_end TEXT,
+            lunch_start TEXT,
+            lunch_end TEXT,
+            afternoon_start TEXT,
+            afternoon_end TEXT,
+            tolerance_minutes INTEGER
           )
         ''');
 
@@ -113,7 +128,7 @@ class OfflineSyncService {
 
   Future<void> saveEmployeeSession(EmployeeSession session) async {
     final db = _db ?? await _initDatabase();
-    await db.delete('employee_session'); // 1 seule session active par appareil
+    await db.delete('employee_session'); // Nettoyage de la précédente session
     await db.insert('employee_session', session.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -122,6 +137,8 @@ class OfflineSyncService {
     await db.delete('employee_session');
   }
 
+  // ==================== ENRÔLEMENT VIA TOKEN SUPABASE ====================
+
   /// Validation réelle du jeton d'enrôlement auprès de Supabase
   Future<EmployeeSession> enrollWithToken(String rawToken, String deviceId, String deviceModel) async {
     final cleanToken = rawToken.trim();
@@ -129,9 +146,9 @@ class OfflineSyncService {
       throw Exception("Veuillez renseigner un code d'activation.");
     }
 
-    // 1. Recherche de l'employé dans Supabase par son token exact ou partiel
+    // 1. Recherche de l'employé dans Supabase avec établissement et planning
     final Uri url = Uri.parse(
-      "$_supabaseUrl/rest/v1/pointage_employees?select=*,pointage_establishments(id,name,latitude,longitude,radius_meters)&or=(enrollment_token.eq.$cleanToken,enrollment_token.ilike.%$cleanToken%)&limit=1"
+      "$_supabaseUrl/rest/v1/pointage_employees?select=*,pointage_establishments(id,name,latitude,longitude,radius_meters),pointage_schedules(id,name,working_days,morning_start,morning_end,lunch_start,lunch_end,afternoon_start,afternoon_end,tolerance_minutes)&or=(enrollment_token.eq.$cleanToken,enrollment_token.ilike.%$cleanToken%)&limit=1"
     );
 
     final response = await http.get(url, headers: _headers);
@@ -155,10 +172,26 @@ class OfflineSyncService {
     
     // Données de l'établissement
     final estData = emp['pointage_establishments'];
-    final establishmentName = estData?['name'] as String? ?? 'Siège Principal - Agence 1';
-    final establishmentLat = estData?['latitude'] != null ? (estData['latitude'] as num).toDouble() : 11.24696;
-    final establishmentLng = estData?['longitude'] != null ? (estData['longitude'] as num).toDouble() : -4.29149;
-    final establishmentRadius = estData?['radius_meters'] != null ? (estData['radius_meters'] as num).toDouble() : 80.0;
+    final establishmentName = estData?['name'] as String? ?? 'Siège Principal Ouagadougou';
+    final establishmentLat = estData?['latitude'] != null ? (estData['latitude'] as num).toDouble() : 11.24700;
+    final establishmentLng = estData?['longitude'] != null ? (estData['longitude'] as num).toDouble() : -4.29180;
+    final establishmentRadius = estData?['radius_meters'] != null ? (estData['radius_meters'] as num).toDouble() : 120.0;
+
+    // Données du planning
+    final schedData = emp['pointage_schedules'];
+    final scheduleId = emp['schedule_id'] as String?;
+    final scheduleName = schedData?['name'] as String? ?? 'Horaire Fractionné Standard (Lun - Ven)';
+    List<int> workingDays = [1, 2, 3, 4, 5];
+    if (schedData?['working_days'] != null) {
+      workingDays = List<int>.from(schedData['working_days'].map((e) => (e as num).toInt()));
+    }
+    final morningStart = (schedData?['morning_start'] as String? ?? '07:30').sliceSafe(0, 5);
+    final morningEnd = (schedData?['morning_end'] as String? ?? '12:00').sliceSafe(0, 5);
+    final lunchStart = (schedData?['lunch_start'] as String? ?? '12:00').sliceSafe(0, 5);
+    final lunchEnd = (schedData?['lunch_end'] as String? ?? '13:30').sliceSafe(0, 5);
+    final afternoonStart = (schedData?['afternoon_start'] as String? ?? '13:30').sliceSafe(0, 5);
+    final afternoonEnd = (schedData?['afternoon_end'] as String? ?? '17:30').sliceSafe(0, 5);
+    final toleranceMinutes = schedData?['tolerance_minutes'] is int ? schedData['tolerance_minutes'] as int : 15;
 
     final matricule = emp['employee_matricule'] as String?;
     final faceVector = emp['face_embedding_vector'] as String?;
@@ -197,6 +230,16 @@ class OfflineSyncService {
       establishmentLat: establishmentLat,
       establishmentLng: establishmentLng,
       establishmentRadius: establishmentRadius,
+      scheduleId: scheduleId,
+      scheduleName: scheduleName,
+      workingDays: workingDays,
+      morningStart: morningStart,
+      morningEnd: morningEnd,
+      lunchStart: lunchStart,
+      lunchEnd: lunchEnd,
+      afternoonStart: afternoonStart,
+      afternoonEnd: afternoonEnd,
+      toleranceMinutes: toleranceMinutes,
     );
 
     await saveEmployeeSession(session);
@@ -207,7 +250,7 @@ class OfflineSyncService {
   Future<EmployeeSession?> checkReverseEnrollment(String deviceId) async {
     try {
       final Uri url = Uri.parse(
-        "$_supabaseUrl/rest/v1/pointage_employees?select=*,pointage_establishments(id,name,latitude,longitude,radius_meters)&bound_device_id=eq.$deviceId&is_enrolled=eq.true&limit=1"
+        "$_supabaseUrl/rest/v1/pointage_employees?select=*,pointage_establishments(id,name,latitude,longitude,radius_meters),pointage_schedules(id,name,working_days,morning_start,morning_end,lunch_start,lunch_end,afternoon_start,afternoon_end,tolerance_minutes)&bound_device_id=eq.$deviceId&is_enrolled=eq.true&limit=1"
       );
       final response = await http.get(url, headers: _headers);
       if (response.statusCode == 200) {
@@ -215,6 +258,13 @@ class OfflineSyncService {
         if (data.isNotEmpty) {
           final emp = data.first;
           final estData = emp['pointage_establishments'];
+          final schedData = emp['pointage_schedules'];
+
+          List<int> workingDays = [1, 2, 3, 4, 5];
+          if (schedData?['working_days'] != null) {
+            workingDays = List<int>.from(schedData['working_days'].map((e) => (e as num).toInt()));
+          }
+
           final session = EmployeeSession(
             id: emp['id'],
             fullName: emp['full_name'],
@@ -222,15 +272,25 @@ class OfflineSyncService {
             role: emp['role'] ?? 'EMPLOYEE',
             enrollmentToken: emp['enrollment_token'] ?? '',
             establishmentId: emp['default_establishment_id'] ?? '00000000-0000-0000-0000-000000000010',
-            establishmentName: estData?['name'] ?? 'Siège Principal',
+            establishmentName: estData?['name'] ?? 'Siège Principal Ouagadougou',
             boundDeviceId: deviceId,
             deviceModel: emp['device_model'] ?? 'Smartphone Sécurisé',
             employeeMatricule: emp['employee_matricule'],
             faceEmbeddingVector: emp['face_embedding_vector'],
             faceUpdateCount: emp['face_update_count'] ?? 0,
-            establishmentLat: estData?['latitude'] != null ? (estData['latitude'] as num).toDouble() : null,
-            establishmentLng: estData?['longitude'] != null ? (estData['longitude'] as num).toDouble() : null,
-            establishmentRadius: estData?['radius_meters'] != null ? (estData['radius_meters'] as num).toDouble() : 80.0,
+            establishmentLat: estData?['latitude'] != null ? (estData['latitude'] as num).toDouble() : 11.24700,
+            establishmentLng: estData?['longitude'] != null ? (estData['longitude'] as num).toDouble() : -4.29180,
+            establishmentRadius: estData?['radius_meters'] != null ? (estData['radius_meters'] as num).toDouble() : 120.0,
+            scheduleId: emp['schedule_id'],
+            scheduleName: schedData?['name'] ?? "Horaire Fractionné Standard (Lun - Ven)",
+            workingDays: workingDays,
+            morningStart: (schedData?['morning_start'] as String? ?? '07:30').sliceSafe(0, 5),
+            morningEnd: (schedData?['morning_end'] as String? ?? '12:00').sliceSafe(0, 5),
+            lunchStart: (schedData?['lunch_start'] as String? ?? '12:00').sliceSafe(0, 5),
+            lunchEnd: (schedData?['lunch_end'] as String? ?? '13:30').sliceSafe(0, 5),
+            afternoonStart: (schedData?['afternoon_start'] as String? ?? '13:30').sliceSafe(0, 5),
+            afternoonEnd: (schedData?['afternoon_end'] as String? ?? '17:30').sliceSafe(0, 5),
+            toleranceMinutes: schedData?['tolerance_minutes'] is int ? schedData['tolerance_minutes'] as int : 15,
           );
           await saveEmployeeSession(session);
           return session;
@@ -242,6 +302,36 @@ class OfflineSyncService {
     return null;
   }
 
+  // ==================== CONFIGURATION ANTI-TRICHE D'ENTREPRISE ====================
+
+  /// Récupère la matrice de sécurité anti-triche définie dans l'admin dashboard
+  Future<Map<String, dynamic>> getOrganizationSecurityConfig() async {
+    try {
+      final Uri url = Uri.parse("$_supabaseUrl/rest/v1/pointage_organizations?select=security_config&limit=1");
+      final response = await http.get(url, headers: _headers);
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        if (data.isNotEmpty && data.first['security_config'] != null) {
+          return Map<String, dynamic>.from(data.first['security_config']);
+        }
+      }
+    } catch (e) {
+      print("Erreur getOrganizationSecurityConfig: $e");
+    }
+    return {
+      "require_biometrics": true,
+      "require_wifi_bssid": false,
+      "hard_block_mock_gps": true,
+      "require_device_binding": true,
+      "require_face_on_colleague_assist": true,
+      "block_early_arrival": true,
+      "auto_prompt_delay_justification": true,
+      "allow_offline": true,
+      "grace_delay_minutes": 15,
+      "max_break_minutes": 60,
+    };
+  }
+
   // ==================== GESTION DES POINTAGES & SYNCHRO ====================
 
   Future<PunchModel> savePunchLocally(
@@ -250,50 +340,48 @@ class OfflineSyncService {
     String? assistedByEmployeeId,
   }) async {
     final db = _db ?? await _initDatabase();
-    
-    final Map<String, dynamic> row = punch.toMap();
+
+    Map<String, dynamic> row = punch.toMap();
     row['is_assisted'] = isAssisted ? 1 : 0;
     row['assisted_by_employee_id'] = assistedByEmployeeId;
 
-    int localId = await db.insert('offline_punches', row);
+    int id = await db.insert('offline_punches', row);
+    PunchModel saved = punch.copyWith(id: id);
 
     await _updatePendingCount();
 
-    // Tentative de synchronisation immédiate en temps réel
+    // Tentative immédiate de synchronisation en tâche de fond
     syncPendingPunches();
 
-    return punch;
+    return saved;
   }
 
   Future<void> syncPendingPunches() async {
     final db = _db ?? await _initDatabase();
-    List<Map<String, dynamic>> pendingMaps = await db.query(
+    final List<Map<String, dynamic>> pending = await db.query(
       'offline_punches',
       where: 'sync_status = ?',
       whereArgs: [SyncStatus.pending.name],
     );
 
-    if (pendingMaps.isEmpty) {
-      await _updatePendingCount();
-      return;
-    }
+    if (pending.isEmpty) return;
 
-    for (var map in pendingMaps) {
-      PunchModel punch = PunchModel.fromMap(map);
-      final isAssisted = (map['is_assisted'] == 1);
-      final assistedBy = map['assisted_by_employee_id'] as String?;
+    final Uri postUrl = Uri.parse("$_supabaseUrl/rest/v1/pointage_logs");
 
+    for (var map in pending) {
       try {
-        final Uri postUrl = Uri.parse("$_supabaseUrl/rest/v1/pointage_logs");
-        
+        final punch = PunchModel.fromMap(map);
+        final bool isAssisted = (map['is_assisted'] == 1);
+        final String? assistedBy = map['assisted_by_employee_id'];
+
         final payload = {
           "org_id": "00000000-0000-0000-0000-000000000001",
           "employee_id": punch.userId,
           "establishment_id": punch.establishmentId,
-          "punch_type": punch.dbPunchType,
-          "recorded_at_utc": punch.recordedAtUtc.toUtc().toIso8601String(),
+          "punch_type": punch.type.name,
+          "recorded_at_utc": punch.recordedAtUtc.toIso8601String(),
           "synced_at_utc": DateTime.now().toUtc().toIso8601String(),
-          "is_offline_sync": false,
+          "is_offline_sync": true,
           "latitude": punch.latitude,
           "longitude": punch.longitude,
           "accuracy_meters": punch.accuracyMeters,
@@ -315,7 +403,6 @@ class OfflineSyncService {
         );
 
         if (response.statusCode == 201 || response.statusCode == 200) {
-          // Marqué comme synchronisé en base locale
           if (map['id'] != null) {
             await db.update(
               'offline_punches',
@@ -324,8 +411,6 @@ class OfflineSyncService {
               whereArgs: [map['id']],
             );
           }
-        } else {
-          print("Erreur sync Supabase (${response.statusCode}): ${response.body}");
         }
       } catch (e) {
         print("Erreur réseau sync: $e");
@@ -352,14 +437,13 @@ class OfflineSyncService {
       where: 'user_id = ?',
       whereArgs: [userId],
       orderBy: 'recorded_at_utc DESC',
-      limit: 25,
+      limit: 30,
     );
     return rows.map((r) => PunchModel.fromMap(r)).toList();
   }
 
   // ==================== JUSTIFICATIONS DES RETARDS ====================
 
-  /// Enregistre une justification d'absence ou retard directement sur Supabase
   Future<bool> submitJustification({
     required String employeeId,
     required String category,
@@ -387,7 +471,6 @@ class OfflineSyncService {
 
   // ==================== ASSISTANCE COLLÈGUE & RECONNAISSANCE FACIALE ====================
 
-  /// Liste des collègues de l'entreprise pour l'assistance en cas de panne de téléphone
   Future<List<Map<String, dynamic>>> getColleaguesList(String currentEmployeeId) async {
     try {
       final Uri url = Uri.parse(
@@ -404,7 +487,6 @@ class OfflineSyncService {
     return [];
   }
 
-  /// Mise à jour de l'empreinte faciale avec quota strict anti-fraude (max 2 changements)
   Future<Map<String, dynamic>> updateFaceSignature({
     required String employeeId,
     required String newVector,
@@ -429,7 +511,6 @@ class OfflineSyncService {
       );
 
       if (response.statusCode == 200 || response.statusCode == 204) {
-        // Mettre à jour la session locale
         final currentSession = await getStoredEmployeeSession();
         if (currentSession != null) {
           final updated = EmployeeSession(
@@ -448,10 +529,20 @@ class OfflineSyncService {
             establishmentLat: currentSession.establishmentLat,
             establishmentLng: currentSession.establishmentLng,
             establishmentRadius: currentSession.establishmentRadius,
+            scheduleId: currentSession.scheduleId,
+            scheduleName: currentSession.scheduleName,
+            workingDays: currentSession.workingDays,
+            morningStart: currentSession.morningStart,
+            morningEnd: currentSession.morningEnd,
+            lunchStart: currentSession.lunchStart,
+            lunchEnd: currentSession.lunchEnd,
+            afternoonStart: currentSession.afternoonStart,
+            afternoonEnd: currentSession.afternoonEnd,
+            toleranceMinutes: currentSession.toleranceMinutes,
           );
           await saveEmployeeSession(updated);
         }
-        return {"success": true, "message": "Signature faciale mise à jour avec succès (Quota : ${currentUpdateCount + 1}/2)."};
+        return {"success": true, "message": "Signature faciale certifiée avec succès (Quota : ${currentUpdateCount + 1}/2)."};
       }
     } catch (e) {
       return {"success": false, "message": "Erreur serveur : $e"};
@@ -461,39 +552,104 @@ class OfflineSyncService {
 
   // ==================== STATISTIQUES CONSOLIDÉES ====================
 
-  Future<Map<String, dynamic>> getEmployeeStats(String userId) async {
+  Future<Map<String, dynamic>> getEmployeeStats(String userId, {EmployeeSession? session}) async {
     final punches = await getRecentPunches(userId);
     int totalPunches = punches.length;
     int lateMinutes = 0;
     int lateCount = 0;
-    double workedHoursMonth = 0;
-    double workedHoursWeek = 0;
+    double workedHoursMonth = 0.0;
+    double workedHoursWeek = 0.0;
 
-    try {
-      final Uri url = Uri.parse(
-        "$_supabaseUrl/rest/v1/pointage_logs?employee_id=eq.$userId&select=*&order=recorded_at_utc.desc&limit=100"
-      );
-      final response = await http.get(url, headers: _headers);
-      if (response.statusCode == 200) {
-        final List<dynamic> logs = jsonDecode(response.body);
-        totalPunches = logs.length;
-        workedHoursMonth = totalPunches * 4.2;
-        workedHoursWeek = (totalPunches > 8 ? 8 : totalPunches) * 4.2;
-      }
-    } catch (e) {
-      workedHoursMonth = totalPunches * 4.0;
+    // Regrouper par jour (YYYY-MM-DD)
+    final Map<String, List<PunchModel>> dayPunches = {};
+    for (var p in punches) {
+      final localDate = p.recordedAtUtc.toLocal();
+      final dateKey = "${localDate.year}-${localDate.month.toString().padLeft(2, '0')}-${localDate.day.toString().padLeft(2, '0')}";
+      dayPunches.putIfAbsent(dateKey, () => []).add(p);
     }
 
-    double punctualityRate = totalPunches > 0 ? (lateCount == 0 ? 100.0 : 96.5) : 100.0;
+    final now = DateTime.now();
+    final currentMonthKey = "${now.year}-${now.month.toString().padLeft(2, '0')}";
+
+    dayPunches.forEach((dateKey, dayList) {
+      dayList.sort((a, b) => a.recordedAtUtc.compareTo(b.recordedAtUtc));
+
+      // Calcul des retards du jour
+      final checkIns = dayList.where((p) => p.type == PunchType.checkIn).toList();
+      if (checkIns.isNotEmpty && session != null) {
+        final firstIn = checkIns.first.recordedAtUtc.toLocal();
+        if (session.workingDays.contains(firstIn.weekday)) {
+          final parts = session.morningStart.split(':');
+          final schedHour = int.tryParse(parts[0]) ?? 7;
+          final schedMin = int.tryParse(parts.length > 1 ? parts[1] : '30') ?? 30;
+          final schedTolerance = session.toleranceMinutes;
+
+          final scheduledStart = DateTime(firstIn.year, firstIn.month, firstIn.day, schedHour, schedMin);
+          final diff = firstIn.difference(scheduledStart).inMinutes;
+          if (diff > schedTolerance) {
+            lateMinutes += (diff - schedTolerance);
+            lateCount++;
+          }
+        }
+      }
+
+      // Calcul des heures travaillées
+      DateTime? currentIn;
+      double dayHours = 0.0;
+
+      for (var p in dayList) {
+        switch (p.type) {
+          case PunchType.checkIn:
+            currentIn = p.recordedAtUtc.toLocal();
+            break;
+          case PunchType.breakStart:
+            if (currentIn != null) {
+              dayHours += p.recordedAtUtc.toLocal().difference(currentIn).inMinutes / 60.0;
+              currentIn = null;
+            }
+            break;
+          case PunchType.breakEnd:
+            currentIn = p.recordedAtUtc.toLocal();
+            break;
+          case PunchType.checkOut:
+            if (currentIn != null) {
+              dayHours += p.recordedAtUtc.toLocal().difference(currentIn).inMinutes / 60.0;
+              currentIn = null;
+            }
+            break;
+        }
+      }
+
+      if (currentIn != null && dateKey == "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}") {
+        dayHours += now.difference(currentIn).inMinutes / 60.0;
+      }
+
+      if (dateKey.startsWith(currentMonthKey)) {
+        workedHoursMonth += dayHours;
+      }
+    });
+
+    workedHoursWeek = (workedHoursMonth > 40.0 ? 40.0 : workedHoursMonth);
+    double punctualityRate = totalPunches > 0
+        ? (lateCount == 0 ? 100.0 : ((totalPunches - lateCount) / totalPunches * 100.0))
+        : 100.0;
 
     return {
       'totalPunches': totalPunches,
-      'workedHoursMonth': workedHoursMonth > 0 ? "${workedHoursMonth.toStringAsFixed(1)}h" : "160h 00m",
-      'workedHoursWeek': workedHoursWeek > 0 ? "${workedHoursWeek.toStringAsFixed(1)}h" : "38h 45m",
+      'workedHoursMonth': "${workedHoursMonth.toStringAsFixed(1)}h",
+      'workedHoursWeek': "${workedHoursWeek.toStringAsFixed(1)}h",
       'lateMinutes': lateMinutes,
       'lateCount': lateCount,
-      'punctualityRate': punctualityRate,
+      'punctualityRate': punctualityRate.clamp(0.0, 100.0).roundToDouble(),
       'recentPunches': punches,
     };
+  }
+}
+
+extension SafeSlice on String {
+  String sliceSafe(int start, int end) {
+    if (length <= start) return this;
+    if (length <= end) return substring(start);
+    return substring(start, end);
   }
 }

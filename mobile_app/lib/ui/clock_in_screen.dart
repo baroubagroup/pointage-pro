@@ -33,7 +33,6 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
   late Timer _gpsDistanceTimer;
   DateTime _currentTime = DateTime.now();
   bool _isLoading = false;
-  String? _wifiBssid;
   int _pendingSyncCount = 0;
 
   // Radar GPS dynamique
@@ -44,9 +43,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
   // State Machine
   DayWorkState _workState = DayWorkState.notArrived;
   String _stateSubtitle = "Non pointé aujourd'hui";
-  PunchModel? _lastPunch;
-  DateTime? _arrivalTime;
-  DateTime? _departureTime;
+  DateTime? _lastPunchActionTime;
 
   // Animation Radar Pulse
   late AnimationController _pulseController;
@@ -84,7 +81,6 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
       }
     });
 
-    _checkWifi();
     _refreshDayFSM();
     _startLiveGpsTracking();
   }
@@ -95,15 +91,6 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
     _gpsDistanceTimer.cancel();
     _pulseController.dispose();
     super.dispose();
-  }
-
-  Future<void> _checkWifi() async {
-    String? bssid = await _securityService.getConnectedWifiBssid();
-    if (mounted) {
-      setState(() {
-        _wifiBssid = bssid;
-      });
-    }
   }
 
   /// Calcul en continu de la distance au site de l'entreprise
@@ -119,9 +106,9 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
       Position pos = await _securityService.getCurrentSecurePosition();
       
       // Coordonnées du site d'affectation
-      final double siteLat = widget.session.establishmentLat ?? 11.24696;
-      final double siteLng = widget.session.establishmentLng ?? -4.29149;
-      final double radius = widget.session.establishmentRadius ?? 80.0;
+      final double siteLat = widget.session.establishmentLat ?? 11.24700;
+      final double siteLng = widget.session.establishmentLng ?? -4.29180;
+      final double radius = widget.session.establishmentRadius ?? 120.0;
 
       double dist = Geolocator.distanceBetween(
         pos.latitude,
@@ -132,17 +119,21 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
 
       if (mounted) {
         setState(() {
-          _distanceToSiteMeters = dist;
-          _isInGeofence = dist <= radius;
+          // Lissage exponentiel (Moving Average) pour amortir la gigue des satellites
+          if (_distanceToSiteMeters == 18.0 || !_gpsReady) {
+            _distanceToSiteMeters = dist;
+          } else {
+            _distanceToSiteMeters = (_distanceToSiteMeters * 0.35 + dist * 0.65);
+          }
+          _isInGeofence = _distanceToSiteMeters <= radius;
           _gpsReady = true;
         });
       }
     } catch (e) {
-      // Fallback gracieux si GPS temporairement masqué en intérieur
+      // Conserver la dernière mesure connue en cas d'atténuation du signal GPS en intérieur
       if (mounted) {
         setState(() {
-          _distanceToSiteMeters = 18.0;
-          _isInGeofence = true;
+          _isInGeofence = _distanceToSiteMeters <= (widget.session.establishmentRadius ?? 120.0);
           _gpsReady = true;
         });
       }
@@ -182,7 +173,6 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
     }
 
     final latest = todayPunches.first;
-    _lastPunch = latest;
     final timeStr = DateFormat('HH:mm').format(latest.recordedAtUtc.toLocal());
 
     // Détermination de l'état
@@ -192,7 +182,6 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
     switch (latest.type) {
       case PunchType.checkIn:
         newState = DayWorkState.working;
-        _arrivalTime = latest.recordedAtUtc.toLocal();
         newSubtitle = "En poste depuis $timeStr • Arrivée certifiée";
         break;
       case PunchType.breakStart:
@@ -205,7 +194,6 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
         break;
       case PunchType.checkOut:
         newState = DayWorkState.completed;
-        _departureTime = latest.recordedAtUtc.toLocal();
         newSubtitle = "Journée clôturée à $timeStr";
         break;
     }
@@ -218,17 +206,206 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
     }
   }
 
-  /// Exécution du pointage avec contrôles de sécurité
+  /// Déclencheur avec garde-fous anti-spam et dialogues de confirmation
+  Future<void> _handlePunchWithGuardrails(PunchType type) async {
+    if (_isLoading) return;
+
+    // 1. Protection Anti-Spam (délai de sécurité entre 2 actions rapides)
+    if (_lastPunchActionTime != null) {
+      final elapsed = DateTime.now().difference(_lastPunchActionTime!);
+      if (elapsed < const Duration(seconds: 40)) {
+        final confirmRapid = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1E293B),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Row(
+              children: [
+                Icon(Icons.timer_outlined, color: Color(0xFFF59E0B)),
+                SizedBox(width: 8),
+                Text("Pointage Rapproché", style: TextStyle(color: Colors.white, fontSize: 16)),
+              ],
+            ),
+            content: Text(
+              "Votre précédente action date de seulement ${elapsed.inSeconds} secondes. Confirmez-vous vouloir enregistrer cette nouvelle action immédiatement ?",
+              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text("Attendre", style: TextStyle(color: Color(0xFF94A3B8))),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38BDF8)),
+                child: const Text("Confirmer"),
+              ),
+            ],
+          ),
+        );
+        if (confirmRapid != true) return;
+      }
+    }
+
+    // 2. Dialogues de confirmation selon le type d'action
+    if (type == PunchType.breakStart) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.free_breakfast_rounded, color: Color(0xFFF59E0B)),
+              SizedBox(width: 8),
+              Text("Départ en Pause Déjeuner", style: TextStyle(color: Colors.white, fontSize: 16)),
+            ],
+          ),
+          content: Text(
+            "Confirmez-vous votre départ en pause repas ? (Plage officielle : ${widget.session.lunchStart} - ${widget.session.lunchEnd}).",
+            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("Annuler", style: TextStyle(color: Color(0xFF94A3B8))),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF59E0B)),
+              child: const Text("Confirmer la Pause"),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    } else if (type == PunchType.breakEnd) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.restart_alt_rounded, color: Color(0xFF38BDF8)),
+              SizedBox(width: 8),
+              Text("Reprise de Poste", style: TextStyle(color: Colors.white, fontSize: 16)),
+            ],
+          ),
+          content: const Text(
+            "Confirmez-vous votre retour de pause repas et la reprise immédiate de votre travail ?",
+            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("Annuler", style: TextStyle(color: Color(0xFF94A3B8))),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38BDF8)),
+              child: const Text("Confirmer la Reprise"),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    } else if (type == PunchType.checkOut) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.logout_rounded, color: Color(0xFFF43F5E)),
+              SizedBox(width: 8),
+              Text("Clôturer la Journée", style: TextStyle(color: Colors.white, fontSize: 16)),
+            ],
+          ),
+          content: Text(
+            "Confirmez-vous la fin définitive de votre journée de travail ? Vos heures seront certifiées. (Fin officielle : ${widget.session.afternoonEnd}).",
+            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("Annuler", style: TextStyle(color: Color(0xFF94A3B8))),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF43F5E),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text("Confirmer la Clôture"),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
+
+    _lastPunchActionTime = DateTime.now();
+    await _triggerPunch(type);
+  }
+
+  /// Réouverture de journée en cas d'erreur de clic ou d'heures supplémentaires
+  Future<void> _showReopenDayDialog() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.published_with_changes_rounded, color: Color(0xFF38BDF8)),
+            SizedBox(width: 8),
+            Text("Réouvrir la Journée", style: TextStyle(color: Colors.white, fontSize: 16)),
+          ],
+        ),
+        content: const Text(
+          "Avez-vous clôturé votre journée par inadvertance ou avez-vous des heures supplémentaires à effectuer ? Votre journée sera réouverte et repassera en statut 'En poste'.",
+          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Annuler", style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF38BDF8),
+              foregroundColor: const Color(0xFF0F172A),
+            ),
+            child: const Text("Confirmer la Réouverture"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      setState(() {
+        _workState = DayWorkState.working;
+        _stateSubtitle = "Journée réouverte • En poste";
+      });
+      _showSnackbar("Journée réouverte. Vous pouvez continuer vos activités et pointer à nouveau.");
+    }
+  }
+
+  /// Exécution du pointage avec contrôles de sécurité réels
   Future<void> _triggerPunch(PunchType type) async {
     // 1. Contrôle du géofencing
-    if (!_isInGeofence && _distanceToSiteMeters > (widget.session.establishmentRadius ?? 80.0)) {
+    final maxRadius = widget.session.establishmentRadius ?? 120.0;
+    if (!_isInGeofence && _distanceToSiteMeters > maxRadius) {
       _showOutOfZoneDialog();
       return;
     }
 
     // 2. Contrôle de pointage anticipé
     final now = DateTime.now();
-    if (type == PunchType.checkIn && (now.hour < 6 || (now.hour == 6 && now.minute < 45))) {
+    if (type == PunchType.checkIn && (now.hour < 6 || (now.hour == 6 && now.minute < 30))) {
       bool confirm = await _showAnticipatedPunchWarning();
       if (!confirm) return;
     }
@@ -236,12 +413,15 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
     setState(() => _isLoading = true);
 
     try {
-      // 3. Biométrie appareil (Touch ID / Face ID)
-      bool authenticated = await _securityService.authenticateBiometric();
-      if (!authenticated) {
-        _showSnackbar("Authentification biométrique annulée.", isError: true);
-        setState(() => _isLoading = false);
-        return;
+      // 3. Biométrie appareil (Touch ID / Face ID) selon la politique d'entreprise
+      final secConfig = await _syncService.getOrganizationSecurityConfig();
+      if (secConfig['require_biometrics'] == true) {
+        bool authenticated = await _securityService.authenticateBiometric();
+        if (!authenticated) {
+          _showSnackbar("Pointage annulé : la validation biométrique (Empreinte / FaceID) est exigée par l'entreprise.", isError: true);
+          setState(() => _isLoading = false);
+          return;
+        }
       }
 
       // 4. Capture GPS satellite certifiée
@@ -270,9 +450,20 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
       await _syncService.savePunchLocally(punch);
       await _refreshDayFSM();
 
-      // 7. Détection automatique de retard (> 08h15)
-      bool isLate = (type == PunchType.checkIn && (now.hour > 8 || (now.hour == 8 && now.minute > 15)));
-      int lateMin = isLate ? ((now.hour - 8) * 60 + now.minute) : 0;
+      // 7. Détection automatique de retard dynamique basée sur le planning
+      bool isLate = false;
+      int lateMin = 0;
+      if (type == PunchType.checkIn && widget.session.isWorkingToday()) {
+        final parts = widget.session.morningStart.split(':');
+        final schedHour = int.tryParse(parts[0]) ?? 7;
+        final schedMin = int.tryParse(parts.length > 1 ? parts[1] : '30') ?? 30;
+        final limitMinutes = (schedHour * 60 + schedMin) + widget.session.toleranceMinutes;
+        final currentMinutes = now.hour * 60 + now.minute;
+        if (currentMinutes > limitMinutes) {
+          isLate = true;
+          lateMin = currentMinutes - limitMinutes;
+        }
+      }
 
       _showSuccessDialog(punch, isLate: isLate, lateMinutes: lateMin);
 
@@ -437,7 +628,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
             _buildDialogRow(
               icon: Icons.radar_rounded,
               label: "Distance au Site",
-              value: "${punch.distanceToSiteMeters?.toStringAsFixed(1) ?? '14.0'} mètres (Conforme)",
+              value: "${punch.distanceToSiteMeters.toStringAsFixed(1)} mètres (Conforme)",
             ),
             if (isLate) ...[
               const SizedBox(height: 8),
@@ -734,6 +925,44 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
               style: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 11, fontWeight: FontWeight.w600),
             ),
           ),
+          const SizedBox(height: 8),
+
+          // Badge Planning d'activité réel du jour
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: widget.session.isWorkingToday()
+                  ? const Color(0xFF3B82F6).withOpacity(0.15)
+                  : const Color(0xFF10B981).withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: widget.session.isWorkingToday()
+                    ? const Color(0xFF3B82F6).withOpacity(0.3)
+                    : const Color(0xFF10B981).withOpacity(0.3),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  widget.session.isWorkingToday() ? Icons.calendar_month_rounded : Icons.beach_access_rounded,
+                  color: widget.session.isWorkingToday() ? const Color(0xFF60A5FA) : const Color(0xFF34D399),
+                  size: 13,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  widget.session.isWorkingToday()
+                      ? "Aujourd'hui : ${widget.session.morningStart} - ${widget.session.afternoonEnd} (${widget.session.scheduleName})"
+                      : "Aujourd'hui : Jour de repos prévu (Planning)",
+                  style: TextStyle(
+                    color: widget.session.isWorkingToday() ? const Color(0xFF93C5FD) : const Color(0xFF6EE7B7),
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -810,7 +1039,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
     if (_workState == DayWorkState.completed) {
       return Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 20),
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
         decoration: BoxDecoration(
           color: const Color(0xFF1E293B),
           borderRadius: BorderRadius.circular(24),
@@ -818,7 +1047,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
         ),
         child: Column(
           children: [
-            const Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 54),
+            const Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 52),
             const SizedBox(height: 10),
             const Text(
               "JOURNÉE CLÔTURÉE",
@@ -826,9 +1055,23 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
             ),
             const SizedBox(height: 4),
             Text(
-              "Toutes vos présences sont enregistrées et certifiées pour aujourd'hui.",
+              "Vos présences sont certifiées et transmises au manager.",
               style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 11),
               textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: _showReopenDayDialog,
+              icon: const Icon(Icons.refresh_rounded, color: Color(0xFF38BDF8), size: 16),
+              label: const Text(
+                "Rectifier / Réouvrir ma journée de travail",
+                style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFF38BDF8), width: 1.2),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              ),
             ),
           ],
         ),
@@ -904,7 +1147,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
 
           // Bouton Central Interactif
           GestureDetector(
-            onTap: _isLoading ? null : () => _triggerPunch(punchType),
+            onTap: _isLoading ? null : () => _handlePunchWithGuardrails(punchType),
             child: Container(
               width: 165,
               height: 165,
@@ -965,7 +1208,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
         // Si l'employé est en poste, proposer l'option alternative "Fin de journée"
         if (_workState == DayWorkState.working) ...[
           OutlinedButton.icon(
-            onPressed: _isLoading ? null : () => _triggerPunch(PunchType.checkOut),
+            onPressed: _isLoading ? null : () => _handlePunchWithGuardrails(PunchType.checkOut),
             icon: const Icon(Icons.logout_rounded, color: Color(0xFFF43F5E), size: 18),
             label: const Text(
               "Clôturer définitivement ma journée",

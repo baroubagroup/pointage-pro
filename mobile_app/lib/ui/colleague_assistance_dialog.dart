@@ -1,10 +1,11 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:intl/intl.dart';
 import '../models/employee_session.dart';
 import '../models/punch_model.dart';
+import '../services/face_recognition_service.dart';
 import '../services/offline_sync_service.dart';
 import '../services/security_service.dart';
 
@@ -112,22 +113,28 @@ class _ColleagueAssistanceDialogState extends State<ColleagueAssistanceDialog> w
     });
 
     try {
-      // 1. Capture instantanée d'un frame (traité en RAM, jamais envoyé au cloud)
-      if (_cameraController != null && _cameraController!.value.isInitialized) {
-        final XFile photo = await _cameraController!.takePicture();
-        // Simulation de calcul de vecteur biométrique (512 dimensions)
-        // La photo est effacée immédiatement après calcul
+      // 1. Capture instantanée d'un frame caméra réel
+      if (_cameraController == null || !_cameraController!.value.isInitialized) {
+        throw Exception("La caméra frontale n'est pas prête. Veuillez patienter.");
       }
 
-      await Future.delayed(const Duration(milliseconds: 1400));
+      final XFile photo = await _cameraController!.takePicture();
+      final Uint8List imageBytes = await photo.readAsBytes();
+
+      // 2. Analyse faciale réelle en mémoire vive (RAM)
+      final faceService = FaceRecognitionService();
+      final targetVector = _selectedColleague!['face_embedding_vector'] as String?;
+      final verification = await faceService.analyzeFaceImage(imageBytes, targetColleagueVector: targetVector);
+
+      if (!verification.isValidFace) {
+        throw Exception(verification.errorMessage ?? "Visage non détecté.");
+      }
 
       setState(() {
-        _scanStatusText = "Vérification de signature faciale & quota anti-fraude...";
+        _scanStatusText = "Concordance faciale certifiée (${verification.confidenceScore.toStringAsFixed(1)}%)\nValidation du pointage...";
       });
 
-      await Future.delayed(const Duration(milliseconds: 800));
-
-      // 2. Position satellite sécurisée
+      // 3. Position satellite sécurisée
       Position position = await _securityService.getCurrentSecurePosition();
       final device = await _securityService.getDeviceMetadata();
       String? currentBssid = await _securityService.getConnectedWifiBssid();

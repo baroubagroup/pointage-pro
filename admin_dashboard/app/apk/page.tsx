@@ -5,7 +5,7 @@ import Link from 'next/link';
 
 export default function ApkDownloadPage() {
   const [downloadStarted, setDownloadStarted] = useState(false);
-  const CDN_APK_URL = 'https://ylrnxuphtaoazlhlmnsd.supabase.co/storage/v1/object/public/apk_downloads/pointage-pro-v4.apk';
+  const CDN_APK_URL = 'https://ylrnxuphtaoazlhlmnsd.supabase.co/storage/v1/object/public/apk_downloads/pointage-pro-v5.apk';
 
   React.useEffect(() => {
     // Déclenchement automatique 500ms après l'ouverture de la page
@@ -60,7 +60,7 @@ export default function ApkDownloadPage() {
           <div className="flex justify-center mb-6">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Build Officiel Android APK • v1.0.0
+              Build Officiel Android APK • v5.0.0 (Ouagadougou Enterprise)
             </span>
           </div>
 

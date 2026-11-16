@@ -36,6 +36,7 @@ dependencies:
   # Client API & Utilitaires
   http: ^1.2.1
   intl: ^0.19.0
+  crypto: ^3.0.8
 
 dev_dependencies:
   flutter_test:

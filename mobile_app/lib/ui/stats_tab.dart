@@ -28,7 +28,7 @@ class _StatsTabState extends State<StatsTab> {
   Future<void> _loadStats() async {
     setState(() => _isLoading = true);
     try {
-      final stats = await _syncService.getEmployeeStats(widget.session.id);
+      final stats = await _syncService.getEmployeeStats(widget.session.id, session: widget.session);
       final punches = await _syncService.getRecentPunches(widget.session.id);
       if (mounted) {
         setState(() {
@@ -155,15 +155,15 @@ class _StatsTabState extends State<StatsTab> {
                       children: [
                         _buildMetricCard(
                           title: "Heures ce Mois",
-                          value: _stats['workedHoursMonth'] ?? "160h 00m",
-                          subtitle: "Objectif légal : 160h",
+                          value: _stats['workedHoursMonth'] ?? "0.0h",
+                          subtitle: widget.session.scheduleName,
                           icon: Icons.access_time_filled,
                           accentColor: const Color(0xFF3B82F6),
                         ),
                         _buildMetricCard(
                           title: "Heures Semaine",
-                          value: _stats['workedHoursWeek'] ?? "38h 45m",
-                          subtitle: "Base 40h standard",
+                          value: _stats['workedHoursWeek'] ?? "0.0h",
+                          subtitle: "Planning : ${widget.session.workingDays.length} jours d'activité / sem.",
                           icon: Icons.date_range,
                           accentColor: const Color(0xFF6366F1),
                         ),

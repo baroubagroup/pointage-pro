@@ -75,53 +75,9 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   void _startCameraScanner() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (ctx) => Scaffold(
-          backgroundColor: Colors.black,
-          appBar: AppBar(
-            backgroundColor: Colors.black,
-            title: const Text("Scannez le QR Code Gérant", style: TextStyle(color: Colors.white, fontSize: 16)),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.pop(ctx),
-            ),
-          ),
-          body: Stack(
-            children: [
-              MobileScanner(
-                onDetect: (capture) {
-                  final List<Barcode> barcodes = capture.barcodes;
-                  for (final barcode in barcodes) {
-                    final raw = barcode.rawValue;
-                    if (raw != null && raw.isNotEmpty) {
-                      Navigator.pop(ctx);
-                      _verifyAndEnroll(raw);
-                      break;
-                    }
-                  }
-                },
-              ),
-              Center(
-                child: Container(
-                  width: 250,
-                  height: 250,
-                  decoration: BoxDecoration(
-                    border: Border.all(color: const Color(0xFF38BDF8), width: 3),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                ),
-              ),
-              const Positioned(
-                bottom: 40,
-                left: 20,
-                right: 20,
-                child: Text(
-                  "Placez le QR Code de votre invitation dans le cadre",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-              ),
-            ],
-          ),
+        builder: (ctx) => _CameraScanScreen(
+          onDetected: (raw) => _verifyAndEnroll(raw),
+          onManualFallback: () => _showManualTokenDialog(),
         ),
       ),
     );
@@ -672,6 +628,172 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
               foregroundColor: const Color(0xFF38BDF8),
               side: const BorderSide(color: Color(0xFF38BDF8)),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CameraScanScreen extends StatefulWidget {
+  final Function(String) onDetected;
+  final VoidCallback onManualFallback;
+
+  const _CameraScanScreen({
+    required this.onDetected,
+    required this.onManualFallback,
+  });
+
+  @override
+  State<_CameraScanScreen> createState() => _CameraScanScreenState();
+}
+
+class _CameraScanScreenState extends State<_CameraScanScreen> {
+  late final MobileScannerController _scannerController;
+  bool _hasDetected = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scannerController = MobileScannerController(
+      detectionSpeed: DetectionSpeed.normal,
+      facing: CameraFacing.back,
+      torchEnabled: false,
+      autoStart: true,
+    );
+  }
+
+  @override
+  void dispose() {
+    _scannerController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        elevation: 0,
+        title: const Text("Scannez le QR Code Gérant", style: TextStyle(color: Colors.white, fontSize: 16)),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        actions: [
+          IconButton(
+            icon: ValueListenableBuilder(
+              valueListenable: _scannerController,
+              builder: (context, state, child) {
+                return Icon(
+                  state.torchState == TorchState.on ? Icons.flash_on : Icons.flash_off,
+                  color: Colors.white,
+                );
+              },
+            ),
+            onPressed: () => _scannerController.toggleTorch(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.flip_camera_android, color: Colors.white),
+            onPressed: () => _scannerController.switchCamera(),
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          MobileScanner(
+            controller: _scannerController,
+            errorBuilder: (context, error, child) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.camera_alt_outlined, color: Color(0xFFF87171), size: 48),
+                      const SizedBox(height: 12),
+                      const Text(
+                        "Accès Caméra Requis",
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        "Veuillez autoriser l'accès à la caméra pour scanner votre invitation QR.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: () => _scannerController.start(),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text("Réessayer"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF38BDF8),
+                          foregroundColor: const Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          widget.onManualFallback();
+                        },
+                        child: const Text("Saisir mon code manuellement", style: TextStyle(color: Color(0xFF38BDF8))),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+            onDetect: (capture) {
+              if (_hasDetected) return;
+              final barcodes = capture.barcodes;
+              for (final barcode in barcodes) {
+                final raw = barcode.rawValue;
+                if (raw != null && raw.trim().isNotEmpty) {
+                  _hasDetected = true;
+                  Navigator.pop(context);
+                  widget.onDetected(raw.trim());
+                  break;
+                }
+              }
+            },
+          ),
+          Center(
+            child: Container(
+              width: 250,
+              height: 250,
+              decoration: BoxDecoration(
+                border: Border.all(color: const Color(0xFF38BDF8), width: 3),
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 40,
+            left: 20,
+            right: 20,
+            child: Column(
+              children: [
+                const Text(
+                  "Placez le QR Code de votre invitation dans le cadre",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    widget.onManualFallback();
+                  },
+                  child: const Text(
+                    "Vous préférez saisir votre code manuellement ?",
+                    style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12, decoration: TextDecoration.underline),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

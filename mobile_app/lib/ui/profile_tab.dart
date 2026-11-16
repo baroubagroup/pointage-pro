@@ -1,5 +1,7 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../models/employee_session.dart';
+import '../services/face_recognition_service.dart';
 import '../services/offline_sync_service.dart';
 import 'enrollment_screen.dart';
 
@@ -52,61 +54,38 @@ class _ProfileTabState extends State<ProfileTab> {
       return;
     }
 
-    final confirm = await showDialog<bool>(
+    // Ouvrir le modal caméra réel
+    showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.face_retouching_natural_rounded, color: Color(0xFF38BDF8)),
-            SizedBox(width: 8),
-            Text("Mettre à jour l'empreinte faciale", style: TextStyle(color: Colors.white, fontSize: 15)),
-          ],
-        ),
-        content: Text(
-          "Attention : vous avez droit à 2 modifications au total. Il vous restera ${1 - _currentSession.faceUpdateCount} modification(s) après cette opération. Continuer ?",
-          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("Annuler", style: TextStyle(color: Color(0xFF94A3B8))),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38BDF8), foregroundColor: const Color(0xFF0F172A)),
-            child: const Text("Scanner mon visage"),
-          ),
-        ],
+      barrierDismissible: false,
+      builder: (ctx) => _FaceCaptureModal(
+        onCaptureSuccess: (newVector) async {
+          setState(() => _isUpdatingFace = true);
+          final res = await OfflineSyncService().updateFaceSignature(
+            employeeId: _currentSession.id,
+            newVector: newVector,
+            currentUpdateCount: _currentSession.faceUpdateCount,
+          );
+          if (mounted) {
+            setState(() => _isUpdatingFace = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(res['message'] ?? ''),
+                backgroundColor: res['success'] == true ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+              ),
+            );
+            if (res['success'] == true) {
+              final updated = await OfflineSyncService().getStoredEmployeeSession();
+              if (updated != null && mounted) {
+                setState(() {
+                  _currentSession = updated;
+                });
+              }
+            }
+          }
+        },
       ),
     );
-
-    if (confirm == true) {
-      setState(() => _isUpdatingFace = true);
-      final res = await OfflineSyncService().updateFaceSignature(
-        employeeId: _currentSession.id,
-        newVector: "VEC_${DateTime.now().millisecondsSinceEpoch}_512D",
-        currentUpdateCount: _currentSession.faceUpdateCount,
-      );
-      if (mounted) {
-        setState(() => _isUpdatingFace = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(res['message'] ?? ''),
-            backgroundColor: res['success'] == true ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-          ),
-        );
-        if (res['success'] == true) {
-          final updated = await OfflineSyncService().getStoredEmployeeSession();
-          if (updated != null && mounted) {
-            setState(() {
-              _currentSession = updated;
-            });
-          }
-        }
-      }
-    }
   }
 
   Future<void> _handleLogout(BuildContext context) async {
@@ -188,7 +167,6 @@ class _ProfileTabState extends State<ProfileTab> {
               ),
               child: Column(
                 children: [
-                  // Avatar
                   Container(
                     width: 78,
                     height: 78,
@@ -249,7 +227,6 @@ class _ProfileTabState extends State<ProfileTab> {
                           fontSize: 13,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'monospace',
-                          letterSpacing: 0.5,
                         ),
                       ),
                     ],
@@ -260,37 +237,44 @@ class _ProfileTabState extends State<ProfileTab> {
 
             const SizedBox(height: 20),
 
-            // Détails Organisationnels
-            _buildSectionHeader("Informations Professionnelles"),
+            // Détails du Compte & Affectation
+            _buildSectionHeader("Affectation & Planning de Travail"),
             const SizedBox(height: 10),
 
             Container(
               decoration: BoxDecoration(
                 color: const Color(0xFF1E293B),
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: Colors.white.withOpacity(0.06)),
               ),
               child: Column(
                 children: [
                   _buildDetailRow(
-                    icon: Icons.business,
-                    label: "Établissement / Site",
+                    icon: Icons.business_rounded,
+                    label: "Établissement Attribué",
                     value: _currentSession.establishmentName,
-                    accentColor: const Color(0xFF3B82F6),
+                    accentColor: const Color(0xFF38BDF8),
                   ),
-                  const Divider(color: Color(0xFF334155), height: 1),
+                  const Divider(color: Color(0xFF334155), height: 1, indent: 56),
                   _buildDetailRow(
-                    icon: Icons.phone,
-                    label: "Téléphone",
-                    value: _currentSession.phone.isNotEmpty ? _currentSession.phone : "Non renseigné",
+                    icon: Icons.calendar_today_rounded,
+                    label: "Planning de Travail",
+                    value: "${_currentSession.scheduleName} (${_currentSession.morningStart} - ${_currentSession.afternoonEnd})",
                     accentColor: const Color(0xFF10B981),
                   ),
-                  const Divider(color: Color(0xFF334155), height: 1),
+                  const Divider(color: Color(0xFF334155), height: 1, indent: 56),
                   _buildDetailRow(
-                    icon: Icons.security,
-                    label: "Sécurité Matérielle",
-                    value: "Appareil Mobile Scellé",
-                    accentColor: const Color(0xFF6366F1),
+                    icon: Icons.phone_android_rounded,
+                    label: "Numéro Enregistré",
+                    value: _currentSession.phone.isNotEmpty ? _currentSession.phone : "+226 Enregistré",
+                    accentColor: const Color(0xFF10B981),
+                  ),
+                  const Divider(color: Color(0xFF334155), height: 1, indent: 56),
+                  _buildDetailRow(
+                    icon: Icons.phonelink_lock_rounded,
+                    label: "Appareil Matériel Lié",
+                    value: _currentSession.deviceModel ?? "Smartphone Sécurisé",
+                    accentColor: const Color(0xFFF59E0B),
                   ),
                 ],
               ),
@@ -298,15 +282,15 @@ class _ProfileTabState extends State<ProfileTab> {
 
             const SizedBox(height: 20),
 
-            // Reconnaissance Faciale & Anti-Fraude
-            _buildSectionHeader("Reconnaissance Faciale & Dépannage"),
+            // Module Signature Faciale
+            _buildSectionHeader("Biométrie & Dépannage Collègues"),
             const SizedBox(height: 10),
 
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
                 color: const Color(0xFF1E293B),
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: Colors.white.withOpacity(0.06)),
               ),
               child: Column(
@@ -317,43 +301,65 @@ class _ProfileTabState extends State<ProfileTab> {
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.face_unlock_rounded, color: Color(0xFF38BDF8), size: 18),
+                          Icon(Icons.face_retouching_natural_rounded, color: Color(0xFF38BDF8), size: 20),
                           SizedBox(width: 8),
-                          Text("Signature Faciale Active", style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                          Text(
+                            "Signature Faciale",
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
                         ],
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: _currentSession.faceUpdateCount >= 2 ? const Color(0xFFEF4444).withOpacity(0.2) : const Color(0xFF10B981).withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(10),
+                          color: const Color(0xFF10B981).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3)),
                         ),
                         child: Text(
-                          "Quota : ${_currentSession.faceUpdateCount} / 2",
-                          style: TextStyle(
-                            color: _currentSession.faceUpdateCount >= 2 ? const Color(0xFFF87171) : const Color(0xFF34D399),
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          _currentSession.faceEmbeddingVector != null ? "Actif & Certifié" : "Non configuré",
+                          style: const TextStyle(color: Color(0xFF10B981), fontSize: 10, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    "Permet à vos collègues de vous dépanner si votre smartphone est déchargé. Zéro photo enregistrée sur le cloud (comparaison locale en mémoire vive).",
-                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11, height: 1.3),
+                  Text(
+                    "Utilisée pour vous identifier en RAM si votre téléphone est en panne et que vous utilisez l'appareil d'un collègue.",
+                    style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 11, height: 1.4),
                   ),
                   const SizedBox(height: 12),
+
+                  // Quota de modifications anti-fraude
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        "Quota anti-usurpation :",
+                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                      ),
+                      Text(
+                        "${_currentSession.faceUpdateCount}/2 modifications",
+                        style: TextStyle(
+                          color: _currentSession.faceUpdateCount >= 2 ? const Color(0xFFEF4444) : const Color(0xFF38BDF8),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Bouton Mettre à jour avec Caméra Réelle
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: _isUpdatingFace ? null : _handleUpdateFaceSignature,
-                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      icon: const Icon(Icons.camera_alt_outlined, size: 16),
                       label: Text(
                         _currentSession.faceUpdateCount >= 2
                             ? "Quota de modifications épuisé"
-                            : "Mettre à jour mon empreinte faciale",
+                            : "Prendre mon selfie biométrique",
                         style: const TextStyle(fontSize: 12),
                       ),
                       style: OutlinedButton.styleFrom(
@@ -382,21 +388,21 @@ class _ProfileTabState extends State<ProfileTab> {
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(color: Colors.white.withOpacity(0.06)),
               ),
-              child: Column(
+              child: const Column(
                 children: [
-                  _buildSecurityTile(
+                  _SecurityTile(
                     title: "Horloge Satellite Atomique UTC",
                     desc: "Inaltérable même en modifiant l'heure manuelle du téléphone.",
                     icon: Icons.satellite_alt,
                   ),
-                  const SizedBox(height: 12),
-                  _buildSecurityTile(
+                  SizedBox(height: 12),
+                  _SecurityTile(
                     title: "Bouclier Anti-Faux GPS",
                     desc: "Détection active des applications d'usurpation (Mock Locations).",
                     icon: Icons.radar,
                   ),
-                  const SizedBox(height: 12),
-                  _buildSecurityTile(
+                  SizedBox(height: 12),
+                  _SecurityTile(
                     title: "Liaison Unique 1 Appareil = 1 Collaborateur",
                     desc: "Interdiction du pointage de complaisance pour un tiers.",
                     icon: Icons.phonelink_lock,
@@ -476,12 +482,21 @@ class _ProfileTabState extends State<ProfileTab> {
       ),
     );
   }
+}
 
-  Widget _buildSecurityTile({
-    required String title,
-    required String desc,
-    required IconData icon,
-  }) {
+class _SecurityTile extends StatelessWidget {
+  final String title;
+  final String desc;
+  final IconData icon;
+
+  const _SecurityTile({
+    required this.title,
+    required this.desc,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -498,6 +513,156 @@ class _ProfileTabState extends State<ProfileTab> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _FaceCaptureModal extends StatefulWidget {
+  final Function(String biometricVector) onCaptureSuccess;
+
+  const _FaceCaptureModal({required this.onCaptureSuccess});
+
+  @override
+  State<_FaceCaptureModal> createState() => _FaceCaptureModalState();
+}
+
+class _FaceCaptureModalState extends State<_FaceCaptureModal> {
+  CameraController? _cameraController;
+  bool _isInit = false;
+  bool _isProcessing = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _initCam();
+  }
+
+  Future<void> _initCam() async {
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isNotEmpty) {
+        final front = cameras.firstWhere(
+          (c) => c.lensDirection == CameraLensDirection.front,
+          orElse: () => cameras.first,
+        );
+        _cameraController = CameraController(front, ResolutionPreset.medium, enableAudio: false);
+        await _cameraController!.initialize();
+        if (mounted) setState(() => _isInit = true);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _errorMessage = "Erreur caméra : $e");
+    }
+  }
+
+  @override
+  void dispose() {
+    _cameraController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _captureAndAnalyze() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+    setState(() {
+      _isProcessing = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final photo = await _cameraController!.takePicture();
+      final bytes = await photo.readAsBytes();
+      final result = await FaceRecognitionService().analyzeFaceImage(bytes);
+
+      if (!result.isValidFace) {
+        setState(() {
+          _isProcessing = false;
+          _errorMessage = result.errorMessage ?? "Visage non détecté.";
+        });
+        return;
+      }
+
+      widget.onCaptureSuccess(result.biometricVector);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      setState(() {
+        _isProcessing = false;
+        _errorMessage = "Erreur capture : $e";
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF0F172A),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Enrôlement Biométrique Facial",
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              "Placez votre visage au centre du cadre pour enregistrer votre signature",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+            ),
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: SizedBox(
+                width: 220,
+                height: 220,
+                child: _isInit && _cameraController != null
+                    ? CameraPreview(_cameraController!)
+                    : const Center(child: CircularProgressIndicator(color: Color(0xFF38BDF8))),
+              ),
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  _errorMessage!,
+                  style: const TextStyle(color: Color(0xFFF87171), fontSize: 11),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+            const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Annuler", style: TextStyle(color: Color(0xFF94A3B8))),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: _isInit && !_isProcessing ? _captureAndAnalyze : null,
+                  icon: _isProcessing
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Icon(Icons.camera_alt, size: 16),
+                  label: Text(_isProcessing ? "Analyse..." : "Prendre mon selfie"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF38BDF8),
+                    foregroundColor: const Color(0xFF0F172A),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
