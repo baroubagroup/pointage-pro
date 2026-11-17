@@ -40,7 +40,21 @@ import {
   Sun,
   Coffee,
   Moon,
-  AlertTriangle
+  AlertTriangle,
+  QrCode,
+  Printer,
+  Share2,
+  MessageSquare,
+  Copy,
+  Download,
+  Lock,
+  Globe,
+  PhoneCall,
+  HelpCircle,
+  Info,
+  ExternalLink,
+  FileText,
+  CheckCheck
 } from 'lucide-react';
 
 // ==================== INTERFACES ====================
@@ -88,6 +102,10 @@ interface SecurityConfig {
   grace_delay_minutes: number;
   max_break_minutes: number;
   sector_profile?: 'ENTERPRISE' | 'SCHOOL' | 'EVENT';
+  admission_policy?: 'STRICT' | 'MODERATE' | 'OPEN';
+  timezone?: string;
+  currency?: string;
+  support_contact?: string;
 }
 
 const DEFAULT_SECURITY_CONFIG: SecurityConfig = {
@@ -180,11 +198,31 @@ function ParametresContent() {
   const [orgName, setOrgName] = useState('BAROUBA POINTAGE PRO');
   const [orgCode, setOrgCode] = useState('ORG-8492');
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
+  const [showPosterModal, setShowPosterModal] = useState(false);
   const [timezone, setTimezone] = useState('Africa/Abidjan (GMT 0)');
   const [sectorProfile, setSectorProfile] = useState<'ENTERPRISE' | 'SCHOOL' | 'EVENT'>('ENTERPRISE');
+  const [admissionPolicy, setAdmissionPolicy] = useState<'STRICT' | 'MODERATE' | 'OPEN'>('STRICT');
+  const [currency, setCurrency] = useState('FCFA (XOF)');
+  const [supportContact, setSupportContact] = useState('+225 07 00 00 00 00');
   const [securityConfig, setSecurityConfig] = useState<SecurityConfig>(DEFAULT_SECURITY_CONFIG);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Helper copie message WhatsApp
+  const handleCopyWhatsAppMessage = () => {
+    const terminology = sectorProfile === 'SCHOOL' ? 'élèves / parents' : 'collaborateurs';
+    const text = `📢 *PointagePro - Guide de Connexion Officiel*\n🏛️ *${orgName}*\n\nBonjour chers ${terminology},\nPour valider vos présences et pointages directement depuis votre smartphone :\n\n1️⃣ Téléchargez l'application mobile *PointagePro* sur votre téléphone.\n2️⃣ À l'ouverture, appuyez sur « Rejoindre mon Organisation ».\n3️⃣ Saisissez votre Code Établissement : *${orgCode}*\n4️⃣ Renseignez votre Matricule personnel et activez votre sécurité locale (Empreinte / FaceID).\n\n🔒 Vos pointages sont certifiés par satellite WGS84 et réseau certifié.\n📞 Support : ${supportContact}`;
+    navigator.clipboard.writeText(text);
+    setCopiedWhatsApp(true);
+    setTimeout(() => setCopiedWhatsApp(false), 2500);
+  };
+
+  // Helper téléchargement du QR code
+  const handleDownloadQrCode = () => {
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent('pointagepro://join?org=' + orgCode + '&name=' + encodeURIComponent(orgName))}`;
+    window.open(qrUrl, '_blank');
+  };
 
   // State Sites & Radar
   const [sites, setSites] = useState<SimpleSite[]>(FALLBACK_SITES);
@@ -239,10 +277,20 @@ function ParametresContent() {
         if (orgData) {
           if (orgData.name) setOrgName(orgData.name);
           if (orgData.org_code) setOrgCode(orgData.org_code);
+          if (orgData.timezone) setTimezone(orgData.timezone);
           if (orgData.security_config) {
             setSecurityConfig(prev => ({ ...prev, ...orgData.security_config }));
             if (orgData.security_config.sector_profile) {
               setSectorProfile(orgData.security_config.sector_profile);
+            }
+            if (orgData.security_config.admission_policy) {
+              setAdmissionPolicy(orgData.security_config.admission_policy);
+            }
+            if (orgData.security_config.currency) {
+              setCurrency(orgData.security_config.currency);
+            }
+            if (orgData.security_config.support_contact) {
+              setSupportContact(orgData.security_config.support_contact);
             }
           }
         }
@@ -363,7 +411,11 @@ function ParametresContent() {
 
     const mergedConfig: SecurityConfig = {
       ...securityConfig,
-      sector_profile: sectorProfile
+      sector_profile: sectorProfile,
+      admission_policy: admissionPolicy,
+      timezone: timezone,
+      currency: currency,
+      support_contact: supportContact
     };
 
     if (typeof window !== 'undefined') {
@@ -379,12 +431,15 @@ function ParametresContent() {
         .update({
           name: orgName,
           org_code: orgCode.toUpperCase().trim(),
+          timezone: timezone,
           security_config: mergedConfig
         })
         .eq('id', '00000000-0000-0000-0000-000000000001');
 
       setSaved(true);
+      setToastMsg('Paramètres d\'organisation et clé multi-tenant enregistrés avec succès !');
       setTimeout(() => setSaved(false), 3500);
+      setTimeout(() => setToastMsg(null), 3500);
     } catch (err) {
       console.error('Erreur sauvegarde générale:', err);
       setSaved(true);
@@ -625,29 +680,31 @@ function ParametresContent() {
 
       {/* ==================== ONGLET 1 : ORGANISATION & MÉTIER ==================== */}
       {activeTab === 'general' && (
-        <form onSubmit={handleSaveGeneral} className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-xs space-y-7 animate-fadeIn">
+        <form onSubmit={handleSaveGeneral} className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-xs space-y-8 animate-fadeIn">
           
           {/* Cas d'usage métier */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-blue-600" />
-                Secteur d'Activité & Profil Métier
-              </h3>
-              <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
+              <div>
+                <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-blue-600" />
+                  Secteur d'Activité & Profil Métier
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Adapte dynamiquement la terminologie, les flux d'absences et les rapports à votre réalité opérationnelle.
+                </p>
+              </div>
+              <span className="text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 shrink-0">
                 Adaptation Automatique
               </span>
             </div>
-            <p className="text-xs text-slate-500">
-              Détermine la terminologie (Collaborateurs/Départements vs Élèves/Classes vs Participants/Badges) dans toute l'application.
-            </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
               <div
                 onClick={() => setSectorProfile('ENTERPRISE')}
                 className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between ${
                   sectorProfile === 'ENTERPRISE'
-                    ? 'border-blue-600 bg-blue-50/40 ring-2 ring-blue-500/20'
+                    ? 'border-blue-600 bg-blue-50/40 ring-2 ring-blue-500/20 shadow-xs'
                     : 'border-slate-200 hover:border-slate-300 bg-white'
                 }`}
               >
@@ -660,8 +717,13 @@ function ParametresContent() {
                 <div>
                   <h4 className="font-bold text-xs text-slate-900">Entreprise / PME / Chantier</h4>
                   <p className="text-[10px] text-slate-500 mt-1 leading-snug">
-                    Collaborateurs, Départements, Heures de travail, Chantiers & Agences
+                    Gestion par Collaborateurs, Départements, Heures supplémentaires & Agences
                   </p>
+                  <div className="mt-2.5 flex flex-wrap gap-1">
+                    <span className="text-[9px] bg-slate-100 font-semibold px-2 py-0.5 rounded-md text-slate-600">Collaborateurs</span>
+                    <span className="text-[9px] bg-slate-100 font-semibold px-2 py-0.5 rounded-md text-slate-600">Départements</span>
+                    <span className="text-[9px] bg-slate-100 font-semibold px-2 py-0.5 rounded-md text-slate-600">Heures RH</span>
+                  </div>
                 </div>
               </div>
 
@@ -669,7 +731,7 @@ function ParametresContent() {
                 onClick={() => setSectorProfile('SCHOOL')}
                 className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between ${
                   sectorProfile === 'SCHOOL'
-                    ? 'border-indigo-600 bg-indigo-50/40 ring-2 ring-indigo-500/20'
+                    ? 'border-indigo-600 bg-indigo-50/40 ring-2 ring-indigo-500/20 shadow-xs'
                     : 'border-slate-200 hover:border-slate-300 bg-white'
                 }`}
               >
@@ -682,8 +744,13 @@ function ParametresContent() {
                 <div>
                   <h4 className="font-bold text-xs text-slate-900">Établissement Scolaire (500+ Élèves)</h4>
                   <p className="text-[10px] text-slate-500 mt-1 leading-snug">
-                    Élèves, Classes, Campus, Justifications parentales d'absence
+                    Élèves, Classes, Campus & Justifications parentales d'absence
                   </p>
+                  <div className="mt-2.5 flex flex-wrap gap-1">
+                    <span className="text-[9px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-md">Élèves</span>
+                    <span className="text-[9px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-md">Classes</span>
+                    <span className="text-[9px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-md">Billets de Retard</span>
+                  </div>
                 </div>
               </div>
 
@@ -691,7 +758,7 @@ function ParametresContent() {
                 onClick={() => setSectorProfile('EVENT')}
                 className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between ${
                   sectorProfile === 'EVENT'
-                    ? 'border-purple-600 bg-purple-50/40 ring-2 ring-purple-500/20'
+                    ? 'border-purple-600 bg-purple-50/40 ring-2 ring-purple-500/20 shadow-xs'
                     : 'border-slate-200 hover:border-slate-300 bg-white'
                 }`}
               >
@@ -704,21 +771,26 @@ function ParametresContent() {
                 <div>
                   <h4 className="font-bold text-xs text-slate-900">Événementiel & Salons</h4>
                   <p className="text-[10px] text-slate-500 mt-1 leading-snug">
-                    Participants, Badges, Pavillons & Portiques d'accès WGS84
+                    Participants, Badges d'accès, Pavillons & Portiques WGS84
                   </p>
+                  <div className="mt-2.5 flex flex-wrap gap-1">
+                    <span className="text-[9px] bg-purple-50 text-purple-700 font-bold px-2 py-0.5 rounded-md">Participants</span>
+                    <span className="text-[9px] bg-purple-50 text-purple-700 font-bold px-2 py-0.5 rounded-md">Badges</span>
+                    <span className="text-[9px] bg-purple-50 text-purple-700 font-bold px-2 py-0.5 rounded-md">Flux Portiques</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Identité & Code ORG */}
+          {/* Identité de l'Organisation & Code Canonique */}
           <div className="pt-6 border-t border-slate-100 space-y-4">
             <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
               <Building2 className="w-4 h-4 text-blue-600" />
               Identité de l'Organisation & Code Canonique
             </h3>
 
-            <div className="space-y-4 pt-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Nom Officiel de l'Organisation / Établissement
@@ -734,7 +806,7 @@ function ParametresContent() {
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-bold text-slate-700">
-                    Code Établissement Unique (Clé Multi-Tenant d'Enrôlement)
+                    Code Établissement Unique (Clé Multi-Tenant)
                   </label>
                   <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
                     Distribué aux élèves & employés
@@ -760,31 +832,246 @@ function ParametresContent() {
                     <span>{copiedCode ? '✓ Copié !' : 'Copier le Code'}</span>
                   </button>
                 </div>
-                <span className="text-[10px] text-slate-400 mt-1 block">
-                  * Vos élèves ou employés renseignent ce code simple (ex: <strong className="font-mono text-slate-600">ORG-8492</strong>) sur l'application mobile pour lier leur smartphone avec leur matricule et secret 2FA.
+              </div>
+            </div>
+          </div>
+
+          {/* ==================== KIT D'ENRÔLEMENT FLASH & DIFFUSION MASSIVE ==================== */}
+          <div className="p-5 sm:p-6 bg-linear-to-br from-blue-50/70 via-indigo-50/40 to-slate-50 rounded-3xl border border-blue-200/80 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 bg-blue-100/80 px-2.5 py-0.5 rounded-full inline-block mb-1">
+                  Déploiement Massif & Zéro Friction
+                </span>
+                <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                  <QrCode className="w-4 h-4 text-blue-600" />
+                  Kit d'Enrôlement Flash pour Smartphones (500+ Utilisateurs)
+                </h4>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Élimine les erreurs de saisie : les élèves ou employés scannent ce QR Code officiel pour connecter instantanément leur smartphone à votre établissement.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setShowPosterModal(true)}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm shadow-blue-500/20 cursor-pointer transition"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Affiche A4 Imprimable</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyWhatsAppMessage}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm shadow-emerald-500/20 cursor-pointer transition"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>{copiedWhatsApp ? '✓ Message Copié !' : 'Annonce WhatsApp'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-blue-100 flex flex-col md:flex-row items-center gap-5">
+              {/* Image QR Code */}
+              <div className="relative shrink-0 p-2.5 bg-white rounded-2xl border border-slate-200 shadow-xs flex flex-col items-center">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent('pointagepro://join?org=' + orgCode + '&name=' + encodeURIComponent(orgName))}`}
+                  alt="QR Code d'enrôlement établissement"
+                  className="w-32 h-32 object-contain"
+                />
+                <span className="text-[10px] font-mono font-bold text-slate-700 mt-1.5 bg-slate-100 px-2 py-0.5 rounded">
+                  {orgCode}
                 </span>
               </div>
 
+              {/* Guide et explications */}
+              <div className="flex-1 space-y-2 text-xs">
+                <h5 className="font-bold text-slate-900">Comment distribuer l'accès à grande échelle ?</h5>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="font-bold text-blue-700 block mb-0.5">1. Affiche Babillard</span>
+                    <span className="text-slate-500">Imprimez l'affiche officielle A4 et posez-la dans le hall ou les salles de classe.</span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="font-bold text-emerald-700 block mb-0.5">2. Groupes WhatsApp</span>
+                    <span className="text-slate-500">Copiez le message d'enrôlement officiel et diffusez-le en 1 clic dans les groupes des classes.</span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="font-bold text-indigo-700 block mb-0.5">3. Scan 2 Secondes</span>
+                    <span className="text-slate-500">L'élève pointe sa caméra sur le QR code et renseigne uniquement son matricule.</span>
+                  </div>
+                </div>
+                
+                <div className="pt-2 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleDownloadQrCode}
+                    className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Télécharger le QR Code PNG Haute Définition</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ==================== MATRICE DE POLITIQUE D'ADMISSION ==================== */}
+          <div className="pt-6 border-t border-slate-100 space-y-4">
+            <div className="flex items-center justify-between">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Fuseau Horaire de Référence</label>
+                <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-blue-600" />
+                  Politique d'Admission & Filtrage des Nouveaux Inscrits
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Règle d'autorisation appliquée lorsqu'un smartphone tente de s'associer à votre établissement.
+                </p>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md">
+                Gouvernance
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+              <div
+                onClick={() => setAdmissionPolicy('STRICT')}
+                className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between ${
+                  admissionPolicy === 'STRICT'
+                    ? 'border-blue-600 bg-blue-50/40 ring-2 ring-blue-500/20'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
+                    🛡️
+                  </div>
+                  {admissionPolicy === 'STRICT' && <CheckCircle2 className="w-4 h-4 text-blue-600" />}
+                </div>
+                <div>
+                  <h4 className="font-bold text-xs text-slate-900">Mode Strict (Recommandé)</h4>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                    Seuls les matricules existant dans votre fichier importé sont autorisés. Tout intrus est bloqué net.
+                  </p>
+                </div>
+              </div>
+
+              <div
+                onClick={() => setAdmissionPolicy('MODERATE')}
+                className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between ${
+                  admissionPolicy === 'MODERATE'
+                    ? 'border-amber-600 bg-amber-50/40 ring-2 ring-amber-500/20'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
+                    ⚖️
+                  </div>
+                  {admissionPolicy === 'MODERATE' && <CheckCircle2 className="w-4 h-4 text-amber-600" />}
+                </div>
+                <div>
+                  <h4 className="font-bold text-xs text-slate-900">Approbation Manuelle</h4>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                    L'enrôlement est libre, mais le compte reste inactif jusqu'à ce que la direction valide le smartphone.
+                  </p>
+                </div>
+              </div>
+
+              <div
+                onClick={() => setAdmissionPolicy('OPEN')}
+                className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between ${
+                  admissionPolicy === 'OPEN'
+                    ? 'border-purple-600 bg-purple-50/40 ring-2 ring-purple-500/20'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
+                    ⚡
+                  </div>
+                  {admissionPolicy === 'OPEN' && <CheckCircle2 className="w-4 h-4 text-purple-600" />}
+                </div>
+                <div>
+                  <h4 className="font-bold text-xs text-slate-900">Mode Ouvert (Salons)</h4>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                    Idéal pour les événements éphémères : liaison immédiate sans vérification préalable de matricule.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ==================== PARAMÈTRES RÉGIONAUX & SUPPORT ==================== */}
+          <div className="pt-6 border-t border-slate-100 space-y-4">
+            <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+              <Globe className="w-4 h-4 text-blue-600" />
+              Paramètres Régionaux & Ligne d'Assistance
+            </h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Fuseau Horaire de Référence
+                </label>
+                <select
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Africa/Abidjan (GMT 0)">Africa/Abidjan (GMT 0 - Côte d'Ivoire)</option>
+                  <option value="Africa/Ouagadougou (GMT 0)">Africa/Ouagadougou (GMT 0 - Burkina Faso)</option>
+                  <option value="Africa/Dakar (GMT 0)">Africa/Dakar (GMT 0 - Sénégal)</option>
+                  <option value="Africa/Bamako (GMT 0)">Africa/Bamako (GMT 0 - Mali)</option>
+                  <option value="Africa/Douala (GMT +1)">Africa/Douala (GMT +1 - Cameroun)</option>
+                  <option value="Africa/Lagos (GMT +1)">Africa/Lagos (GMT +1 - Nigeria)</option>
+                  <option value="Africa/Kinshasa (GMT +1)">Africa/Kinshasa (GMT +1 - RDC)</option>
+                  <option value="Europe/Paris (GMT +1 / +2)">Europe/Paris (GMT +1 / +2 - France)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Devise des Relevés Salariaux
+                </label>
+                <select
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="FCFA (XOF)">FCFA (XOF - Afrique de l'Ouest)</option>
+                  <option value="FCFA (XAF)">FCFA (XAF - Afrique Centrale)</option>
+                  <option value="EUR (€)">EUR (€ - Euro)</option>
+                  <option value="USD ($)">USD ($ - Dollar US)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Contact Support (Affiché sur Mobile)
+                </label>
                 <input
                   type="text"
-                  disabled
-                  value={timezone}
-                  className="w-full text-xs bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-500 font-mono"
+                  value={supportContact}
+                  onChange={(e) => setSupportContact(e.target.value)}
+                  placeholder="+225 07 00 00 00 00"
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             </div>
           </div>
 
           {/* Bouton de sauvegarde */}
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+          <div className="pt-5 border-t border-slate-100 flex items-center justify-between">
             {saved ? (
               <span className="text-xs font-bold text-emerald-600 flex items-center gap-1.5 animate-fadeIn">
-                <CheckCircle2 className="w-4 h-4" /> Paramètres généraux enregistrés avec succès !
+                <CheckCircle2 className="w-4 h-4" /> Paramètres d'organisation et clé multi-tenant enregistrés !
               </span>
             ) : (
-              <span className="text-[11px] text-slate-400">Modifications synchronisées en direct sur les smartphones</span>
+              <span className="text-[11px] text-slate-400">
+                Les modifications sont propagées immédiatement aux smartphones des {sectorProfile === 'SCHOOL' ? 'élèves' : 'collaborateurs'}.
+              </span>
             )}
             <button
               type="submit"
@@ -1588,6 +1875,122 @@ function ParametresContent() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL AFFICHE OFFICIELLE D'ENRÔLEMENT A4 ==================== */}
+      {showPosterModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-2xl overflow-hidden my-8">
+            
+            {/* Barre d'action supérieure (masquée à l'impression) */}
+            <div className="no-print px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Printer className="w-4 h-4 text-blue-400" />
+                <span className="text-xs font-bold">Aperçu Affiche d'Enrôlement A4</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-blue-500/20"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Imprimer l'Affiche</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPosterModal(false)}
+                  className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Corps du document A4 Officiel */}
+            <div className="print-card p-8 sm:p-12 bg-white text-slate-900 space-y-8 border-8 border-slate-100 rounded-2xl m-4 sm:m-6">
+              
+              {/* En-tête institutionnel */}
+              <div className="text-center space-y-2 border-b-2 border-slate-900/10 pb-6">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-800 border border-blue-200 text-xs font-black uppercase tracking-widest">
+                  <Building2 className="w-3.5 h-3.5" />
+                  <span>{sectorProfile === 'SCHOOL' ? 'Établissement Scolaire' : sectorProfile === 'EVENT' ? 'Événement Certifié' : 'Organisation Entreprise'}</span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight uppercase">
+                  {orgName}
+                </h1>
+                <p className="text-xs text-slate-500 font-medium">
+                  Dispositif Officiel de Pointage & Gestion de Présence Décentralisée • PointagePro
+                </p>
+              </div>
+
+              {/* Titre d'instruction */}
+              <div className="text-center space-y-1">
+                <h2 className="text-lg font-extrabold text-blue-900">
+                  📱 Connectez votre Smartphone en 3 Secondes
+                </h2>
+                <p className="text-xs text-slate-600 max-w-md mx-auto">
+                  Scannez le QR Code ci-dessous avec votre appareil photo ou l'application PointagePro pour lier votre téléphone.
+                </p>
+              </div>
+
+              {/* Cadre Central avec QR Code Géant */}
+              <div className="bg-slate-50 border-2 border-dashed border-blue-300 rounded-3xl p-6 sm:p-8 flex flex-col items-center justify-center space-y-4 text-center">
+                <div className="bg-white p-4 rounded-2xl shadow-md border border-slate-200 inline-block">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent('pointagepro://join?org=' + orgCode + '&name=' + encodeURIComponent(orgName))}`}
+                    alt="QR Code Enrôlement"
+                    className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Code Établissement Officiel
+                  </span>
+                  <span className="font-mono font-black text-2xl sm:text-3xl text-blue-700 bg-white px-5 py-1.5 rounded-xl border border-blue-200 inline-block tracking-widest">
+                    {orgCode}
+                  </span>
+                </div>
+              </div>
+
+              {/* Les 3 Étapes Pas-à-Pas */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1">
+                  <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-black text-xs flex items-center justify-center">1</span>
+                  <h4 className="font-bold text-xs text-slate-900">Téléchargez l'App</h4>
+                  <p className="text-[11px] text-slate-500">Ouvrez PointagePro sur votre smartphone Android ou iPhone.</p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1">
+                  <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-black text-xs flex items-center justify-center">2</span>
+                  <h4 className="font-bold text-xs text-slate-900">Scannez le QR</h4>
+                  <p className="text-[11px] text-slate-500">Pointez la caméra sur ce code ou saisissez le code : {orgCode}.</p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1">
+                  <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-black text-xs flex items-center justify-center">3</span>
+                  <h4 className="font-bold text-xs text-slate-900">Validez votre Profil</h4>
+                  <p className="text-[11px] text-slate-500">Indiquez votre matricule et activez la biométrie locale.</p>
+                </div>
+              </div>
+
+              {/* Pied de page et cachet */}
+              <div className="pt-6 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                <div>
+                  <span className="font-bold block text-slate-800">Support & Assistance :</span>
+                  <span>{supportContact}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 block font-mono">Affichage officiel</span>
+                  <span className="font-bold text-slate-700">La Direction</span>
+                </div>
+              </div>
+
+            </div>
+
           </div>
         </div>
       )}
