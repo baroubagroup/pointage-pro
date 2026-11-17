@@ -30,39 +30,99 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _pages,
-      ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF0F172A),
-          border: Border(
-            top: BorderSide(color: Colors.white.withOpacity(0.08), width: 1),
+      backgroundColor: const Color(0xFFF4F7FD),
+      body: Stack(
+        children: [
+          IndexedStack(
+            index: _currentIndex,
+            children: _pages,
           ),
+          Positioned(
+            left: 24,
+            right: 24,
+            bottom: 20,
+            child: _buildFloatingPillNavBar(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingPillNavBar() {
+    return Container(
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(32),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E3A8A).withOpacity(0.12),
+            blurRadius: 28,
+            offset: const Offset(0, 10),
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildNavItem(0, Icons.fingerprint_rounded, "Pointage"),
+          _buildNavItem(1, Icons.bar_chart_rounded, "Activité"),
+          _buildNavItem(2, Icons.person_rounded, "Profil"),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavItem(int index, IconData icon, String label) {
+    final bool isSelected = _currentIndex == index;
+    return GestureDetector(
+      onTap: () => setState(() => _currentIndex = index),
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.symmetric(
+          horizontal: isSelected ? 16 : 12,
+          vertical: 10,
         ),
-        child: NavigationBar(
-          selectedIndex: _currentIndex,
-          onDestinationSelected: (idx) => setState(() => _currentIndex = idx),
-          backgroundColor: const Color(0xFF0F172A),
-          indicatorColor: const Color(0xFF3B82F6).withOpacity(0.2),
-          elevation: 0,
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.fingerprint, color: Color(0xFF94A3B8)),
-              selectedIcon: Icon(Icons.fingerprint, color: Color(0xFF3B82F6)),
-              label: "Pointage",
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF2563EB).withOpacity(0.15),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? const Color(0xFF2563EB) : const Color(0xFF94A3B8),
+              size: 22,
             ),
-            NavigationDestination(
-              icon: Icon(Icons.bar_chart_outlined, color: Color(0xFF94A3B8)),
-              selectedIcon: Icon(Icons.bar_chart, color: Color(0xFF3B82F6)),
-              label: "Statistiques",
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline, color: Color(0xFF94A3B8)),
-              selectedIcon: Icon(Icons.person, color: Color(0xFF3B82F6)),
-              label: "Mon Profil",
-            ),
+            if (isSelected) ...[
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFF2563EB),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                ),
+              ),
+            ],
           ],
         ),
       ),

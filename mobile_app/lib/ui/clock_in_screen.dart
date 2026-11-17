@@ -32,6 +32,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
 
   late Timer _clockTimer;
   late Timer _gpsDistanceTimer;
+  late Timer _deviceBindingTimer;
   DateTime _currentTime = DateTime.now();
   bool _isLoading = false;
   int _pendingSyncCount = 0;
@@ -85,6 +86,9 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
     _refreshDayFSM();
     _startLiveGpsTracking();
     _verifyDeviceLinkActive();
+    _deviceBindingTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      _verifyDeviceLinkActive();
+    });
   }
 
   Future<void> _verifyDeviceLinkActive() async {
@@ -109,18 +113,18 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: const Row(
           children: [
-            Icon(Icons.phonelink_erase, color: Color(0xFFEF4444), size: 22),
+            Icon(Icons.phonelink_erase, color: Color(0xFFEF4444), size: 24),
             SizedBox(width: 8),
-            Text("Appareil Dissocié", style: TextStyle(color: Colors.white, fontSize: 16)),
+            Text("Appareil Dissocié", style: TextStyle(color: Color(0xFF0F172A), fontSize: 16, fontWeight: FontWeight.bold)),
           ],
         ),
         content: const Text(
-          "Votre gestionnaire a réinitialisé la liaison de ce smartphone.\n\nVeuillez scanner à nouveau votre QR code d'enrôlement ou saisir votre code d'activation.",
-          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+          "Ce smartphone a été délié de votre compte par votre superviseur ou la session a expiré.\n\nVeuillez scanner à nouveau votre QR code d'enrôlement ou saisir votre code d'activation.",
+          style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
         ),
         actions: [
           ElevatedButton(
@@ -131,8 +135,9 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
               );
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF38BDF8),
-              foregroundColor: const Color(0xFF0F172A),
+              backgroundColor: const Color(0xFF2563EB),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
             child: const Text("Réenrôler mon Téléphone", style: TextStyle(fontWeight: FontWeight.bold)),
           ),
@@ -145,6 +150,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
   void dispose() {
     _clockTimer.cancel();
     _gpsDistanceTimer.cancel();
+    _deviceBindingTimer.cancel();
     _pulseController.dispose();
     super.dispose();
   }
@@ -622,7 +628,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: const Row(
           children: [
@@ -631,7 +637,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
             Expanded(
               child: Text(
                 "Hors de la zone autorisée",
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 16),
               ),
             ),
           ],
@@ -642,29 +648,29 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
           children: [
             Text(
               "Vous êtes actuellement situé à ${_distanceToSiteMeters.toInt()} mètres du site.",
-              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+              style: const TextStyle(color: Color(0xFF0F172A), fontSize: 13, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
               "Le rayon autorisé est de ${widget.session.establishmentRadius?.toInt() ?? 80} mètres autour de l'établissement '${widget.session.establishmentName}'.",
-              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+              style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
             ),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
+                color: const Color(0xFFEFF6FF),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white10),
+                border: Border.all(color: const Color(0xFFBFDBFE)),
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.info_outline, color: Color(0xFF38BDF8), size: 16),
+                  Icon(Icons.info_outline, color: Color(0xFF2563EB), size: 16),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       "Rapprochez-vous de votre lieu de travail pour déverrouiller le bouton de pointage.",
-                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                      style: TextStyle(color: Color(0xFF1E40AF), fontSize: 11),
                     ),
                   ),
                 ],
@@ -676,7 +682,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF3B82F6),
+              backgroundColor: const Color(0xFF2563EB),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
@@ -691,7 +697,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Row(
           children: [
@@ -700,7 +706,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
             Expanded(
               child: Text(
                 "${punch.label} validé !",
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 16),
               ),
             ),
           ],
@@ -711,11 +717,11 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
           children: [
             Text(
               "Collaborateur : ${widget.session.fullName}",
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+              style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 13),
             ),
             Text(
               "Matricule : ${widget.session.matricule}",
-              style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+              style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
             ),
             const SizedBox(height: 10),
             _buildDialogRow(
@@ -734,18 +740,18 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEF4444).withOpacity(0.15),
+                  color: const Color(0xFFFEF2F2),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.3)),
+                  border: Border.all(color: const Color(0xFFFECACA)),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFF87171), size: 16),
+                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFEF4444), size: 16),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         "Retard de $lateMinutes min détecté. Vous pouvez transmettre une justification si nécessaire.",
-                        style: const TextStyle(color: Color(0xFFFCA5A5), fontSize: 11),
+                        style: const TextStyle(color: Color(0xFFB91C1C), fontSize: 11),
                       ),
                     ),
                   ],
@@ -758,7 +764,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
           if (isLate) ...[
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text("Plus tard", style: TextStyle(color: Color(0xFF94A3B8))),
+              child: const Text("Plus tard", style: TextStyle(color: Color(0xFF64748B))),
             ),
             ElevatedButton.icon(
               onPressed: () {
@@ -773,7 +779,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
               label: Text("Justifier ($lateMinutes min)", style: const TextStyle(fontWeight: FontWeight.bold)),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFF59E0B),
-                foregroundColor: const Color(0xFF0F172A),
+                foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
@@ -797,14 +803,14 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: const Color(0xFF38BDF8), size: 15),
+        Icon(icon, color: const Color(0xFF2563EB), size: 16),
         const SizedBox(width: 8),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10)),
-              Text(value, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+              Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 10)),
+              Text(value, style: const TextStyle(color: Color(0xFF0F172A), fontSize: 12, fontWeight: FontWeight.w700)),
             ],
           ),
         ),
@@ -827,41 +833,793 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
     final dateStr = DateFormat('EEEE d MMMM yyyy', 'fr_FR').format(_currentTime);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0F1D),
+      backgroundColor: const Color(0xFFF4F7FD),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. Barre Supérieure : Profil, Matricule, Dépannage & Synchro
+              // 1. Barre Supérieure : Profil, Titre, Notifications
               _buildTopHeader(),
 
               const SizedBox(height: 18),
 
-              // 2. Horloge Atomique Satellite UTC
-              _buildClockCard(timeStr, dateStr),
-
-              const SizedBox(height: 18),
-
-              // 3. Radar Geofencing Dynamique en Temps Réel
-              _buildGeofencingRadarCard(),
-
-              const SizedBox(height: 24),
-
-              // 4. Bouton Héroïque Central Biométrique (State Machine)
-              _buildHeroicPulsingRadarButton(),
-
-              const SizedBox(height: 24),
-
-              // 5. Actions Secondaires (Clôture / Reprise / Justification)
-              _buildSecondaryActionSection(),
+              // 2. Hero Card Bleu Royal Vibrant (Jauge circulaire + État du Shift)
+              _buildHeroCard(),
 
               const SizedBox(height: 16),
+
+              // 3. Bento Grid Asymétrique (Action, Géofence Liquid, Horloge Sparkline, Dépannage, Planning)
+              _buildBentoGrid(timeStr, dateStr),
+
+              const SizedBox(height: 16),
+
+              // 4. Actions Secondaires (Clôture / Imprévu)
+              _buildSecondaryActionSection(),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTopHeader() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Vue Générale 👋",
+              style: TextStyle(
+                color: Color(0xFF0F172A),
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                Text(
+                  widget.session.fullName,
+                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFBFDBFE)),
+                  ),
+                  child: Text(
+                    widget.session.matricule,
+                    style: const TextStyle(color: Color(0xFF2563EB), fontSize: 9, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        Row(
+          children: [
+            // Bouton Notifications
+            InkWell(
+              onTap: _showNotificationsDialog,
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(color: const Color(0xFF1E3A8A).withValues(alpha: 0.08), blurRadius: 10, offset: const Offset(0, 3)),
+                  ],
+                ),
+                child: const Icon(Icons.notifications_outlined, color: Color(0xFF2563EB), size: 18),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Avatar Collaborateur
+            Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(color: const Color(0xFF1E3A8A).withValues(alpha: 0.12), blurRadius: 12, offset: const Offset(0, 4)),
+                ],
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF2563EB), Color(0xFF38BDF8)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: CircleAvatar(
+                radius: 18,
+                backgroundColor: const Color(0xFF2563EB),
+                child: Text(
+                  widget.session.initials,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeroCard() {
+    double progressPercent = 0.0;
+    String heroTitle = "Prêt à démarrer ! 👋";
+    String heroSubtitle = "Shift : ${widget.session.morningStart} - ${widget.session.afternoonEnd}";
+
+    if (_workState == DayWorkState.working) {
+      heroTitle = "En poste • Bon travail ! ⚡";
+      heroSubtitle = _stateSubtitle;
+      progressPercent = 0.75;
+    } else if (_workState == DayWorkState.onBreak) {
+      heroTitle = "Pause repas en cours ☕";
+      heroSubtitle = _stateSubtitle;
+      progressPercent = 0.50;
+    } else if (_workState == DayWorkState.completed) {
+      heroTitle = "Journée terminée 🎉";
+      heroSubtitle = "Présence certifiée aujourd'hui";
+      progressPercent = 1.0;
+    }
+
+    final int percentInt = (progressPercent * 100).toInt();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1D4ED8), Color(0xFF2563EB), Color(0xFF3B82F6)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF2563EB).withValues(alpha: 0.38),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Jauge Circulaire en Anneau
+          SizedBox(
+            width: 68,
+            height: 68,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 68,
+                  height: 68,
+                  child: CircularProgressIndicator(
+                    value: progressPercent > 0 ? progressPercent : 0.08,
+                    strokeWidth: 6.5,
+                    backgroundColor: Colors.white.withValues(alpha: 0.22),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                    strokeCap: StrokeCap.round,
+                  ),
+                ),
+                Text(
+                  "$percentInt%",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  heroTitle,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  heroSubtitle,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.88),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    _pendingSyncCount > 0
+                        ? "$_pendingSyncCount hors-ligne en attente 🔄"
+                        : "📍 ${widget.session.establishmentName}",
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBentoGrid(String timeStr, String dateStr) {
+    return Column(
+      children: [
+        // Ligne 1 : Action du moment & Réservoir Géofence
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: _buildBentoPunchCard()),
+            const SizedBox(width: 14),
+            Expanded(child: _buildBentoGeofenceCard()),
+          ],
+        ),
+        const SizedBox(height: 14),
+        // Ligne 2 : Satellite Sparkline & Dépannage
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: _buildBentoSparklineClockCard(timeStr)),
+            const SizedBox(width: 14),
+            Expanded(child: _buildBentoColleagueCard()),
+          ],
+        ),
+        const SizedBox(height: 14),
+        // Ligne 3 : Planning en capsule pleine largeur
+        _buildBentoPlanningCard(),
+      ],
+    );
+  }
+
+  Widget _buildBentoPunchCard() {
+    String actionTitle;
+    String actionSubtitle;
+    IconData actionIcon;
+    List<Color> gradientColors;
+    PunchType punchType;
+
+    switch (_workState) {
+      case DayWorkState.notArrived:
+        actionTitle = "POINTER";
+        actionSubtitle = "Arrivée Matin";
+        actionIcon = Icons.login_rounded;
+        gradientColors = const [Color(0xFF10B981), Color(0xFF059669)];
+        punchType = PunchType.checkIn;
+        break;
+      case DayWorkState.working:
+        actionTitle = "PAUSE";
+        actionSubtitle = "Déjeuner";
+        actionIcon = Icons.free_breakfast_rounded;
+        gradientColors = const [Color(0xFFF59E0B), Color(0xFFD97706)];
+        punchType = PunchType.breakStart;
+        break;
+      case DayWorkState.onBreak:
+        actionTitle = "REPRISE";
+        actionSubtitle = "Retour Poste";
+        actionIcon = Icons.restart_alt_rounded;
+        gradientColors = const [Color(0xFF3B82F6), Color(0xFF2563EB)];
+        punchType = PunchType.breakEnd;
+        break;
+      case DayWorkState.completed:
+        actionTitle = "JOURNÉE";
+        actionSubtitle = "Clôturée";
+        actionIcon = Icons.check_circle_outline_rounded;
+        gradientColors = const [Color(0xFF64748B), Color(0xFF475569)];
+        punchType = PunchType.checkOut;
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E3A8A).withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Row(
+            children: const [
+              Text("⚡", style: TextStyle(fontSize: 12)),
+              SizedBox(width: 4),
+              Text(
+                "Action",
+                style: TextStyle(color: Color(0xFF0F172A), fontSize: 12, fontWeight: FontWeight.w800),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: _isLoading
+                ? null
+                : (_workState == DayWorkState.completed ? _showReopenDayDialog : () => _handlePunchWithGuardrails(punchType)),
+            child: AnimatedBuilder(
+              animation: _pulseAnimation,
+              builder: (ctx, child) {
+                return Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: gradientColors,
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: gradientColors.first.withValues(alpha: 0.35 * _pulseAnimation.value),
+                        blurRadius: 16 * _pulseAnimation.value,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: _isLoading
+                        ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+                        : Icon(actionIcon, color: Colors.white, size: 28),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            actionTitle,
+            style: const TextStyle(
+              color: Color(0xFF0F172A),
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.3,
+            ),
+          ),
+          Text(
+            actionSubtitle,
+            style: TextStyle(
+              color: gradientColors.first,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBentoGeofenceCard() {
+    final double maxDist = (widget.session.establishmentRadius ?? 120.0) * 1.5;
+    final double fillRatio = (1.0 - (_distanceToSiteMeters / maxDist)).clamp(0.15, 0.95);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E3A8A).withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Text("📍", style: TextStyle(fontSize: 12)),
+              SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  "Périmètre",
+                  style: TextStyle(color: Color(0xFF0F172A), fontSize: 12, fontWeight: FontWeight.w800),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          Text(
+            _isInGeofence ? "Zone autorisée" : "Hors zone",
+            style: TextStyle(
+              color: _isInGeofence ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Réservoir Liquide
+          Container(
+            height: 94,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            alignment: Alignment.bottomCenter,
+            child: FractionallySizedBox(
+              heightFactor: fillRatio,
+              widthFactor: 1.0,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF38BDF8), Color(0xFF2563EB)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                  borderRadius: BorderRadius.vertical(
+                    top: const Radius.circular(14),
+                    bottom: Radius.circular(fillRatio >= 0.95 ? 18 : 18),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF2563EB).withValues(alpha: 0.25),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        "${_distanceToSiteMeters.toInt()}m",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Text(
+                        _isInGeofence ? "Validé" : "Trop loin",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBentoSparklineClockCard(String timeStr) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E3A8A).withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Text("🛰️", style: TextStyle(fontSize: 12)),
+              SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  "Satellite UTC",
+                  style: TextStyle(color: Color(0xFF0F172A), fontSize: 12, fontWeight: FontWeight.w800),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 38,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _SparklinePainter(color: const Color(0xFF2563EB)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                timeStr,
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              const SizedBox(width: 3),
+              const Text(
+                "UTC",
+                style: TextStyle(
+                  color: Color(0xFF64748B),
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBentoColleagueCard() {
+    return InkWell(
+      onTap: () => ColleagueAssistanceDialog.show(context, widget.session),
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF1E3A8A).withValues(alpha: 0.05),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: const [
+                Text("🤝", style: TextStyle(fontSize: 12)),
+                SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    "Dépannage",
+                    style: TextStyle(color: Color(0xFF0F172A), fontSize: 12, fontWeight: FontWeight.w800),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              "Assister un collègue sans smartphone",
+              style: TextStyle(color: Color(0xFF64748B), fontSize: 11, height: 1.2),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text(
+                  "Pointer pour un ami",
+                  style: TextStyle(color: Color(0xFF2563EB), fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+                Icon(Icons.arrow_forward_rounded, color: Color(0xFF2563EB), size: 16),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBentoPlanningCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E3A8A).withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Text("📅", style: TextStyle(fontSize: 12)),
+                  const SizedBox(width: 6),
+                  Text(
+                    widget.session.isWorkingToday()
+                        ? "Planning : ${widget.session.morningStart} - ${widget.session.afternoonEnd}"
+                        : "Planning : Repos programmé",
+                    style: const TextStyle(
+                      color: Color(0xFF0F172A),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFA7F3D0)),
+                ),
+                child: const Text(
+                  "Conforme",
+                  style: TextStyle(color: Color(0xFF059669), fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              height: 10,
+              width: double.infinity,
+              color: const Color(0xFFF1F5F9),
+              child: FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: _workState == DayWorkState.completed ? 1.0 : (_workState == DayWorkState.working ? 0.65 : 0.08),
+                child: Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF3B82F6), Color(0xFF2563EB)],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSecondaryActionSection() {
+    return Column(
+      children: [
+        if (_workState == DayWorkState.working) ...[
+          OutlinedButton.icon(
+            onPressed: _isLoading ? null : () => _handlePunchWithGuardrails(PunchType.checkOut),
+            icon: const Icon(Icons.logout_rounded, color: Color(0xFFE11D48), size: 18),
+            label: const Text(
+              "Clôturer définitivement ma journée",
+              style: TextStyle(color: Color(0xFFE11D48), fontWeight: FontWeight.w800, fontSize: 13),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Color(0xFFFECDD3), width: 1.5),
+              backgroundColor: const Color(0xFFFFF1F2),
+              minimumSize: const Size(double.infinity, 48),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        InkWell(
+          onTap: () => JustificationModal.show(context, employeeId: widget.session.id),
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF1E3A8A).withValues(alpha: 0.05),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.assignment_late_outlined, color: Color(0xFFD97706), size: 18),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        "Signaler un retard ou imprévu",
+                        style: TextStyle(color: Color(0xFF0F172A), fontSize: 13, fontWeight: FontWeight.w800),
+                      ),
+                      Text(
+                        "Transmettez votre motif au responsable",
+                        style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: Color(0xFF94A3B8), size: 20),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -872,32 +1630,35 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
         future: _syncService.getEmployeeJustifications(widget.session.id),
         builder: (context, snapshot) {
           return AlertDialog(
-            backgroundColor: const Color(0xFF1E293B),
+            backgroundColor: Colors.white,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
             title: const Row(
               children: [
-                Icon(Icons.notifications_active_rounded, color: Color(0xFF38BDF8), size: 24),
+                Icon(Icons.notifications_active_rounded, color: Color(0xFF2563EB), size: 24),
                 SizedBox(width: 8),
-                Text("Notifications & Retards", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(
+                  "Notifications & Retards",
+                  style: TextStyle(color: Color(0xFF0F172A), fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ],
             ),
             content: SizedBox(
               width: double.maxFinite,
               child: snapshot.connectionState == ConnectionState.waiting
-                  ? const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator(color: Color(0xFF38BDF8))))
+                  ? const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator(color: Color(0xFF2563EB))))
                   : (snapshot.data == null || snapshot.data!.isEmpty)
                       ? Column(
                           mainAxisSize: MainAxisSize.min,
                           children: const [
-                            Icon(Icons.inbox_outlined, color: Color(0xFF64748B), size: 40),
+                            Icon(Icons.inbox_outlined, color: Color(0xFF94A3B8), size: 40),
                             SizedBox(height: 10),
-                            Text("Aucune notification pour le moment.", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
+                            Text("Aucune notification pour le moment.", style: TextStyle(color: Color(0xFF64748B), fontSize: 13)),
                           ],
                         )
                       : ListView.separated(
                           shrinkWrap: true,
                           itemCount: snapshot.data!.length,
-                          separatorBuilder: (_, __) => const Divider(color: Colors.white10),
+                          separatorBuilder: (_, __) => const Divider(color: Color(0xFFE2E8F0)),
                           itemBuilder: (context, idx) {
                             final item = snapshot.data![idx];
                             final status = item['status'] as String? ?? 'PENDING';
@@ -924,9 +1685,9 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
                             return Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF0F172A),
+                                color: const Color(0xFFF8FAFC),
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: badgeColor.withOpacity(0.3)),
+                                border: Border.all(color: badgeColor.withValues(alpha: 0.3)),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -941,20 +1702,20 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
                                           style: TextStyle(color: badgeColor, fontWeight: FontWeight.bold, fontSize: 12),
                                         ),
                                       ),
-                                      Text(dateStr, style: const TextStyle(color: Color(0xFF64748B), fontSize: 10)),
+                                      Text(dateStr, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10)),
                                     ],
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
                                     "Motif : $reason ($delayMin min)",
-                                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                                    style: const TextStyle(color: Color(0xFF0F172A), fontSize: 11, fontWeight: FontWeight.w700),
                                   ),
                                   if (item['custom_comment'] != null && (item['custom_comment'] as String).isNotEmpty)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 2),
                                       child: Text(
                                         "\"${item['custom_comment']}\"",
-                                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11, fontStyle: FontStyle.italic),
+                                        style: const TextStyle(color: Color(0xFF64748B), fontSize: 11, fontStyle: FontStyle.italic),
                                       ),
                                     ),
                                   if (reviewNote != null && reviewNote.isNotEmpty)
@@ -963,7 +1724,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
                                       child: Container(
                                         padding: const EdgeInsets.all(6),
                                         decoration: BoxDecoration(
-                                          color: badgeColor.withOpacity(0.1),
+                                          color: badgeColor.withValues(alpha: 0.1),
                                           borderRadius: BorderRadius.circular(8),
                                         ),
                                         child: Text(
@@ -981,7 +1742,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text("Fermer", style: TextStyle(color: Color(0xFF38BDF8))),
+                child: const Text("Fermer", style: TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold)),
               ),
             ],
           );
@@ -989,549 +1750,35 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
       ),
     );
   }
+}
 
-  Widget _buildTopHeader() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        // Profil & Matricule
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF00F2FE), Color(0xFF4FACFE)],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF38BDF8).withOpacity(0.3),
-                    blurRadius: 8,
-                  ),
-                ],
-              ),
-              child: CircleAvatar(
-                radius: 20,
-                backgroundColor: const Color(0xFF0F172A),
-                child: Text(
-                  widget.session.initials,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.session.fullName,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                Container(
-                  margin: const EdgeInsets.only(top: 2),
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    widget.session.matricule,
-                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 10, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+class _SparklinePainter extends CustomPainter {
+  final Color color;
+  _SparklinePainter({required this.color});
 
-        // Actions Rapides Droite
-        Row(
-          children: [
-            // Bouton "Dépanner un collègue"
-            InkWell(
-              onTap: () => ColleagueAssistanceDialog.show(context, widget.session),
-              borderRadius: BorderRadius.circular(20),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF38BDF8).withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.4)),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.handshake_rounded, color: Color(0xFF38BDF8), size: 14),
-                    SizedBox(width: 4),
-                    Text(
-                      "Dépanner",
-                      style: TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
-            const SizedBox(width: 8),
+    final path = Path();
+    path.moveTo(0, size.height * 0.6);
+    path.lineTo(size.width * 0.2, size.height * 0.6);
+    path.lineTo(size.width * 0.32, size.height * 0.15);
+    path.lineTo(size.width * 0.44, size.height * 0.85);
+    path.lineTo(size.width * 0.54, size.height * 0.35);
+    path.lineTo(size.width * 0.66, size.height * 0.7);
+    path.lineTo(size.width * 0.78, size.height * 0.45);
+    path.lineTo(size.width * 0.88, size.height * 0.6);
+    path.lineTo(size.width, size.height * 0.55);
 
-            // Cloche de notifications des retards & décisions manager
-            InkWell(
-              onTap: _showNotificationsDialog,
-              borderRadius: BorderRadius.circular(20),
-              child: Container(
-                padding: const EdgeInsets.all(7),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: const Icon(Icons.notifications_outlined, color: Color(0xFF38BDF8), size: 16),
-              ),
-            ),
-
-            const SizedBox(width: 8),
-
-            // Badge Statut Synchro
-            if (_pendingSyncCount == 0)
-              Container(
-                padding: const EdgeInsets.all(7),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withOpacity(0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.cloud_done_rounded, color: Color(0xFF10B981), size: 16),
-              )
-            else
-              InkWell(
-                onTap: () => _syncService.syncPendingPunches(),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF59E0B).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.sync, color: Color(0xFFFBBF24), size: 12),
-                      const SizedBox(width: 3),
-                      Text("$_pendingSyncCount", style: const TextStyle(color: Color(0xFFFBBF24), fontSize: 10)),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ],
-    );
+    canvas.drawPath(path, paint);
   }
 
-  Widget _buildClockCard(String timeStr, String dateStr) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 16, offset: const Offset(0, 6)),
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            decoration: BoxDecoration(
-              color: const Color(0xFF3B82F6).withOpacity(0.15),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.satellite_alt_rounded, color: Color(0xFF60A5FA), size: 12),
-                SizedBox(width: 5),
-                Text(
-                  "SATELLITE UTC ATOMIQUE",
-                  style: TextStyle(color: Color(0xFF93C5FD), fontSize: 10, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            timeStr,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 42,
-              fontWeight: FontWeight.w900,
-              fontFamily: 'monospace',
-              letterSpacing: 2,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            dateStr,
-            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-            decoration: BoxDecoration(
-              color: const Color(0xFF334155),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              _stateSubtitle,
-              style: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 11, fontWeight: FontWeight.w600),
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          // Badge Planning d'activité réel du jour
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: widget.session.isWorkingToday()
-                  ? const Color(0xFF3B82F6).withOpacity(0.15)
-                  : const Color(0xFF10B981).withOpacity(0.15),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: widget.session.isWorkingToday()
-                    ? const Color(0xFF3B82F6).withOpacity(0.3)
-                    : const Color(0xFF10B981).withOpacity(0.3),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  widget.session.isWorkingToday() ? Icons.calendar_month_rounded : Icons.beach_access_rounded,
-                  color: widget.session.isWorkingToday() ? const Color(0xFF60A5FA) : const Color(0xFF34D399),
-                  size: 13,
-                ),
-                const SizedBox(width: 5),
-                Flexible(
-                  child: Text(
-                    widget.session.isWorkingToday()
-                        ? "Aujourd'hui : ${widget.session.morningStart} - ${widget.session.afternoonEnd} (${widget.session.scheduleName})"
-                        : "Aujourd'hui : Jour de repos prévu (Planning)",
-                    style: TextStyle(
-                      color: widget.session.isWorkingToday() ? const Color(0xFF93C5FD) : const Color(0xFF6EE7B7),
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGeofencingRadarCard() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF131D31),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: _isInGeofence
-              ? const Color(0xFF10B981).withOpacity(0.3)
-              : const Color(0xFFEF4444).withOpacity(0.3),
-        ),
-      ),
-      child: Row(
-        children: [
-          // Voyant Radar
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: _isInGeofence
-                  ? const Color(0xFF10B981).withOpacity(0.15)
-                  : const Color(0xFFEF4444).withOpacity(0.15),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              _isInGeofence ? Icons.radar_rounded : Icons.location_searching_rounded,
-              color: _isInGeofence ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      _isInGeofence ? "ZONE AUTORISÉE" : "HORS PÉRIMÈTRE",
-                      style: TextStyle(
-                        color: _isInGeofence ? const Color(0xFF34D399) : const Color(0xFFF87171),
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      "À ${_distanceToSiteMeters.toInt()}m du site",
-                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _isInGeofence
-                      ? "Périmètre de pointage 80m validé • Prêt"
-                      : "Rapprochez-vous de l'agence pour autoriser le pointage",
-                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeroicPulsingRadarButton() {
-    // Si la journée est terminée
-    if (_workState == DayWorkState.completed) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4)),
-        ),
-        child: Column(
-          children: [
-            const Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 52),
-            const SizedBox(height: 10),
-            const Text(
-              "JOURNÉE CLÔTURÉE",
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              "Vos présences sont certifiées et transmises au manager.",
-              style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 11),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: _showReopenDayDialog,
-              icon: const Icon(Icons.refresh_rounded, color: Color(0xFF38BDF8), size: 16),
-              label: const Text(
-                "Rectifier / Réouvrir ma journée de travail",
-                style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 12),
-              ),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF38BDF8), width: 1.2),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Détermination de l'action principale selon le FSM
-    String actionTitle;
-    String actionSubtitle;
-    IconData actionIcon;
-    List<Color> gradientColors;
-    PunchType punchType;
-
-    switch (_workState) {
-      case DayWorkState.notArrived:
-        actionTitle = "POINTER L'ARRIVÉE";
-        actionSubtitle = "Prise de poste matinale";
-        actionIcon = Icons.login_rounded;
-        gradientColors = const [Color(0xFF059669), Color(0xFF10B981)];
-        punchType = PunchType.checkIn;
-        break;
-      case DayWorkState.working:
-        actionTitle = "PAUSE DÉJEUNER";
-        actionSubtitle = "Départ en pause repas";
-        actionIcon = Icons.free_breakfast_rounded;
-        gradientColors = const [Color(0xFFD97706), Color(0xFFF59E0B)];
-        punchType = PunchType.breakStart;
-        break;
-      case DayWorkState.onBreak:
-        actionTitle = "REPRISE DE POSTE";
-        actionSubtitle = "Retour de pause repas";
-        actionIcon = Icons.restart_alt_rounded;
-        gradientColors = const [Color(0xFF4F46E5), Color(0xFF6366F1)];
-        punchType = PunchType.breakEnd;
-        break;
-      case DayWorkState.completed:
-        actionTitle = "JOURNÉE TERMINÉE";
-        actionSubtitle = "Clôturé";
-        actionIcon = Icons.done_all;
-        gradientColors = const [Color(0xFF64748B), Color(0xFF475569)];
-        punchType = PunchType.checkOut;
-        break;
-    }
-
-    return Center(
-      child: SizedBox(
-        width: 250,
-        height: 250,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // Cercle d'ondes pulsantes extérieures
-            AnimatedBuilder(
-              animation: _pulseAnimation,
-              builder: (ctx, child) {
-                return Container(
-                  width: 190 * _pulseAnimation.value,
-                  height: 190 * _pulseAnimation.value,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: gradientColors.last.withOpacity(0.18 * (1.35 - _pulseAnimation.value)),
-                  ),
-                );
-              },
-            ),
-
-            // Cercle Pulsant Secondaire
-            Container(
-              width: 190,
-              height: 190,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: gradientColors.first.withOpacity(0.15),
-              ),
-            ),
-
-            // Bouton Central Interactif
-            GestureDetector(
-              onTap: _isLoading ? null : () => _handlePunchWithGuardrails(punchType),
-              child: Container(
-                width: 165,
-                height: 165,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: gradientColors,
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: gradientColors.last.withOpacity(0.4),
-                      blurRadius: 22,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (_isLoading)
-                      const CircularProgressIndicator(color: Colors.white, strokeWidth: 3)
-                    else ...[
-                      Icon(actionIcon, color: Colors.white, size: 36),
-                      const SizedBox(height: 6),
-                      Text(
-                        actionTitle,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.5,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        actionSubtitle,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.85),
-                          fontSize: 9,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSecondaryActionSection() {
-    return Column(
-      children: [
-        // Si l'employé est en poste, proposer l'option alternative "Fin de journée"
-        if (_workState == DayWorkState.working) ...[
-          OutlinedButton.icon(
-            onPressed: _isLoading ? null : () => _handlePunchWithGuardrails(PunchType.checkOut),
-            icon: const Icon(Icons.logout_rounded, color: Color(0xFFF43F5E), size: 18),
-            label: const Text(
-              "Clôturer définitivement ma journée",
-              style: TextStyle(color: Color(0xFFF43F5E), fontWeight: FontWeight.bold, fontSize: 13),
-            ),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Color(0xFFF43F5E), width: 1.2),
-              minimumSize: const Size(double.infinity, 48),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-
-        // Raccourci Justification de Retard ou Absence
-        InkWell(
-          onTap: () => JustificationModal.show(context, employeeId: widget.session.id),
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withOpacity(0.06)),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.assignment_late_outlined, color: Color(0xFFF59E0B), size: 18),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Signaler un retard ou imprévu",
-                        style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-                      ),
-                      Text(
-                        "Transmettez votre motif directement au responsable",
-                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(Icons.chevron_right, color: Color(0xFF94A3B8), size: 18),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

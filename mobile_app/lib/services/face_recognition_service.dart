@@ -64,8 +64,8 @@ class FaceRecognitionService {
       }
     }
 
-    // Entropie minimale calibrée pour tolérer l'éclairage intérieur tout en bloquant l'objectif masqué
-    if (entropy < 4.2) {
+    // Entropie minimale calibrée pour tolérer l'éclairage intérieur ou modéré tout en bloquant l'objectif totalement masqué
+    if (entropy < 2.2) {
       return FaceVerificationResult(
         isValidFace: false,
         errorMessage: "Éclairage insuffisant ou capteur masqué. Orientez votre visage vers une source de lumière.",

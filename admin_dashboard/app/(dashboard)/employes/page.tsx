@@ -182,11 +182,16 @@ export default function EmployeesPage() {
       setEmployees(prev => prev.map(e => e.id === id ? { ...e, isBound: false, device: 'En attente d\'activation' } : e));
       try {
         const supabase = createClient();
-        await supabase
+        const { error } = await supabase
           .from('pointage_employees')
           .update({ bound_device_id: null, device_model: null, is_enrolled: false })
           .eq('id', id);
-        setToastMsg("Appareil dissocié avec succès.");
+        if (error) {
+          console.error('Error unbinding device in Supabase:', error);
+          alert("Erreur lors de la dissociation : " + error.message);
+          return;
+        }
+        setToastMsg("Appareil dissocié avec succès. Le smartphone sera déconnecté.");
         setTimeout(() => setToastMsg(null), 3500);
       } catch (err) {
         console.error('Error unbinding device in Supabase:', err);

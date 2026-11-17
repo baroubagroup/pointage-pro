@@ -29,23 +29,30 @@ class _ProfileTabState extends State<ProfileTab> {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
           title: const Row(
             children: [
               Icon(Icons.lock_rounded, color: Color(0xFFEF4444)),
               SizedBox(width: 8),
-              Text("Quota Atteint", style: TextStyle(color: Colors.white, fontSize: 16)),
+              Text(
+                "Quota Atteint",
+                style: TextStyle(color: Color(0xFF0F172A), fontSize: 16, fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           content: const Text(
             "Vous avez utilisé la totalité de vos 2 modifications de signature faciale. Pour des motifs stricts de sécurité anti-usurpation, toute nouvelle mise à jour doit être débloquée par votre Responsable RH.",
-            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+            style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
           ),
           actions: [
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
               child: const Text("Compris"),
             ),
           ],
@@ -72,6 +79,8 @@ class _ProfileTabState extends State<ProfileTab> {
               SnackBar(
                 content: Text(res['message'] ?? ''),
                 backgroundColor: res['success'] == true ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
             );
             if (res['success'] == true) {
@@ -92,29 +101,33 @@ class _ProfileTabState extends State<ProfileTab> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: const Row(
           children: [
             Icon(Icons.warning_amber_rounded, color: Color(0xFFF59E0B), size: 26),
             SizedBox(width: 8),
-            Text("Dissocier l'Appareil ?", style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+            Text(
+              "Dissocier l'Appareil ?",
+              style: TextStyle(color: Color(0xFF0F172A), fontSize: 17, fontWeight: FontWeight.bold),
+            ),
           ],
         ),
         content: const Text(
           "Cette action réinitialisera votre session locale. Pour pointer à nouveau, vous devrez scanner ou saisir une nouvelle invitation fournie par votre gérant.",
-          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+          style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("Annuler", style: TextStyle(color: Color(0xFF94A3B8))),
+            child: const Text("Annuler", style: TextStyle(color: Color(0xFF64748B))),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFEF4444),
               foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
             child: const Text("Confirmer la Déconnexion"),
           ),
@@ -136,162 +149,229 @@ class _ProfileTabState extends State<ProfileTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0F1D),
+      backgroundColor: const Color(0xFFF4F7FD), // Soft Bento background
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0A0F1D),
+        backgroundColor: const Color(0xFFF4F7FD),
         elevation: 0,
         title: const Text(
           "Mon Profil Collaborateur",
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+          style: TextStyle(
+            color: Color(0xFF0F172A),
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+            letterSpacing: -0.4,
+          ),
         ),
+        centerTitle: false,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 120), // 120 bottom for floating pill nav
         child: Column(
           children: [
-            // Grande Carte Profil Badge
+            // Carte Héros Collaborateur (Cobalt / Bento)
             Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF1D4ED8), Color(0xFF2563EB), Color(0xFF3B82F6)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                borderRadius: BorderRadius.circular(26),
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 15, offset: const Offset(0, 8)),
+                  BoxShadow(
+                    color: const Color(0xFF2563EB).withValues(alpha: 0.28),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
                 ],
               ),
-              child: Column(
+              child: Row(
                 children: [
                   Container(
-                    width: 78,
-                    height: 78,
+                    width: 58,
+                    height: 58,
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF00F2FE), Color(0xFF4FACFE)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
+                      color: Colors.white,
                       shape: BoxShape.circle,
                       boxShadow: [
-                        BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.35), blurRadius: 15, offset: const Offset(0, 5)),
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
                       ],
                     ),
                     child: Center(
                       child: Text(
                         _currentSession.initials,
-                        style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w800),
+                        style: const TextStyle(
+                          color: Color(0xFF1D4ED8),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 20,
+                        ),
                       ),
                     ),
                   ),
-
-                  const SizedBox(height: 14),
-
-                  Text(
-                    _currentSession.fullName,
-                    style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 4),
-
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF38BDF8).withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.3)),
-                    ),
-                    child: Text(
-                      _currentSession.displayRole,
-                      style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-                  const Divider(color: Color(0xFF334155), height: 1),
-                  const SizedBox(height: 16),
-
-                  // Identifiant Unique Matricule
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.badge_outlined, color: Color(0xFF94A3B8), size: 16),
-                      const SizedBox(width: 6),
-                      Text(
-                        "Matricule : ${_currentSession.matricule}",
-                        style: const TextStyle(
-                          color: Color(0xFFE2E8F0),
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'monospace',
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _currentSession.fullName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 17,
+                            letterSpacing: -0.3,
+                          ),
                         ),
+                        const SizedBox(height: 3),
+                        Text(
+                          _currentSession.role,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.85),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "Matricule : ${_currentSession.matricule}",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Carte Établissement de Rattachement
+            _buildBentoSectionCard(
+              title: "Établissement & Géofencing",
+              icon: Icons.business_rounded,
+              iconColor: const Color(0xFF2563EB),
+              children: [
+                _buildDetailRow(
+                  icon: Icons.location_on_rounded,
+                  label: "Site Assigné",
+                  value: _currentSession.establishmentName,
+                  accentColor: const Color(0xFF10B981),
+                ),
+                _buildDetailRow(
+                  icon: Icons.radar_rounded,
+                  label: "Rayon Géofence Autorisé",
+                  value: "${(_currentSession.establishmentRadius ?? 120.0).toStringAsFixed(0)} mètres",
+                  accentColor: const Color(0xFF3B82F6),
+                ),
+                _buildDetailRow(
+                  icon: Icons.phone_android_rounded,
+                  label: "Smartphone Lié",
+                  value: _currentSession.deviceModel ?? 'Smartphone Lié',
+                  accentColor: const Color(0xFF8B5CF6),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // Carte Horaires & Planning Personnalisé
+            _buildBentoSectionCard(
+              title: "Planning & Horaires Fractionnés",
+              icon: Icons.schedule_rounded,
+              iconColor: const Color(0xFFF59E0B),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _currentSession.scheduleName,
+                        style: const TextStyle(
+                          color: Color(0xFF0F172A),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13.5,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // Jours d'activité
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          _buildDayChip(1, "Lun"),
+                          _buildDayChip(2, "Mar"),
+                          _buildDayChip(3, "Mer"),
+                          _buildDayChip(4, "Jeu"),
+                          _buildDayChip(5, "Ven"),
+                          _buildDayChip(6, "Sam"),
+                          _buildDayChip(7, "Dim"),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+                const Divider(height: 16, indent: 16, endIndent: 16),
+                _buildDetailRow(
+                  icon: Icons.wb_sunny_rounded,
+                  label: "Créneau Matin",
+                  value: "${_currentSession.morningStart} → ${_currentSession.morningEnd}",
+                  accentColor: const Color(0xFFF59E0B),
+                ),
+                _buildDetailRow(
+                  icon: Icons.coffee_rounded,
+                  label: "Pause Déjeuner",
+                  value: "${_currentSession.lunchStart} → ${_currentSession.lunchEnd}",
+                  accentColor: const Color(0xFF3B82F6),
+                ),
+                _buildDetailRow(
+                  icon: Icons.nights_stay_rounded,
+                  label: "Créneau Après-midi",
+                  value: "${_currentSession.afternoonStart} → ${_currentSession.afternoonEnd}",
+                  accentColor: const Color(0xFF6366F1),
+                ),
+                _buildDetailRow(
+                  icon: Icons.timelapse_rounded,
+                  label: "Tolérance Retard",
+                  value: "+${_currentSession.toleranceMinutes} minutes accordées",
+                  accentColor: const Color(0xFF10B981),
+                ),
+              ],
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
-            // Détails du Compte & Affectation
-            _buildSectionHeader("Affectation & Planning de Travail"),
-            const SizedBox(height: 10),
-
-            Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.white.withOpacity(0.06)),
-              ),
-              child: Column(
-                children: [
-                  _buildDetailRow(
-                    icon: Icons.business_rounded,
-                    label: "Établissement Attribué",
-                    value: _currentSession.establishmentName,
-                    accentColor: const Color(0xFF38BDF8),
-                  ),
-                  const Divider(color: Color(0xFF334155), height: 1, indent: 56),
-                  _buildDetailRow(
-                    icon: Icons.calendar_today_rounded,
-                    label: "Planning de Travail",
-                    value: "${_currentSession.scheduleName} (${_currentSession.morningStart} - ${_currentSession.afternoonEnd})",
-                    accentColor: const Color(0xFF10B981),
-                  ),
-                  const Divider(color: Color(0xFF334155), height: 1, indent: 56),
-                  _buildDetailRow(
-                    icon: Icons.phone_android_rounded,
-                    label: "Numéro Enregistré",
-                    value: _currentSession.phone.isNotEmpty ? _currentSession.phone : "+226 Enregistré",
-                    accentColor: const Color(0xFF10B981),
-                  ),
-                  const Divider(color: Color(0xFF334155), height: 1, indent: 56),
-                  _buildDetailRow(
-                    icon: Icons.phonelink_lock_rounded,
-                    label: "Appareil Matériel Lié",
-                    value: _currentSession.deviceModel ?? "Smartphone Sécurisé",
-                    accentColor: const Color(0xFFF59E0B),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            // Module Signature Faciale
-            _buildSectionHeader("Biométrie & Dépannage Collègues"),
-            const SizedBox(height: 10),
-
+            // Carte Biométrie Faciale & Quota
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.white.withOpacity(0.06)),
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF1E3A8A).withValues(alpha: 0.05),
+                    blurRadius: 16,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -301,73 +381,89 @@ class _ProfileTabState extends State<ProfileTab> {
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.face_retouching_natural_rounded, color: Color(0xFF38BDF8), size: 20),
+                          Icon(Icons.face_retouching_natural_rounded, color: Color(0xFF2563EB), size: 20),
                           SizedBox(width: 8),
                           Text(
-                            "Signature Faciale",
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                            "Signature Faciale Biométrique",
+                            style: TextStyle(
+                              color: Color(0xFF0F172A),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                            ),
                           ),
                         ],
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF10B981).withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3)),
+                          color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
                           _currentSession.faceEmbeddingVector != null ? "Actif & Certifié" : "Non configuré",
-                          style: const TextStyle(color: Color(0xFF10B981), fontSize: 10, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                            color: Color(0xFF10B981),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    "Utilisée pour vous identifier en RAM si votre téléphone est en panne et que vous utilisez l'appareil d'un collègue.",
-                    style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 11, height: 1.4),
+                  const Text(
+                    "Votre signature faciale est calculée en mémoire vive (RAM) et permet de vous authentifier sans mot de passe si vous utilisez l'appareil d'un collègue.",
+                    style: TextStyle(color: Color(0xFF64748B), fontSize: 11.5, height: 1.4),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
 
-                  // Quota de modifications anti-fraude
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        "Quota anti-usurpation :",
-                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
-                      ),
-                      Text(
-                        "${_currentSession.faceUpdateCount}/2 modifications",
-                        style: TextStyle(
-                          color: _currentSession.faceUpdateCount >= 2 ? const Color(0xFFEF4444) : const Color(0xFF38BDF8),
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
+                  // Quota anti-fraude
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "Quota anti-usurpation :",
+                          style: TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w600),
                         ),
-                      ),
-                    ],
+                        Text(
+                          "${_currentSession.faceUpdateCount}/2 modifications",
+                          style: TextStyle(
+                            color: _currentSession.faceUpdateCount >= 2 ? const Color(0xFFEF4444) : const Color(0xFF2563EB),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 12),
 
-                  // Bouton Mettre à jour avec Caméra Réelle
+                  const SizedBox(height: 14),
+
+                  // Bouton Mettre à jour avec Caméra
                   SizedBox(
                     width: double.infinity,
+                    height: 46,
                     child: OutlinedButton.icon(
                       onPressed: _isUpdatingFace ? null : _handleUpdateFaceSignature,
-                      icon: const Icon(Icons.camera_alt_outlined, size: 16),
+                      icon: const Icon(Icons.camera_alt_outlined, size: 17),
                       label: Text(
                         _currentSession.faceUpdateCount >= 2
                             ? "Quota de modifications épuisé"
                             : "Prendre mon selfie biométrique",
-                        style: const TextStyle(fontSize: 12),
+                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
                       ),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: _currentSession.faceUpdateCount >= 2 ? const Color(0xFF94A3B8) : const Color(0xFF38BDF8),
+                        foregroundColor: _currentSession.faceUpdateCount >= 2 ? const Color(0xFF94A3B8) : const Color(0xFF2563EB),
                         side: BorderSide(
-                          color: _currentSession.faceUpdateCount >= 2 ? const Color(0xFF475569) : const Color(0xFF38BDF8),
+                          color: _currentSession.faceUpdateCount >= 2 ? const Color(0xFFE2E8F0) : const Color(0xFF2563EB),
                         ),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
                     ),
                   ),
@@ -375,75 +471,127 @@ class _ProfileTabState extends State<ProfileTab> {
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
-            // Certifications Cryptographiques
-            _buildSectionHeader("Protections Cryptographiques Actives"),
-            const SizedBox(height: 10),
-
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.white.withOpacity(0.06)),
-              ),
-              child: const Column(
-                children: [
-                  _SecurityTile(
-                    title: "Horloge Satellite Atomique UTC",
-                    desc: "Inaltérable même en modifiant l'heure manuelle du téléphone.",
-                    icon: Icons.satellite_alt,
+            // Carte Protections Cryptographiques
+            _buildBentoSectionCard(
+              title: "Protections Cryptographiques Actives",
+              icon: Icons.shield_rounded,
+              iconColor: const Color(0xFF10B981),
+              children: const [
+                Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      _SecurityTile(
+                        title: "Horloge Satellite Atomique UTC",
+                        desc: "Inaltérable même en cas de modification manuelle de l'heure du smartphone.",
+                        icon: Icons.satellite_alt_rounded,
+                      ),
+                      SizedBox(height: 12),
+                      _SecurityTile(
+                        title: "Bouclier Anti-Faux GPS",
+                        desc: "Détection active et blocage systématique des faux emplacements (Mock Locations).",
+                        icon: Icons.radar_rounded,
+                      ),
+                      SizedBox(height: 12),
+                      _SecurityTile(
+                        title: "Liaison Unique 1 Téléphone = 1 Collaborateur",
+                        desc: "Empêche formellement le pointage de complaisance pour un tiers.",
+                        icon: Icons.phonelink_lock_rounded,
+                      ),
+                    ],
                   ),
-                  SizedBox(height: 12),
-                  _SecurityTile(
-                    title: "Bouclier Anti-Faux GPS",
-                    desc: "Détection active des applications d'usurpation (Mock Locations).",
-                    icon: Icons.radar,
-                  ),
-                  SizedBox(height: 12),
-                  _SecurityTile(
-                    title: "Liaison Unique 1 Appareil = 1 Collaborateur",
-                    desc: "Interdiction du pointage de complaisance pour un tiers.",
-                    icon: Icons.phonelink_lock,
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
 
-            const SizedBox(height: 28),
+            const SizedBox(height: 24),
 
-            // Bouton Déconnexion
+            // Bouton Déconnexion / Dissociation
             SizedBox(
               width: double.infinity,
               height: 50,
               child: OutlinedButton.icon(
                 onPressed: () => _handleLogout(context),
-                icon: const Icon(Icons.logout, color: Color(0xFFEF4444), size: 18),
+                icon: const Icon(Icons.logout_rounded, color: Color(0xFFEF4444), size: 18),
                 label: const Text(
                   "Dissocier ce Téléphone / Déconnexion",
-                  style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.bold, fontSize: 13),
+                  style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.w800, fontSize: 13),
                 ),
                 style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFFEF4444), width: 1.2),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  side: const BorderSide(color: Color(0xFFFCA5A5), width: 1.2),
+                  backgroundColor: const Color(0xFFFEF2F2),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
               ),
             ),
-
-            const SizedBox(height: 30),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Align(
-      alignment: Alignment.centerLeft,
+  Widget _buildBentoSectionCard({
+    required String title,
+    required IconData icon,
+    required Color iconColor,
+    required List<Widget> children,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E3A8A).withValues(alpha: 0.05),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
+            child: Row(
+              children: [
+                Icon(icon, color: iconColor, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDayChip(int dayNumber, String label) {
+    final bool isActive = _currentSession.workingDays.contains(dayNumber);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: isActive ? const Color(0xFF2563EB) : const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Text(
-        title,
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+        label,
+        style: TextStyle(
+          color: isActive ? Colors.white : const Color(0xFF94A3B8),
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
@@ -455,15 +603,15 @@ class _ProfileTabState extends State<ProfileTab> {
     required Color accentColor,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
           Container(
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: accentColor.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(8),
+              color: accentColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: accentColor, size: 18),
           ),
@@ -472,9 +620,19 @@ class _ProfileTabState extends State<ProfileTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 11)),
-                const SizedBox(height: 2),
-                Text(value, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                Text(
+                  label,
+                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ],
             ),
           ),
@@ -500,15 +658,21 @@ class _SecurityTile extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 16),
+        const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 18),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+              Text(
+                title,
+                style: const TextStyle(color: Color(0xFF0F172A), fontSize: 12.5, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 2),
-              Text(desc, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11, height: 1.3)),
+              Text(
+                desc,
+                style: const TextStyle(color: Color(0xFF64748B), fontSize: 11, height: 1.3),
+              ),
             ],
           ),
         ),
@@ -594,58 +758,63 @@ class _FaceCaptureModalState extends State<_FaceCaptureModal> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: const Color(0xFF0F172A),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(22),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
               "Enrôlement Biométrique Facial",
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              style: TextStyle(
+                color: Color(0xFF0F172A),
+                fontWeight: FontWeight.w900,
+                fontSize: 16,
+              ),
             ),
             const SizedBox(height: 6),
             const Text(
-              "Placez votre visage au centre du cadre pour enregistrer votre signature",
+              "Placez votre visage au centre du cadre pour enregistrer votre signature en RAM",
               textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+              style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             ClipRRect(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(22),
               child: SizedBox(
                 width: 220,
                 height: 220,
                 child: _isInit && _cameraController != null
                     ? CameraPreview(_cameraController!)
-                    : const Center(child: CircularProgressIndicator(color: Color(0xFF38BDF8))),
+                    : const Center(child: CircularProgressIndicator(color: Color(0xFF2563EB))),
               ),
             ),
             if (_errorMessage != null) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEF4444).withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(10),
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFCA5A5)),
                 ),
                 child: Text(
                   _errorMessage!,
-                  style: const TextStyle(color: Color(0xFFF87171), fontSize: 11),
+                  style: const TextStyle(color: Color(0xFFDC2626), fontSize: 11.5, fontWeight: FontWeight.w600),
                   textAlign: TextAlign.center,
                 ),
               ),
             ],
-            const SizedBox(height: 18),
+            const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text("Annuler", style: TextStyle(color: Color(0xFF94A3B8))),
+                  child: const Text("Annuler", style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.bold)),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
                 ElevatedButton.icon(
                   onPressed: _isInit && !_isProcessing ? _captureAndAnalyze : null,
                   icon: _isProcessing
@@ -653,9 +822,10 @@ class _FaceCaptureModalState extends State<_FaceCaptureModal> {
                       : const Icon(Icons.camera_alt, size: 16),
                   label: Text(_isProcessing ? "Analyse..." : "Prendre mon selfie"),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF38BDF8),
-                    foregroundColor: const Color(0xFF0F172A),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
                   ),
                 ),
               ],
