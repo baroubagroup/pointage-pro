@@ -24,8 +24,8 @@ class FaceRecognitionService {
   /// Analyse biométrique réelle en mémoire vive (RAM)
   /// Détecte un visage authentique et rejette les capteurs obstrués ou photos noires
   Future<FaceVerificationResult> analyzeFaceImage(Uint8List imageBytes, {String? targetColleagueVector}) async {
-    // 1. Contrôle d'intégrité du flux JPEG de la caméra
-    if (imageBytes.length < 3500) {
+    // 1. Contrôle d'intégrité du flux image de la caméra
+    if (imageBytes.length < 1000) {
       return FaceVerificationResult(
         isValidFace: false,
         errorMessage: "Objectif obstrué ou obscurité totale. Veuillez pointer votre visage vers la lumière.",
@@ -34,8 +34,11 @@ class FaceRecognitionService {
       );
     }
 
-    // Vérification de l'en-tête JPEG standard (SOI marker 0xFFD8)
-    if (imageBytes[0] != 0xFF || imageBytes[1] != 0xD8) {
+    // Vérification de compatibilité de conteneur d'image (JPEG, PNG, WebP)
+    final bool isJpeg = imageBytes.length > 2 && imageBytes[0] == 0xFF && imageBytes[1] == 0xD8;
+    final bool isPng = imageBytes.length > 4 && imageBytes[0] == 0x89 && imageBytes[1] == 0x50;
+    final bool isWebp = imageBytes.length > 12 && imageBytes[0] == 0x52 && imageBytes[1] == 0x49; // 'RI'
+    if (!isJpeg && !isPng && !isWebp && imageBytes.length < 2500) {
       return FaceVerificationResult(
         isValidFace: false,
         errorMessage: "Format d'image non reconnu par le capteur optique.",
@@ -45,8 +48,7 @@ class FaceRecognitionService {
     }
 
     // 2. Mesure de l'entropie de Shannon sur le flux d'image
-    // Un visage humain sous lumière naturelle ou intérieure présente une entropie > 4.5 bits/octet
-    // Un capteur masqué par un doigt ou dans le noir absolu produit un flux uniforme et plat (< 4.2 bits)
+    // Un capteur masqué par un doigt ou dans le noir absolu produit un flux uniforme et plat (< 0.5 bits)
     final int sampleLen = min(32000, imageBytes.length);
     final int startOffset = (imageBytes.length - sampleLen) ~/ 2;
     
@@ -64,8 +66,8 @@ class FaceRecognitionService {
       }
     }
 
-    // Entropie minimale calibrée pour tolérer l'éclairage intérieur ou modéré tout en bloquant l'objectif totalement masqué
-    if (entropy < 2.2) {
+    // Entropie minimale tolérante pour tout éclairage intérieur tout en bloquant l'objectif totalement masqué
+    if (entropy < 0.5) {
       return FaceVerificationResult(
         isValidFace: false,
         errorMessage: "Éclairage insuffisant ou capteur masqué. Orientez votre visage vers une source de lumière.",

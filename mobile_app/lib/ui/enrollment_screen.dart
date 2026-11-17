@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../models/employee_session.dart';
 import '../services/offline_sync_service.dart';
@@ -73,10 +74,18 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   }
 
   /// 1. Scan direct avec la Caméra
-  void _startCameraScanner() {
+  Future<void> _startCameraScanner() async {
+    // Demande proactive au niveau du système Android
+    PermissionStatus status = await Permission.camera.status;
+    if (!status.isGranted && !status.isPermanentlyDenied) {
+      status = await Permission.camera.request();
+    }
+    if (!mounted) return;
+
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (ctx) => _CameraScanScreen(
+          initialPermission: status,
           onDetected: (raw) => _verifyAndEnroll(raw),
           onManualFallback: () => _showManualTokenDialog(),
         ),
@@ -90,9 +99,22 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
       final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
       if (image == null) return;
 
+      // Décodage automatique du QR Code depuis la photo sélectionnée
+      final controller = MobileScannerController();
+      final BarcodeCapture? capture = await controller.analyzeImage(image.path);
+      controller.dispose();
+
+      if (capture != null && capture.barcodes.isNotEmpty) {
+        final raw = capture.barcodes.first.rawValue;
+        if (raw != null && raw.trim().isNotEmpty) {
+          _verifyAndEnroll(raw.trim());
+          return;
+        }
+      }
+
       _showManualTokenDialog(
         title: "Code de votre Invitation",
-        subtitle: "Image sélectionnée. Renseignez le code d'activation figurant sur votre carton ou message (ex: PPRO-302667) :",
+        subtitle: "QR Code non décodé automatiquement. Renseignez le code d'activation figurant sur votre carton ou message (ex: PPRO-302667) :",
       );
     } catch (e) {
       _showError("Impossible d'accéder à la galerie : $e");
@@ -631,6 +653,28 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _selectedModeIndex = 1;
+                    });
+                  },
+                  icon: const Icon(Icons.pin_outlined, size: 18),
+                  label: const Text(
+                    "Saisir mon Code Manuellement",
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF2563EB),
+                    side: const BorderSide(color: Color(0xFFDBEAFE), width: 1.5),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -862,10 +906,12 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
 }
 
 class _CameraScanScreen extends StatefulWidget {
+  final PermissionStatus? initialPermission;
   final Function(String) onDetected;
   final VoidCallback onManualFallback;
 
   const _CameraScanScreen({
+    this.initialPermission,
     required this.onDetected,
     required this.onManualFallback,
   });
@@ -874,13 +920,82 @@ class _CameraScanScreen extends StatefulWidget {
   State<_CameraScanScreen> createState() => _CameraScanScreenState();
 }
 
-class _CameraScanScreenState extends State<_CameraScanScreen> {
-  late final MobileScannerController _scannerController;
+class _CameraScanScreenState extends State<_CameraScanScreen> with WidgetsBindingObserver {
+  MobileScannerController? _scannerController;
   bool _hasDetected = false;
+  bool _isPermissionGranted = false;
+  bool _isPermanentlyDenied = false;
+  bool _isLoading = true;
+  String? _errorMessage;
+  final TextEditingController _inlineTokenController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    if (widget.initialPermission != null) {
+      _handlePermissionResult(widget.initialPermission!);
+    } else {
+      _requestCameraPermission();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _scannerController?.dispose();
+    _inlineTokenController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Si l'utilisateur revient de l'écran des paramètres Android
+    if (state == AppLifecycleState.resumed && !_isPermissionGranted) {
+      _checkPermissionSilently();
+    }
+  }
+
+  Future<void> _checkPermissionSilently() async {
+    final status = await Permission.camera.status;
+    if (status.isGranted) {
+      _handlePermissionResult(status);
+    }
+  }
+
+  void _handlePermissionResult(PermissionStatus status) {
+    if (status.isGranted) {
+      setState(() {
+        _isPermissionGranted = true;
+        _isPermanentlyDenied = false;
+        _isLoading = false;
+        _errorMessage = null;
+      });
+      _startScanner();
+    } else if (status.isPermanentlyDenied) {
+      setState(() {
+        _isPermissionGranted = false;
+        _isPermanentlyDenied = true;
+        _isLoading = false;
+      });
+    } else {
+      setState(() {
+        _isPermissionGranted = false;
+        _isPermanentlyDenied = false;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _requestCameraPermission() async {
+    setState(() => _isLoading = true);
+    final status = await Permission.camera.request();
+    if (!mounted) return;
+    _handlePermissionResult(status);
+  }
+
+  void _startScanner() {
+    _scannerController?.dispose();
     _scannerController = MobileScannerController(
       detectionSpeed: DetectionSpeed.normal,
       facing: CameraFacing.back,
@@ -889,10 +1004,225 @@ class _CameraScanScreenState extends State<_CameraScanScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _scannerController.dispose();
-    super.dispose();
+  Future<void> _importGalleryFromScanner() async {
+    try {
+      final picker = ImagePicker();
+      final image = await picker.pickImage(source: ImageSource.gallery);
+      if (image == null) return;
+
+      final controller = MobileScannerController();
+      final capture = await controller.analyzeImage(image.path);
+      controller.dispose();
+
+      if (capture != null && capture.barcodes.isNotEmpty) {
+        final raw = capture.barcodes.first.rawValue;
+        if (raw != null && raw.trim().isNotEmpty && mounted) {
+          Navigator.pop(context);
+          widget.onDetected(raw.trim());
+          return;
+        }
+      }
+      if (mounted) {
+        Navigator.pop(context);
+        widget.onManualFallback();
+      }
+    } catch (_) {
+      if (mounted) {
+        Navigator.pop(context);
+        widget.onManualFallback();
+      }
+    }
+  }
+
+  Widget _buildPermissionDeniedView() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E293B),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: const Color(0xFF334155)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.5),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: Icon(Icons.camera_alt_outlined, color: Color(0xFFF87171), size: 34),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                "Accès Caméra Requis",
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 17, letterSpacing: -0.3),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _isPermanentlyDenied
+                    ? "L'accès à l'appareil photo a été bloqué par Android. Veuillez l'activer dans les paramètres de votre téléphone pour scanner l'invitation."
+                    : "L'application a besoin d'accéder à l'appareil photo pour scanner le QR Code d'invitation de votre entreprise.",
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12.5, height: 1.4),
+              ),
+              const SizedBox(height: 20),
+
+              // Bouton Réessayer / Paramètres
+              if (_isPermanentlyDenied) ...[
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: () => openAppSettings(),
+                    icon: const Icon(Icons.settings_outlined, size: 20),
+                    label: const Text("Ouvrir les Paramètres Téléphone", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  "Activez 'Appareil photo' puis revenez sur l'application.",
+                  style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                ),
+              ] else ...[
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: _requestCameraPermission,
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                    label: const Text("Autoriser la Caméra", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  const Expanded(child: Divider(color: Color(0xFF334155))),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Text(
+                      "OU ACTIVEZ SANS CAMÉRA",
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 10, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const Expanded(child: Divider(color: Color(0xFF334155))),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Saisie directe du code dans cette modale
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F172A),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF334155)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Saisie directe de votre Code Clé :",
+                      style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _inlineTokenController,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                            decoration: const InputDecoration(
+                              hintText: "PPRO-302667",
+                              hintStyle: TextStyle(color: Colors.white24, fontSize: 12),
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(vertical: 8),
+                            ),
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: () {
+                            final text = _inlineTokenController.text.trim();
+                            if (text.isNotEmpty) {
+                              Navigator.pop(context);
+                              widget.onDetected(text);
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF10B981),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text("Valider", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Raccourci Galerie WhatsApp
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: OutlinedButton.icon(
+                  onPressed: _importGalleryFromScanner,
+                  icon: const Icon(Icons.photo_library_outlined, size: 18),
+                  label: const Text("Choisir une image dans la Galerie", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Color(0xFF475569)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              // Bouton retour
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  widget.onManualFallback();
+                },
+                child: const Text("Annuler et revenir à l'accueil", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -908,95 +1238,137 @@ class _CameraScanScreenState extends State<_CameraScanScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          IconButton(
-            icon: ValueListenableBuilder(
-              valueListenable: _scannerController,
-              builder: (context, state, child) {
-                return Icon(
-                  state.torchState == TorchState.on ? Icons.flash_on : Icons.flash_off,
-                  color: Colors.white,
-                );
-              },
+          if (_isPermissionGranted && _scannerController != null) ...[
+            IconButton(
+              icon: ValueListenableBuilder(
+                valueListenable: _scannerController!,
+                builder: (context, state, child) {
+                  return Icon(
+                    state.torchState == TorchState.on ? Icons.flash_on : Icons.flash_off,
+                    color: Colors.white,
+                  );
+                },
+              ),
+              onPressed: () => _scannerController!.toggleTorch(),
             ),
-            onPressed: () => _scannerController.toggleTorch(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.flip_camera_android, color: Colors.white),
-            onPressed: () => _scannerController.switchCamera(),
-          ),
+            IconButton(
+              icon: const Icon(Icons.flip_camera_android, color: Colors.white),
+              onPressed: () => _scannerController!.switchCamera(),
+            ),
+          ],
         ],
       ),
-      body: Stack(
-        children: [
-          MobileScanner(
-            controller: _scannerController,
-            errorBuilder: (context, error, child) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.camera_alt_outlined, color: Color(0xFFF87171), size: 48),
-                      const SizedBox(height: 12),
-                      const Text(
-                        "Accès Caméra Requis",
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        "Veuillez autoriser l'accès à la caméra pour scanner votre invitation QR.",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton.icon(
-                        onPressed: () => _scannerController.start(),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text("Réessayer"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2563EB),
-                          foregroundColor: Colors.white,
+      body: _isLoading
+          ? const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: Color(0xFF2563EB)),
+                  SizedBox(height: 16),
+                  Text("Vérification de la caméra...", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                ],
+              ),
+            )
+          : (!_isPermissionGranted || _errorMessage != null || _scannerController == null)
+              ? _buildPermissionDeniedView()
+              : Stack(
+                  children: [
+                    MobileScanner(
+                      controller: _scannerController!,
+                      errorBuilder: (context, error, child) {
+                        return _buildPermissionDeniedView();
+                      },
+                      onDetect: (capture) {
+                        if (_hasDetected) return;
+                        final List<Barcode> barcodes = capture.barcodes;
+                        for (final barcode in barcodes) {
+                          if (barcode.rawValue != null && barcode.rawValue!.trim().isNotEmpty) {
+                            _hasDetected = true;
+                            Navigator.pop(context);
+                            widget.onDetected(barcode.rawValue!.trim());
+                            break;
+                          }
+                        }
+                      },
+                    ),
+                    // Reticule de ciblage enveloppé dans IgnorePointer pour ne JAMAIS bloquer les clics
+                    IgnorePointer(
+                      child: Center(
+                        child: Container(
+                          width: 250,
+                          height: 250,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: const Color(0xFF2563EB), width: 3),
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Container(
+                                margin: const EdgeInsets.only(top: 8),
+                                height: 3,
+                                width: 180,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF60A5FA),
+                                  borderRadius: BorderRadius.circular(2),
+                                  boxShadow: [
+                                    BoxShadow(color: const Color(0xFF60A5FA).withValues(alpha: 0.8), blurRadius: 6),
+                                  ],
+                                ),
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 12),
+                                child: Text(
+                                  "Alignez le QR code du gérant",
+                                  style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          widget.onManualFallback();
-                        },
-                        child: const Text("Saisir mon code manuellement", style: TextStyle(color: Color(0xFF60A5FA))),
+                    ),
+                    // Boutons d'action rapides au bas de l'écran pendant le scan caméra
+                    Positioned(
+                      bottom: 24,
+                      left: 16,
+                      right: 16,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.pop(context);
+                                widget.onManualFallback();
+                              },
+                              icon: const Icon(Icons.pin_outlined, size: 18),
+                              label: const Text("Saisir mon Code", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: const Color(0xFF0F172A),
+                                elevation: 4,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          ElevatedButton(
+                            onPressed: _importGalleryFromScanner,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1E293B),
+                              foregroundColor: Colors.white,
+                              elevation: 4,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            child: const Icon(Icons.photo_library_rounded, size: 20),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              );
-            },
-            onDetect: (capture) {
-              if (_hasDetected) return;
-              final List<Barcode> barcodes = capture.barcodes;
-              for (final barcode in barcodes) {
-                if (barcode.rawValue != null) {
-                  _hasDetected = true;
-                  Navigator.pop(context);
-                  widget.onDetected(barcode.rawValue!);
-                  break;
-                }
-              }
-            },
-          ),
-          Center(
-            child: Container(
-              width: 250,
-              height: 250,
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFF2563EB), width: 3),
-                borderRadius: BorderRadius.circular(24),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
