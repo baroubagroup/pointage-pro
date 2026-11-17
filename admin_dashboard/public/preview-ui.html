@@ -47,7 +47,7 @@
 
     .phones-container {
       display: flex;
-      gap: 40px;
+      gap: 30px;
       align-items: flex-start;
       flex-wrap: wrap;
       justify-content: center;
@@ -56,7 +56,7 @@
     /* PHONE FRAME */
     .phone-mockup {
       width: 360px;
-      height: 760px;
+      height: 770px;
       background: #F4F7FD;
       border-radius: 46px;
       box-shadow: 
@@ -87,148 +87,169 @@
       color: #FFFFFF;
     }
 
-    /* SCREEN 1: OVERVIEW */
+    /* SCREEN CONTENT */
     .screen-content {
       flex: 1;
-      padding: 12px 20px 85px 20px;
+      padding: 10px 18px 85px 18px;
       overflow-y: auto;
       scrollbar-width: none;
     }
     .screen-content::-webkit-scrollbar { display: none; }
 
+    /* TOP BAR WITH ASSIST PILL */
     .top-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 18px;
+      margin-bottom: 14px;
     }
 
     .top-title {
-      font-size: 24px;
+      font-size: 18px;
       font-weight: 800;
       color: #0F172A;
-      letter-spacing: -0.6px;
+      letter-spacing: -0.3px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .assist-pill-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: #EFF6FF;
+      color: #2563EB;
+      border: 1px solid rgba(37, 99, 235, 0.18);
+      padding: 6px 11px;
+      border-radius: 14px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.08);
+      transition: all 0.2s;
+    }
+    .assist-pill-btn:hover {
+      background: #DBEAFE;
     }
 
     .user-avatar {
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      background: #FFFFFF;
-      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.12);
+      width: 36px;
+      height: 36px;
+      border-radius: 12px;
+      background: white;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 18px;
-      border: 2px solid #FFFFFF;
+      font-size: 15px;
     }
 
     /* HERO CARD VIBRANT BLUE */
     .hero-card {
       background: linear-gradient(135deg, #1D4ED8 0%, #2563EB 50%, #3B82F6 100%);
       border-radius: 26px;
-      padding: 20px;
+      padding: 16px 18px;
       color: white;
       display: flex;
       align-items: center;
-      gap: 16px;
-      box-shadow: 0 16px 32px -8px rgba(37, 99, 235, 0.42);
-      margin-bottom: 20px;
+      gap: 14px;
+      box-shadow: 
+        0 14px 28px -6px rgba(37, 99, 235, 0.38),
+        0 6px 12px -2px rgba(37, 99, 235, 0.15);
       position: relative;
       overflow: hidden;
+      margin-bottom: 14px;
     }
 
     .hero-card::after {
       content: "";
       position: absolute;
-      width: 140px;
-      height: 140px;
+      top: -20px;
+      right: -20px;
+      width: 110px;
+      height: 110px;
+      background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%);
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.08);
-      top: -40px;
-      right: -30px;
     }
 
     .progress-circle-wrap {
-      width: 68px;
-      height: 68px;
+      width: 58px;
+      height: 58px;
       position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: center;
       flex-shrink: 0;
     }
 
     .progress-circle-wrap svg {
+      width: 100%;
+      height: 100%;
       transform: rotate(-90deg);
-      width: 68px;
-      height: 68px;
-    }
-
-    .progress-circle-wrap circle {
-      fill: none;
-      stroke-width: 6;
-      stroke-linecap: round;
     }
 
     .progress-circle-bg {
-      stroke: rgba(255, 255, 255, 0.2);
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.22);
+      stroke-width: 5.5;
     }
 
     .progress-circle-val {
+      fill: none;
       stroke: #FFFFFF;
-      stroke-dasharray: 180;
-      stroke-dashoffset: 40;
+      stroke-width: 5.5;
+      stroke-linecap: round;
+      stroke-dasharray: 175;
+      stroke-dashoffset: 35; /* ~80% */
     }
 
     .progress-circle-text {
       position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
       font-size: 13px;
       font-weight: 800;
+      color: white;
     }
 
     .hero-info {
       flex: 1;
+      z-index: 2;
     }
 
     .hero-title {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 800;
-      letter-spacing: -0.3px;
-      margin-bottom: 4px;
+      letter-spacing: -0.2px;
     }
 
     .hero-subtitle {
-      font-size: 12px;
-      color: rgba(255, 255, 255, 0.85);
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.88);
+      margin-top: 2px;
       font-weight: 500;
-      display: flex;
-      align-items: center;
-      gap: 5px;
     }
 
     /* BENTO GRID */
     .bento-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 14px;
+      gap: 12px;
     }
 
     .bento-card {
       background: #FFFFFF;
-      border-radius: 24px;
-      padding: 16px;
+      border-radius: 22px;
+      padding: 14px;
       box-shadow: 
-        0 10px 25px -4px rgba(30, 58, 138, 0.05),
+        0 8px 20px -3px rgba(30, 58, 138, 0.05),
         0 2px 6px 0 rgba(0, 0, 0, 0.02);
       display: flex;
       flex-direction: column;
       position: relative;
-      transition: transform 0.2s ease;
-    }
-
-    .bento-card:hover {
-      transform: translateY(-2px);
+      transition: all 0.2s ease;
     }
 
     .bento-card.span-2 {
@@ -239,10 +260,10 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
-      color: #0F172A;
-      margin-bottom: 8px;
+      color: #64748B;
+      margin-bottom: 6px;
     }
 
     .bento-card-sub {
@@ -251,62 +272,7 @@
       font-weight: 500;
     }
 
-    /* SPECIFIC BENTO CARDS */
-    /* 1. Pointage Pulse Action */
-    .punch-action-card {
-      background: #FFFFFF;
-      border-radius: 24px;
-      padding: 18px 16px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-      cursor: pointer;
-    }
-
-    .hero-punch-btn {
-      width: 70px;
-      height: 70px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #10B981 0%, #059669 100%);
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 26px;
-      box-shadow: 0 12px 24px -4px rgba(16, 185, 129, 0.45);
-      margin: 10px 0 12px 0;
-      position: relative;
-    }
-
-    .hero-punch-btn::after {
-      content: "";
-      position: absolute;
-      inset: -6px;
-      border-radius: 50%;
-      border: 2px solid rgba(16, 185, 129, 0.35);
-      animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-      0% { transform: scale(1); opacity: 0.8; }
-      100% { transform: scale(1.28); opacity: 0; }
-    }
-
-    .punch-label {
-      font-size: 13px;
-      font-weight: 800;
-      color: #0F172A;
-    }
-
-    .punch-sub {
-      font-size: 10px;
-      color: #10B981;
-      font-weight: 700;
-      margin-top: 2px;
-    }
-
-    /* 2. Geofence Tank / Gauge */
+    /* GEOFENCE LIQUID TANK */
     .geofence-tank-card {
       display: flex;
       flex-direction: column;
@@ -315,82 +281,160 @@
 
     .liquid-tank {
       width: 100%;
-      height: 95px;
+      height: 80px;
       background: #EFF6FF;
-      border-radius: 18px;
+      border-radius: 16px;
       overflow: hidden;
       position: relative;
       display: flex;
       align-items: flex-end;
-      margin-top: 8px;
+      margin-top: 6px;
     }
 
     .liquid-fill {
       width: 100%;
-      height: 78%;
+      height: 75%;
       background: linear-gradient(180deg, #38BDF8 0%, #2563EB 100%);
-      border-radius: 14px 14px 0 0;
+      border-radius: 12px 12px 0 0;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       color: white;
       font-weight: 800;
-      font-size: 14px;
+      font-size: 13px;
       box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.3);
     }
 
     .liquid-fill span {
-      font-size: 9px;
+      font-size: 8.5px;
       font-weight: 600;
       opacity: 0.9;
     }
 
-    /* 3. Planning Horizontal Progress */
-    .planning-capsule {
-      margin-top: 10px;
-      background: #F1F5F9;
-      height: 10px;
-      border-radius: 10px;
-      overflow: hidden;
-      position: relative;
-    }
-
-    .planning-progress {
-      width: 65%;
-      height: 100%;
-      background: linear-gradient(90deg, #3B82F6, #2563EB);
-      border-radius: 10px;
-    }
-
-    /* 4. Heart Rate / Sparkline Wave */
+    /* SPARKLINE CLOCK */
     .sparkline-svg {
       width: 100%;
-      height: 38px;
-      margin: 8px 0;
+      height: 32px;
+      margin: 6px 0;
     }
 
     .big-metric {
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 900;
       color: #0F172A;
       letter-spacing: -0.5px;
     }
 
     .big-metric span {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       color: #64748B;
       margin-left: 2px;
     }
 
+    /* PLANNING CAPSULE */
+    .planning-capsule {
+      margin-top: 8px;
+      background: #F1F5F9;
+      height: 8px;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .planning-progress {
+      width: 65%;
+      height: 100%;
+      background: linear-gradient(90deg, #3B82F6, #2563EB);
+      border-radius: 8px;
+    }
+
+    /* HERO PUNCH ACTION IN THUMB ZONE (FULL WIDTH) */
+    .thumb-zone-action-card {
+      grid-column: span 2;
+      background: #FFFFFF;
+      border: 2px solid #E2E8F0;
+      border-radius: 26px;
+      padding: 16px 18px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 
+        0 12px 28px -4px rgba(37, 99, 235, 0.12),
+        0 4px 10px rgba(0, 0, 0, 0.03);
+      cursor: pointer;
+      position: relative;
+    }
+
+    .thumb-zone-badge {
+      position: absolute;
+      top: -10px;
+      right: 18px;
+      background: #2563EB;
+      color: white;
+      font-size: 9px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .thumb-punch-btn {
+      width: 62px;
+      height: 62px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+      box-shadow: 0 8px 18px rgba(37, 99, 235, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      color: white;
+      flex-shrink: 0;
+      animation: pulseGlow 2.5s infinite;
+    }
+
+    @keyframes pulseGlow {
+      0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.5); }
+      70% { box-shadow: 0 0 0 14px rgba(37, 99, 235, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+    }
+
+    .thumb-action-info {
+      flex: 1;
+    }
+
+    .thumb-action-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #0F172A;
+      letter-spacing: -0.2px;
+    }
+
+    .thumb-action-sub {
+      font-size: 11px;
+      color: #10B981;
+      font-weight: 700;
+      margin-top: 3px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .thumb-action-hint {
+      font-size: 10px;
+      color: #94A3B8;
+      margin-top: 2px;
+    }
+
     /* FLOATING PILL NAV BAR */
     .floating-pill-nav {
       position: absolute;
-      bottom: 18px;
-      left: 20px;
-      right: 20px;
-      height: 60px;
+      bottom: 16px;
+      left: 18px;
+      right: 18px;
+      height: 58px;
       background: #FFFFFF;
       border-radius: 30px;
       box-shadow: 
@@ -407,12 +451,12 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 44px;
-      height: 44px;
+      width: 42px;
+      height: 42px;
       border-radius: 50%;
       color: #94A3B8;
       cursor: pointer;
-      font-size: 19px;
+      font-size: 18px;
       transition: all 0.2s ease;
     }
 
@@ -422,13 +466,13 @@
       box-shadow: 0 4px 10px rgba(37, 99, 235, 0.15);
     }
 
-    /* SCREEN 2: SLEEP / DETAIL VIEW */
+    /* SCREEN 2: STATS / ASSIDUITE */
     .phone-mockup.detail-screen {
       background: linear-gradient(180deg, #1D4ED8 0%, #2563EB 35%, #F4F7FD 35%, #F4F7FD 100%);
     }
 
     .detail-top-nav {
-      padding: 6px 20px 14px 20px;
+      padding: 6px 18px 12px 18px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -436,32 +480,31 @@
     }
 
     .back-btn-pill {
-      width: 34px;
-      height: 34px;
+      width: 32px;
+      height: 32px;
       border-radius: 50%;
       background: rgba(255, 255, 255, 0.2);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 14px;
+      font-size: 13px;
       cursor: pointer;
       backdrop-filter: blur(8px);
     }
 
     .detail-nav-title {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 800;
       display: flex;
       align-items: center;
       gap: 6px;
     }
 
-    /* SEGMENTED TABS */
     .segmented-tabs {
       display: flex;
       justify-content: center;
-      gap: 20px;
-      padding: 4px 0 14px 0;
+      gap: 18px;
+      padding: 2px 0 12px 0;
       color: rgba(255, 255, 255, 0.7);
       font-size: 12px;
       font-weight: 600;
@@ -476,7 +519,7 @@
     .segmented-tab.active::after {
       content: "";
       position: absolute;
-      bottom: -6px;
+      bottom: -5px;
       left: 0;
       right: 0;
       height: 2.5px;
@@ -487,87 +530,85 @@
     .date-navigator {
       text-align: center;
       color: rgba(255, 255, 255, 0.9);
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 700;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
 
-    /* FLOATING WHITE SHEET */
     .white-sheet {
       background: #FFFFFF;
       border-radius: 36px 36px 0 0;
-      padding: 24px 20px 80px 20px;
+      padding: 22px 18px 80px 18px;
       flex: 1;
-      box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.05);
-      overflow-y: auto;
-      scrollbar-width: none;
-    }
-    .white-sheet::-webkit-scrollbar { display: none; }
-
-    /* BIG CIRCULAR GAUGE */
-    .big-gauge-wrap {
       display: flex;
       flex-direction: column;
       align-items: center;
-      margin-bottom: 24px;
+      box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.06);
+    }
+
+    .big-gauge-wrap {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 18px;
     }
 
     .circular-gauge {
       width: 145px;
       height: 145px;
       position: relative;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
     }
 
     .circular-gauge svg {
-      width: 145px;
-      height: 145px;
+      width: 100%;
+      height: 100%;
       transform: rotate(-90deg);
     }
 
-    .circular-gauge circle {
-      fill: none;
-      stroke-width: 12;
-      stroke-linecap: round;
-    }
-
     .gauge-bg {
-      stroke: #EFF6FF;
+      fill: none;
+      stroke: #EEF2F6;
+      stroke-width: 13;
     }
 
     .gauge-fill {
-      stroke: #2563EB;
-      stroke-dasharray: 400;
-      stroke-dashoffset: 80;
+      fill: none;
+      stroke: url(#blueGradient);
+      stroke-width: 13;
+      stroke-linecap: round;
+      stroke-dasharray: 402;
+      stroke-dashoffset: 20; /* 95% */
     }
 
     .gauge-content {
       position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
       text-align: center;
     }
 
     .gauge-value {
-      font-size: 26px;
+      font-size: 32px;
       font-weight: 900;
       color: #0F172A;
-      letter-spacing: -0.5px;
+      letter-spacing: -1px;
     }
 
     .gauge-label {
       font-size: 11px;
       color: #64748B;
       font-weight: 600;
+      margin-top: -2px;
     }
 
     .gauge-meta-row {
       display: flex;
-      justify-content: space-around;
       width: 100%;
+      justify-content: space-around;
       margin-top: 14px;
-      padding-top: 14px;
+      padding-top: 12px;
       border-top: 1px solid #F1F5F9;
     }
 
@@ -576,11 +617,9 @@
     }
 
     .gauge-meta-title {
-      font-size: 10px;
+      font-size: 10.5px;
       color: #94A3B8;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
     }
 
     .gauge-meta-value {
@@ -590,18 +629,17 @@
       margin-top: 2px;
     }
 
-    /* 2x2 MINI CARDS */
     .mini-cards-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-top: 8px;
+      gap: 10px;
+      width: 100%;
     }
 
     .mini-metric-card {
       background: #F8FAFC;
-      border-radius: 20px;
-      padding: 12px 14px;
+      border-radius: 18px;
+      padding: 10px 12px;
       display: flex;
       align-items: center;
       gap: 10px;
@@ -609,63 +647,184 @@
     }
 
     .mini-card-icon {
-      width: 36px;
-      height: 36px;
-      border-radius: 12px;
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
       background: #EFF6FF;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 16px;
+      font-size: 15px;
       flex-shrink: 0;
     }
 
-    .mini-card-info {
-      overflow: hidden;
-    }
-
     .mini-card-title {
-      font-size: 10px;
+      font-size: 9.5px;
       color: #64748B;
       font-weight: 600;
     }
 
     .mini-card-value {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 800;
       color: #0F172A;
       margin-top: 1px;
+    }
+
+    /* SCREEN 3: AUTH / ENROLLMENT LIGHT THEME */
+    .auth-hero-header {
+      background: linear-gradient(135deg, #1D4ED8 0%, #2563EB 60%, #3B82F6 100%);
+      border-radius: 28px;
+      padding: 22px 18px;
+      color: white;
+      text-align: center;
+      box-shadow: 0 14px 28px -6px rgba(37, 99, 235, 0.35);
+      margin-bottom: 16px;
+    }
+
+    .auth-logo-badge {
+      width: 52px;
+      height: 52px;
+      border-radius: 18px;
+      background: white;
+      color: #1D4ED8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin: 0 auto 10px auto;
+      box-shadow: 0 6px 14px rgba(0, 0, 0, 0.1);
+    }
+
+    .auth-mode-selector {
+      display: flex;
+      background: #FFFFFF;
+      border-radius: 18px;
+      padding: 4px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+      margin-bottom: 16px;
+    }
+
+    .auth-mode-tab {
+      flex: 1;
+      padding: 8px 6px;
+      text-align: center;
+      border-radius: 14px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748B;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .auth-mode-tab.active {
+      background: #2563EB;
+      color: white;
+      box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+    }
+
+    .auth-card-white {
+      background: #FFFFFF;
+      border-radius: 24px;
+      padding: 20px 18px;
+      box-shadow: 0 8px 24px -4px rgba(30, 58, 138, 0.06);
+      text-align: center;
+    }
+
+    .auth-input-light {
+      width: 100%;
+      height: 48px;
+      background: #F8FAFC;
+      border: 1.5px solid #E2E8F0;
+      border-radius: 14px;
+      padding: 0 14px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #0F172A;
+      margin: 12px 0 16px 0;
+      outline: none;
+      letter-spacing: 1px;
+    }
+    .auth-input-light:focus {
+      border-color: #2563EB;
+      background: white;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .auth-action-btn {
+      width: 100%;
+      height: 48px;
+      background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+      color: white;
+      border: none;
+      border-radius: 14px;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .auth-security-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #ECFDF5;
+      color: #059669;
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: 20px;
+      margin-top: 14px;
     }
   </style>
 </head>
 <body>
 
+  <!-- SVG GRADIENTS FOR GAUGES -->
+  <svg width="0" height="0" style="position: absolute;">
+    <defs>
+      <linearGradient id="blueGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#2563EB" />
+        <stop offset="100%" stop-color="#38BDF8" />
+      </linearGradient>
+    </defs>
+  </svg>
+
   <div class="preview-header">
-    <h1>Architecture Visuelle : Style "Soft Modern Bento" 2026</h1>
-    <p>Inspirée de votre capture de référence — Adaptée à l'application PointagePro</p>
+    <h1>Architecture Soft Modern Bento 2026 : Ergonomie Pouce & Thème Clair</h1>
+    <p>Bouton d'action dans la zone du pouce • Dépannage en en-tête • Écran de connexion clair</p>
   </div>
 
   <div class="phones-container">
 
-    <!-- ECRAN 1 : OVERVIEW / DASHBOARD DE POINTAGE -->
+    <!-- ECRAN 1 : ACCUEIL POINTAGE (ERGONOMIE POUCE REORGANISÉE) -->
     <div class="phone-mockup">
-      <!-- Status bar -->
       <div class="status-bar">
         <span>09:41</span>
         <span>📶 5G 100%</span>
       </div>
 
       <div class="screen-content">
-        <!-- Top bar -->
+        <!-- En-tête avec bouton Dépanner Collègue intégré -->
         <div class="top-bar">
           <div>
-            <div style="font-size: 11px; font-weight: 700; color: #2563EB; text-transform: uppercase; letter-spacing: 0.5px;">Espace Collaborateur</div>
+            <div style="font-size: 10.5px; font-weight: 700; color: #2563EB; text-transform: uppercase; letter-spacing: 0.5px;">Espace Collaborateur</div>
             <div class="top-title">Vue Générale 👋</div>
           </div>
-          <div class="user-avatar">👨🏽‍💼</div>
+          <div class="top-actions">
+            <!-- Bouton Dépanner un ami dans la barre d'en-tête (Discret et accessible) -->
+            <button class="assist-pill-btn" title="Dépanner un collègue sans téléphone">
+              <span>🤝</span> <span>Dépanner</span>
+            </button>
+            <div class="user-avatar">👨🏽‍💼</div>
+          </div>
         </div>
 
-        <!-- Hero Card Vibrant Blue -->
+        <!-- 1. Hero Card Haut de Page -->
         <div class="hero-card">
           <div class="progress-circle-wrap">
             <svg viewBox="0 0 70 70">
@@ -675,7 +834,7 @@
             <span class="progress-circle-text">82%</span>
           </div>
           <div class="hero-info">
-            <div class="hero-title">Presque au but !</div>
+            <div class="hero-title">En poste • Shift en cours ⚡</div>
             <div class="hero-subtitle">
               <span>⏱️ 6h 34m / 8h00 effectuées</span>
             </div>
@@ -683,22 +842,21 @@
           </div>
         </div>
 
-        <!-- Bento Grid -->
+        <!-- 2. Bento Grid Informative (Montée en haut) -->
         <div class="bento-grid">
           
-          <!-- Card 1 : Action Héroïque de Pointage -->
-          <div class="bento-card punch-action-card">
+          <!-- Horloge Satellite UTC avec Sparkline -->
+          <div class="bento-card">
             <div class="bento-card-header">
-              <span>⚡</span> <span>Action du moment</span>
+              <span>🛰️</span> <span>Horloge UTC</span>
             </div>
-            <div class="hero-punch-btn">
-              <span>☕</span>
-            </div>
-            <div class="punch-label">Pause Déjeuner</div>
-            <div class="punch-sub">🟢 En poste depuis 07:28</div>
+            <svg class="sparkline-svg" viewBox="0 0 100 35">
+              <path d="M0,20 L20,20 L30,5 L40,30 L50,15 L60,25 L70,18 L80,22 L100,20" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <div class="big-metric">14:02 <span>UTC</span></div>
           </div>
 
-          <!-- Card 2 : Réservoir Liquid Géofencing -->
+          <!-- Radar & Périmètre Géofence Liquide -->
           <div class="bento-card geofence-tank-card">
             <div>
               <div class="bento-card-header">
@@ -714,30 +872,7 @@
             </div>
           </div>
 
-          <!-- Card 3 : Onde Cardiaque / Horloge Satellite -->
-          <div class="bento-card">
-            <div class="bento-card-header">
-              <span>🛰️</span> <span>Horloge UTC</span>
-            </div>
-            <svg class="sparkline-svg" viewBox="0 0 100 35">
-              <path d="M0,20 L20,20 L30,5 L40,30 L50,15 L60,25 L70,18 L80,22 L100,20" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <div class="big-metric">14:02 <span>UTC</span></div>
-          </div>
-
-          <!-- Card 4 : Dépannage & Assiduité -->
-          <div class="bento-card">
-            <div class="bento-card-header">
-              <span>🤝</span> <span>Dépannage</span>
-            </div>
-            <div class="bento-card-sub" style="margin-top: 4px;">Assister un collègue sans smartphone</div>
-            <div style="margin-top: 14px; display: flex; align-items: center; justify-content: space-between;">
-              <span style="font-size: 11px; font-weight: 700; color: #2563EB;">Pointer pour un ami</span>
-              <span style="font-size: 16px;">➔</span>
-            </div>
-          </div>
-
-          <!-- Card 5 (Full Width) : Planning d'activité -->
+          <!-- Planning de la Journée (Plein Largeur) -->
           <div class="bento-card span-2">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <div class="bento-card-header" style="margin-bottom: 0;">
@@ -747,6 +882,21 @@
             </div>
             <div class="planning-capsule">
               <div class="planning-progress"></div>
+            </div>
+          </div>
+
+          <!-- 3. ZONE DU POUCE (THUMB ZONE) : Grand Bouton Héroïque de Pointage Placé en Bas -->
+          <div class="thumb-zone-action-card">
+            <div class="thumb-zone-badge">Accessible au pouce 👍</div>
+            <div class="thumb-punch-btn">
+              <span>☕</span>
+            </div>
+            <div class="thumb-action-info">
+              <div class="thumb-action-title">Départ Pause Déjeuner</div>
+              <div class="thumb-action-sub">
+                <span>🟢</span> <span>Arrivée validée à 07:28</span>
+              </div>
+              <div class="thumb-action-hint">Appuyez pour enregistrer votre pause</div>
             </div>
           </div>
 
@@ -761,9 +911,8 @@
       </div>
     </div>
 
-    <!-- ECRAN 2 : STATS & RELEVÉS / DETAIL SCREEN -->
+    <!-- ECRAN 2 : STATS & RELEVÉS / DETAIL SCREEN (RÉFÉRENCE SLEEP) -->
     <div class="phone-mockup detail-screen">
-      <!-- Status bar -->
       <div class="status-bar white-text">
         <span>09:41</span>
         <span>📶 5G 100%</span>
@@ -786,7 +935,7 @@
 
       <!-- Date Navigator -->
       <div class="date-navigator">
-        ❮ &nbsp; Aujourd'hui, 16 Novembre &nbsp; ❯
+        ❮ &nbsp; Aujourd'hui, 17 Novembre &nbsp; ❯
       </div>
 
       <!-- White Curved Sheet -->
@@ -819,7 +968,6 @@
 
         <!-- 2x2 Mini Bento Cards -->
         <div class="mini-cards-grid">
-          
           <div class="mini-metric-card">
             <div class="mini-card-icon">⏰</div>
             <div class="mini-card-info">
@@ -840,7 +988,7 @@
             <div class="mini-card-icon">🟢</div>
             <div class="mini-card-info">
               <div class="mini-card-title">Retard détecté</div>
-              <div class="mini-card-value">0 min (À l'heure)</div>
+              <div class="mini-card-value">0 min (Parfait)</div>
             </div>
           </div>
 
@@ -851,7 +999,6 @@
               <div class="mini-card-value">100% Certifié</div>
             </div>
           </div>
-
         </div>
 
       </div>
@@ -861,6 +1008,67 @@
         <div class="nav-item">🏠</div>
         <div class="nav-item active">📊</div>
         <div class="nav-item">👤</div>
+      </div>
+    </div>
+
+    <!-- ECRAN 3 : CONNEXION & ENRÔLEMENT SOFT BENTO CLAIR 2026 -->
+    <div class="phone-mockup">
+      <div class="status-bar">
+        <span>09:41</span>
+        <span>📶 5G 100%</span>
+      </div>
+
+      <div class="screen-content">
+        <!-- Hero Header Enrôlement -->
+        <div class="auth-hero-header">
+          <div class="auth-logo-badge">🛡️</div>
+          <h2 style="font-size: 19px; font-weight: 900; letter-spacing: -0.3px;">PointagePro</h2>
+          <p style="font-size: 11px; color: rgba(255,255,255,0.85); margin-top: 3px;">Authentification & Enrôlement Sécurisé</p>
+        </div>
+
+        <!-- Sélecteur de Mode Segmenté -->
+        <div class="auth-mode-selector">
+          <div class="auth-mode-tab">📷 Scanner</div>
+          <div class="auth-mode-tab active">⌨️ Saisie Code</div>
+          <div class="auth-mode-tab">🔄 Inverse</div>
+        </div>
+
+        <!-- Carte Blanche Bento pour Saisie -->
+        <div class="auth-card-white">
+          <div style="font-size: 14px; font-weight: 800; color: #0F172A;">Activation Collaborateur</div>
+          <div style="font-size: 11px; color: #64748B; margin-top: 4px;">Entrez le jeton fourni par votre responsable :</div>
+
+          <input type="text" class="auth-input-light" value="PPRO-302667" placeholder="Ex : PPRO-302667">
+
+          <button class="auth-action-btn">
+            <span>Vérifier & Lier cet Appareil</span>
+            <span>➔</span>
+          </button>
+
+          <div class="auth-security-pill">
+            <span>🔒</span>
+            <span>1 Appareil = 1 Employé • Horloge UTC Certifiée</span>
+          </div>
+        </div>
+
+        <!-- Carte Raccourci Galerie WhatsApp -->
+        <div class="bento-card" style="margin-top: 14px; padding: 14px; flex-direction: row; align-items: center; justify-content: space-between; cursor: pointer;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 36px; height: 36px; border-radius: 12px; background: #ECFDF5; color: #10B981; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+              🖼️
+            </div>
+            <div>
+              <div style="font-size: 12px; font-weight: 800; color: #0F172A;">Importer QR Code</div>
+              <div style="font-size: 10.5px; color: #64748B;">Depuis WhatsApp ou Galerie</div>
+            </div>
+          </div>
+          <span style="font-size: 14px; color: #94A3B8;">➔</span>
+        </div>
+      </div>
+
+      <!-- Footnote sécurité -->
+      <div style="position: absolute; bottom: 18px; left: 0; right: 0; text-align: center; font-size: 10px; color: #94A3B8; font-weight: 600;">
+        PointagePro Security Engine 2026
       </div>
     </div>
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import '../models/employee_session.dart';
@@ -907,6 +908,42 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
         ),
         Row(
           children: [
+            // Bouton Dépanner un collègue (Discret, rapide et directement accessible en en-tête)
+            InkWell(
+              onTap: () => ColleagueAssistanceDialog.show(context, widget.session),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFF2563EB).withValues(alpha: 0.18)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF2563EB).withValues(alpha: 0.08),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text("🤝", style: TextStyle(fontSize: 12)),
+                    SizedBox(width: 4),
+                    Text(
+                      "Dépanner",
+                      style: TextStyle(
+                        color: Color(0xFF2563EB),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
             // Bouton Notifications
             InkWell(
               onTap: _showNotificationsDialog,
@@ -1076,112 +1113,103 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
   Widget _buildBentoGrid(String timeStr, String dateStr) {
     return Column(
       children: [
-        // Ligne 1 : Action du moment & Réservoir Géofence
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: _buildBentoPunchCard()),
-            const SizedBox(width: 14),
-            Expanded(child: _buildBentoGeofenceCard()),
-          ],
-        ),
-        const SizedBox(height: 14),
-        // Ligne 2 : Satellite Sparkline & Dépannage
+        // Ligne 1 : Horloge Satellite Sparkline & Réservoir Géofence
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(child: _buildBentoSparklineClockCard(timeStr)),
             const SizedBox(width: 14),
-            Expanded(child: _buildBentoColleagueCard()),
+            Expanded(child: _buildBentoGeofenceCard()),
           ],
         ),
         const SizedBox(height: 14),
-        // Ligne 3 : Planning en capsule pleine largeur
+        // Ligne 2 : Planning en capsule pleine largeur
         _buildBentoPlanningCard(),
+        const SizedBox(height: 16),
+        // Ligne 3 : ZONE DU POUCE (Thumb Zone) - Grand Bouton d'Action Héroïque de Pointage
+        _buildBentoThumbPunchCard(),
       ],
     );
   }
 
-  Widget _buildBentoPunchCard() {
+  Widget _buildBentoThumbPunchCard() {
     String actionTitle;
     String actionSubtitle;
+    String helperText;
     IconData actionIcon;
     List<Color> gradientColors;
     PunchType punchType;
 
     switch (_workState) {
       case DayWorkState.notArrived:
-        actionTitle = "POINTER";
-        actionSubtitle = "Arrivée Matin";
+        actionTitle = "Pointer mon Arrivée";
+        actionSubtitle = "Prise de poste matinale";
+        helperText = "Appuyez pour démarrer votre shift";
         actionIcon = Icons.login_rounded;
         gradientColors = const [Color(0xFF10B981), Color(0xFF059669)];
         punchType = PunchType.checkIn;
         break;
       case DayWorkState.working:
-        actionTitle = "PAUSE";
-        actionSubtitle = "Déjeuner";
+        actionTitle = "Départ Pause Déjeuner";
+        actionSubtitle = "En poste • Arrivée enregistrée";
+        helperText = "Appuyez pour notifier votre pause";
         actionIcon = Icons.free_breakfast_rounded;
-        gradientColors = const [Color(0xFFF59E0B), Color(0xFFD97706)];
+        gradientColors = const [Color(0xFF2563EB), Color(0xFF1D4ED8)];
         punchType = PunchType.breakStart;
         break;
       case DayWorkState.onBreak:
-        actionTitle = "REPRISE";
-        actionSubtitle = "Retour Poste";
+        actionTitle = "Reprise de Poste";
+        actionSubtitle = "En pause déjeuner actuellement";
+        helperText = "Appuyez pour reprendre votre service";
         actionIcon = Icons.restart_alt_rounded;
         gradientColors = const [Color(0xFF3B82F6), Color(0xFF2563EB)];
         punchType = PunchType.breakEnd;
         break;
       case DayWorkState.completed:
-        actionTitle = "JOURNÉE";
-        actionSubtitle = "Clôturée";
-        actionIcon = Icons.check_circle_outline_rounded;
+        actionTitle = "Journée Clôturée";
+        actionSubtitle = "Présence certifiée aujourd'hui";
+        helperText = "Appuyez pour rouvrir en cas d'erreur";
+        actionIcon = Icons.check_circle_rounded;
         gradientColors = const [Color(0xFF64748B), Color(0xFF475569)];
         punchType = PunchType.checkOut;
         break;
     }
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF1E3A8A).withValues(alpha: 0.05),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
+            color: const Color(0xFF1E3A8A).withValues(alpha: 0.08),
+            blurRadius: 22,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Row(
         children: [
-          Row(
-            children: const [
-              Text("⚡", style: TextStyle(fontSize: 12)),
-              SizedBox(width: 4),
-              Text(
-                "Action",
-                style: TextStyle(color: Color(0xFF0F172A), fontSize: 12, fontWeight: FontWeight.w800),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
+          // Bouton Circulaire Héroïque Pulsant dans la Zone du Pouce
           GestureDetector(
             onTap: _isLoading
                 ? null
-                : (_workState == DayWorkState.completed ? _showReopenDayDialog : () => _handlePunchWithGuardrails(punchType)),
+                : () {
+                    HapticFeedback.mediumImpact();
+                    if (_workState == DayWorkState.completed) {
+                      _showReopenDayDialog();
+                    } else {
+                      _handlePunchWithGuardrails(punchType);
+                    }
+                  },
             child: AnimatedBuilder(
               animation: _pulseAnimation,
               builder: (ctx, child) {
                 return Container(
-                  width: 72,
-                  height: 72,
+                  width: 66,
+                  height: 66,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: LinearGradient(
@@ -1191,37 +1219,80 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: gradientColors.first.withValues(alpha: 0.35 * _pulseAnimation.value),
-                        blurRadius: 16 * _pulseAnimation.value,
-                        spreadRadius: 2,
+                        color: gradientColors.first.withValues(alpha: 0.38 * _pulseAnimation.value),
+                        blurRadius: 18 * _pulseAnimation.value,
+                        spreadRadius: 3 * _pulseAnimation.value,
                       ),
                     ],
                   ),
                   child: Center(
                     child: _isLoading
-                        ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                          )
                         : Icon(actionIcon, color: Colors.white, size: 28),
                   ),
                 );
               },
             ),
           ),
-          const SizedBox(height: 10),
-          Text(
-            actionTitle,
-            style: const TextStyle(
-              color: Color(0xFF0F172A),
-              fontSize: 13,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.3,
-            ),
-          ),
-          Text(
-            actionSubtitle,
-            style: TextStyle(
-              color: gradientColors.first,
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
+          const SizedBox(width: 16),
+          // Libellé et description ergonomique
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: gradientColors.first.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        "POINTAGE AU POUCE",
+                        style: TextStyle(
+                          color: gradientColors.first,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  actionTitle,
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  actionSubtitle,
+                  style: const TextStyle(
+                    color: Color(0xFF64748B),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  helperText,
+                  style: TextStyle(
+                    color: gradientColors.first,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1407,66 +1478,6 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
             ],
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildBentoColleagueCard() {
-    return InkWell(
-      onTap: () => ColleagueAssistanceDialog.show(context, widget.session),
-      borderRadius: BorderRadius.circular(24),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF1E3A8A).withValues(alpha: 0.05),
-              blurRadius: 18,
-              offset: const Offset(0, 6),
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: const [
-                Text("🤝", style: TextStyle(fontSize: 12)),
-                SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    "Dépannage",
-                    style: TextStyle(color: Color(0xFF0F172A), fontSize: 12, fontWeight: FontWeight.w800),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              "Assister un collègue sans smartphone",
-              style: TextStyle(color: Color(0xFF64748B), fontSize: 11, height: 1.2),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text(
-                  "Pointer pour un ami",
-                  style: TextStyle(color: Color(0xFF2563EB), fontSize: 11, fontWeight: FontWeight.bold),
-                ),
-                Icon(Icons.arrow_forward_rounded, color: Color(0xFF2563EB), size: 16),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }

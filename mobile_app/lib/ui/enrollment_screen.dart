@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -47,7 +48,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
         });
       }
     } catch (e) {
-      print("Erreur metadata: $e");
+      debugPrint("Erreur metadata: $e");
     }
   }
 
@@ -90,8 +91,8 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
       if (image == null) return;
 
       _showManualTokenDialog(
-        title: "Code de votre Invitation WhatsApp",
-        subtitle: "Image importée. Saisissez le code d'activation figurant sur votre invitation (ex: PPRO-302667).",
+        title: "Code de votre Invitation",
+        subtitle: "Image sélectionnée. Renseignez le code d'activation figurant sur votre carton ou message (ex: PPRO-302667) :",
       );
     } catch (e) {
       _showError("Impossible d'accéder à la galerie : $e");
@@ -106,36 +107,65 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Row(
           children: [
-            const Icon(Icons.vpn_key_rounded, color: Color(0xFF38BDF8), size: 24),
-            const SizedBox(width: 8),
-            Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.vpn_key_rounded, color: Color(0xFF2563EB), size: 22),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.3,
+                ),
+              ),
+            ),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(subtitle, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+            Text(subtitle, style: const TextStyle(color: Color(0xFF64748B), fontSize: 12.5)),
             const SizedBox(height: 16),
             TextField(
               controller: _tokenInputController,
               autofocus: true,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+              style: const TextStyle(
+                color: Color(0xFF0F172A),
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.5,
+              ),
               decoration: InputDecoration(
                 hintText: "Ex : PPRO-302667",
-                hintStyle: const TextStyle(color: Color(0xFF64748B), letterSpacing: 1),
+                hintStyle: const TextStyle(color: Color(0xFF94A3B8), letterSpacing: 1),
                 filled: true,
-                fillColor: const Color(0xFF0F172A),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF38BDF8), width: 1.5),
+                fillColor: const Color(0xFFF8FAFC),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
                 ),
-                prefixIcon: const Icon(Icons.qr_code, color: Color(0xFF38BDF8)),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.8),
+                ),
+                prefixIcon: const Icon(Icons.qr_code_rounded, color: Color(0xFF2563EB)),
               ),
             ),
           ],
@@ -143,7 +173,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text("Annuler", style: TextStyle(color: Color(0xFF94A3B8))),
+            child: const Text("Annuler", style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.bold)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -154,9 +184,10 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF38BDF8),
-              foregroundColor: const Color(0xFF0F172A),
+              backgroundColor: const Color(0xFF2563EB),
+              foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
             ),
             child: const Text("Valider", style: TextStyle(fontWeight: FontWeight.bold)),
           ),
@@ -207,6 +238,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
           const SnackBar(
             content: Text("En attente : le responsable n'a pas encore validé votre smartphone sur son portail."),
             backgroundColor: Color(0xFFF59E0B),
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -218,13 +250,21 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
         title: const Row(
           children: [
             Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 30),
             SizedBox(width: 10),
-            Text("Appareil Scellé !", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+            Text(
+              "Appareil Scellé !",
+              style: TextStyle(
+                color: Color(0xFF0F172A),
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
+                letterSpacing: -0.3,
+              ),
+            ),
           ],
         ),
         content: Column(
@@ -233,30 +273,30 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
           children: [
             Text(
               "Bienvenue, ${session.fullName} !",
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w800, fontSize: 16),
             ),
             const SizedBox(height: 6),
             const Text(
               "Votre smartphone est désormais relié de manière sécurisée et inaltérable à votre compte collaborateur.",
-              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+              style: TextStyle(color: Color(0xFF64748B), fontSize: 12.5),
             ),
             const SizedBox(height: 14),
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildSuccessRow("Collaborateur :", session.fullName),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 5),
                   _buildSuccessRow("Matricule :", session.matricule),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 5),
                   _buildSuccessRow("Établissement :", session.establishmentName),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 5),
                   _buildSuccessRow("Appareil Lié :", deviceModel),
                 ],
               ),
@@ -273,12 +313,13 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
               );
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF10B981),
+              backgroundColor: const Color(0xFF2563EB),
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              elevation: 0,
             ),
-            child: const Text("Accéder à Mon Espace", style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text("Accéder à Mon Espace", style: TextStyle(fontWeight: FontWeight.w800)),
           ),
         ],
       ),
@@ -288,12 +329,12 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   Widget _buildSuccessRow(String label, String value) {
     return Row(
       children: [
-        Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+        Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 11.5, fontWeight: FontWeight.bold)),
         const SizedBox(width: 6),
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+            style: const TextStyle(color: Color(0xFF0F172A), fontSize: 12.5, fontWeight: FontWeight.w700),
             overflow: TextOverflow.ellipsis,
           ),
         ),
@@ -306,6 +347,8 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
       SnackBar(
         content: Text(msg),
         backgroundColor: const Color(0xFFEF4444),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -313,77 +356,121 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0F1D),
+      backgroundColor: const Color(0xFFF4F7FD), // Soft Bento Light Background
       body: SafeArea(
         child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
 
-              // Logo Empreinte & Gradient
+              // 1. Hero Header Bleu Royal Vibrant
               Container(
-                width: 80,
-                height: 80,
+                width: double.infinity,
+                padding: const EdgeInsets.all(22),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF00F2FE), Color(0xFF4FACFE)],
+                    colors: [Color(0xFF1D4ED8), Color(0xFF2563EB), Color(0xFF3B82F6)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: BorderRadius.circular(28),
                   boxShadow: [
-                    BoxShadow(color: const Color(0xFF00F2FE).withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 8)),
+                    BoxShadow(
+                      color: const Color(0xFF2563EB).withValues(alpha: 0.32),
+                      blurRadius: 22,
+                      offset: const Offset(0, 8),
+                    ),
                   ],
                 ),
-                child: const Icon(Icons.fingerprint, color: Colors.white, size: 48),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.1),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const Center(
+                        child: Icon(Icons.fingerprint_rounded, color: Color(0xFF2563EB), size: 36),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      "PointagePro Enterprise",
+                      style: TextStyle(
+                        fontSize: 21,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Authentification & Enrôlement Sécurisé 2026",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.88), fontSize: 12),
+                    ),
+                  ],
+                ),
               ),
 
               const SizedBox(height: 20),
 
-              const Text(
-                "PointagePro Enterprise",
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -0.5),
-              ),
-              const SizedBox(height: 6),
-
-              const Text(
-                "Activez votre compte pour démarrer le pointage satellite inaltérable.",
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-              ),
-
-              const SizedBox(height: 24),
-
-              // Sélecteur d'Onglets à 3 Modes
+              // 2. Sélecteur d'Onglets Segmenté Blanc (Style Bento)
               Container(
-                padding: const EdgeInsets.all(4),
+                padding: const EdgeInsets.all(5),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF1E3A8A).withValues(alpha: 0.05),
+                      blurRadius: 12,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
                 child: Row(
                   children: [
                     _buildTabItem(index: 0, title: "Scanner QR", icon: Icons.qr_code_scanner_rounded),
-                    _buildTabItem(index: 1, title: "Code Clé", icon: Icons.pin_outlined),
+                    _buildTabItem(index: 1, title: "Saisie Code", icon: Icons.pin_outlined),
                     _buildTabItem(index: 2, title: "Mode Inverse", icon: Icons.qr_code_2_rounded),
                   ],
                 ),
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
 
+              // 3. Contenu de l'onglet sélectionné
               if (_isProcessing)
-                const Column(
-                  children: [
-                    CircularProgressIndicator(color: Color(0xFF38BDF8)),
-                    SizedBox(height: 14),
-                    Text(
-                      "Vérification du compte et scellement du smartphone...",
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                  ],
+                Container(
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: const Column(
+                    children: [
+                      CircularProgressIndicator(color: Color(0xFF2563EB)),
+                      SizedBox(height: 16),
+                      Text(
+                        "Vérification du compte et scellement du smartphone...",
+                        style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 13),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
                 )
               else if (_selectedModeIndex == 0)
                 _buildScannerTab()
@@ -392,24 +479,30 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
               else
                 _buildReverseEnrollmentTab(),
 
-              const SizedBox(height: 30),
+              const SizedBox(height: 26),
 
-              // Badge de Sécurité Inaltérable
+              // 4. Badge de Sécurité Inaltérable
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withOpacity(0.06)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF1E3A8A).withValues(alpha: 0.04),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.shield_rounded, color: Color(0xFF38BDF8), size: 14),
-                    SizedBox(width: 6),
+                    Icon(Icons.shield_rounded, color: Color(0xFF10B981), size: 16),
+                    SizedBox(width: 8),
                     Text(
                       "Sécurité Satellite UTC • Détection Faux-GPS active",
-                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                      style: TextStyle(color: Color(0xFF64748B), fontSize: 11.5, fontWeight: FontWeight.w600),
                     ),
                   ],
                 ),
@@ -435,11 +528,21 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
             _reverseEnrollPollingTimer?.cancel();
           }
         },
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF38BDF8) : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
+            color: isSelected ? const Color(0xFF2563EB) : Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFF2563EB).withValues(alpha: 0.25),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -447,15 +550,15 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
               Icon(
                 icon,
                 size: 16,
-                color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
+                color: isSelected ? Colors.white : const Color(0xFF64748B),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 5),
               Text(
                 title,
                 style: TextStyle(
-                  color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
-                  fontSize: 12,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: isSelected ? Colors.white : const Color(0xFF64748B),
+                  fontSize: 11.5,
+                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
                 ),
               ),
             ],
@@ -468,28 +571,122 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   Widget _buildScannerTab() {
     return Column(
       children: [
-        ElevatedButton.icon(
-          onPressed: _startCameraScanner,
-          icon: const Icon(Icons.qr_code_scanner, size: 22),
-          label: const Text("Scanner le QR Code Gérant", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF38BDF8),
-            foregroundColor: const Color(0xFF0F172A),
-            minimumSize: const Size(double.infinity, 52),
-            elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        // Carte Principale Scanner
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(26),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF1E3A8A).withValues(alpha: 0.06),
+                blurRadius: 18,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Center(
+                  child: Icon(Icons.qr_code_scanner_rounded, color: Color(0xFF2563EB), size: 30),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                "Scanner l'Invitation Gérant",
+                style: TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                "Pointez votre appareil vers le QR code affiché sur le portail administrateur de votre entreprise.",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  onPressed: _startCameraScanner,
+                  icon: const Icon(Icons.camera_alt_rounded, size: 20),
+                  label: const Text("Ouvrir la Caméra", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: _importFromGallery,
-          icon: const Icon(Icons.photo_library_outlined, size: 20),
-          label: const Text("Importer depuis la Galerie", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.white,
-            side: BorderSide(color: Colors.white.withOpacity(0.2)),
-            minimumSize: const Size(double.infinity, 50),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+
+        const SizedBox(height: 14),
+
+        // Raccourci Galerie WhatsApp
+        InkWell(
+          onTap: _importFromGallery,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF1E3A8A).withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFECFDF5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.photo_library_rounded, color: Color(0xFF10B981), size: 20),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Importer depuis la Galerie",
+                        style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w800, fontSize: 13),
+                      ),
+                      SizedBox(height: 1),
+                      Text(
+                        "Pour les invitations reçues sur WhatsApp",
+                        style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
+              ],
+            ),
           ),
         ),
       ],
@@ -498,58 +695,76 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
 
   Widget _buildManualTokenTab() {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E3A8A).withValues(alpha: 0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            "Entrez votre Code ou Clé d'Enrôlement :",
-            style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+            "Activation par Code Clé",
+            style: TextStyle(color: Color(0xFF0F172A), fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: -0.3),
           ),
           const SizedBox(height: 4),
           const Text(
-            "Exemple : PPRO-302667 ou simplement 302667",
-            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _tokenInputController,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2),
-            decoration: InputDecoration(
-              hintText: "PPRO-302667",
-              hintStyle: const TextStyle(color: Color(0xFF64748B)),
-              filled: true,
-              fillColor: const Color(0xFF0F172A),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: Color(0xFF38BDF8), width: 1.5),
-              ),
-              prefixIcon: const Icon(Icons.pin, color: Color(0xFF38BDF8)),
-            ),
+            "Entrez le jeton fourni par votre responsable (ex : PPRO-302667 ou 302667) :",
+            style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
           ),
           const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: () {
-              final code = _tokenInputController.text.trim();
-              if (code.isNotEmpty) {
-                _verifyAndEnroll(code);
-              } else {
-                _showError("Veuillez saisir votre code d'activation.");
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF38BDF8),
-              foregroundColor: const Color(0xFF0F172A),
-              minimumSize: const Size(double.infinity, 48),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          TextField(
+            controller: _tokenInputController,
+            style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w800, letterSpacing: 1.5),
+            decoration: InputDecoration(
+              hintText: "PPRO-302667",
+              hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.8),
+              ),
+              prefixIcon: const Icon(Icons.pin_rounded, color: Color(0xFF2563EB)),
             ),
-            child: const Text("Activer ce Smartphone", style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton(
+              onPressed: () {
+                final code = _tokenInputController.text.trim();
+                if (code.isNotEmpty) {
+                  _verifyAndEnroll(code);
+                } else {
+                  _showError("Veuillez saisir votre code d'activation.");
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 0,
+              ),
+              child: const Text("Activer ce Smartphone", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+            ),
           ),
         ],
       ),
@@ -565,36 +780,45 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
     });
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E3A8A).withValues(alpha: 0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
         children: [
           const Text(
-            "Faites scanner votre téléphone par le Gérant",
-            style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+            "Faites Scanner votre Téléphone",
+            style: TextStyle(
+              color: Color(0xFF0F172A),
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.3,
+            ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 4),
           const Text(
-            "Présentez ce QR Code à votre responsable ou superviseur. En le scannant avec son appareil, il vous liera directement.",
-            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+            "Présentez ce QR code à votre superviseur sur son portail d'administration pour qu'il vous lie instantanément.",
+            style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
 
           // QR Code généré via qr_flutter
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 12),
-              ],
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
             ),
             child: QrImageView(
               data: qrPayload,
@@ -608,10 +832,10 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
           // ID Appareil
           Text(
             "ID Téléphone : ${_myDeviceId ?? 'En cours...'}",
-            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10, fontFamily: 'monospace'),
+            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5, fontFamily: 'monospace'),
           ),
 
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
 
           // Bouton Vérification Manuelle
           OutlinedButton.icon(
@@ -620,14 +844,15 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
                 ? const SizedBox(
                     width: 14,
                     height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2563EB)),
                   )
                 : const Icon(Icons.refresh_rounded, size: 16),
-            label: const Text("Vérifier si j'ai été validé", style: TextStyle(fontSize: 12)),
+            label: const Text("Vérifier si j'ai été validé", style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
             style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF38BDF8),
-              side: const BorderSide(color: Color(0xFF38BDF8)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              foregroundColor: const Color(0xFF2563EB),
+              side: const BorderSide(color: Color(0xFF2563EB)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             ),
           ),
         ],
@@ -677,7 +902,7 @@ class _CameraScanScreenState extends State<_CameraScanScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         elevation: 0,
-        title: const Text("Scannez le QR Code Gérant", style: TextStyle(color: Colors.white, fontSize: 16)),
+        title: const Text("Scannez le QR Code Gérant", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
@@ -730,8 +955,8 @@ class _CameraScanScreenState extends State<_CameraScanScreen> {
                         icon: const Icon(Icons.refresh),
                         label: const Text("Réessayer"),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF38BDF8),
-                          foregroundColor: const Color(0xFF0F172A),
+                          backgroundColor: const Color(0xFF2563EB),
+                          foregroundColor: Colors.white,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -740,7 +965,7 @@ class _CameraScanScreenState extends State<_CameraScanScreen> {
                           Navigator.pop(context);
                           widget.onManualFallback();
                         },
-                        child: const Text("Saisir mon code manuellement", style: TextStyle(color: Color(0xFF38BDF8))),
+                        child: const Text("Saisir mon code manuellement", style: TextStyle(color: Color(0xFF60A5FA))),
                       ),
                     ],
                   ),
@@ -749,13 +974,12 @@ class _CameraScanScreenState extends State<_CameraScanScreen> {
             },
             onDetect: (capture) {
               if (_hasDetected) return;
-              final barcodes = capture.barcodes;
+              final List<Barcode> barcodes = capture.barcodes;
               for (final barcode in barcodes) {
-                final raw = barcode.rawValue;
-                if (raw != null && raw.trim().isNotEmpty) {
+                if (barcode.rawValue != null) {
                   _hasDetected = true;
                   Navigator.pop(context);
-                  widget.onDetected(raw.trim());
+                  widget.onDetected(barcode.rawValue!);
                   break;
                 }
               }
@@ -766,34 +990,9 @@ class _CameraScanScreenState extends State<_CameraScanScreen> {
               width: 250,
               height: 250,
               decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFF38BDF8), width: 3),
-                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFF2563EB), width: 3),
+                borderRadius: BorderRadius.circular(24),
               ),
-            ),
-          ),
-          Positioned(
-            bottom: 40,
-            left: 20,
-            right: 20,
-            child: Column(
-              children: [
-                const Text(
-                  "Placez le QR Code de votre invitation dans le cadre",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-                const SizedBox(height: 10),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    widget.onManualFallback();
-                  },
-                  child: const Text(
-                    "Vous préférez saisir votre code manuellement ?",
-                    style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12, decoration: TextDecoration.underline),
-                  ),
-                ),
-              ],
             ),
           ),
         ],
