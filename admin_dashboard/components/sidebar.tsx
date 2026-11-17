@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { 
   PieChart, 
   Users, 
@@ -37,6 +37,103 @@ const SETTINGS_SUB_ITEMS = [
   { tab: 'plannings', label: 'Plannings & Horaires', icon: CalendarDays },
   { tab: 'securite', label: 'Sécurité Anti-Triche', icon: Shield },
 ];
+
+function SettingsNavSection({ isSettingsActive }: { isSettingsActive: boolean }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const [isOpen, setIsOpen] = useState(true);
+
+  // Détection de l'onglet actif dans l'URL (?tab=...)
+  const currentTab = searchParams.get('tab') || 'general';
+
+  // Toggle du pliage / dépliage
+  const handleToggle = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsOpen(prev => !prev);
+  };
+
+  const handleHeaderClick = () => {
+    if (!isOpen) {
+      setIsOpen(true);
+    }
+    router.push('/parametres?tab=general');
+  };
+
+  return (
+    <div className="mt-6 pt-4 border-t border-slate-800/80">
+      <div className="flex items-center justify-between px-3 mb-1.5">
+        <span className="text-[10px] uppercase font-extrabold tracking-wider text-slate-500">
+          Gouvernance Système
+        </span>
+        <button
+          type="button"
+          onClick={handleToggle}
+          title={isOpen ? "Replier le sous-menu" : "Dérouler le sous-menu"}
+          className="text-[10px] font-bold text-slate-400 hover:text-white transition cursor-pointer"
+        >
+          {isOpen ? 'Replier' : 'Dérouler'}
+        </button>
+      </div>
+
+      {/* Bouton principal cliquable & repliable */}
+      <div
+        onClick={handleHeaderClick}
+        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl transition text-xs font-bold cursor-pointer select-none ${
+          isSettingsActive
+            ? 'bg-slate-800 text-white border border-slate-700/80 shadow-xs'
+            : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+        }`}
+      >
+        <div className="flex items-center space-x-3">
+          <Settings className="w-4 h-4 shrink-0 text-blue-400" />
+          <span>Paramètres & Hub</span>
+        </div>
+        
+        {/* Chevron cliquable pour replier / déplier */}
+        <button
+          type="button"
+          onClick={handleToggle}
+          title={isOpen ? "Replier le sous-menu" : "Dérouler le sous-menu"}
+          className="p-1 hover:bg-slate-700/60 rounded-lg text-slate-400 hover:text-white transition cursor-pointer"
+        >
+          <ChevronRight className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-90 text-blue-400' : 'text-slate-500'}`} />
+        </button>
+      </div>
+
+      {/* Sous-onglets de Paramètres avec surbrillance active et synchronisation immédiate */}
+      {isOpen && (
+        <div className="mt-1.5 pl-3 space-y-1 animate-fadeIn">
+          {SETTINGS_SUB_ITEMS.map((sub) => {
+            const SubIcon = sub.icon;
+            const isTabActive = isSettingsActive && currentTab === sub.tab;
+            return (
+              <Link
+                key={sub.tab}
+                href={`/parametres?tab=${sub.tab}`}
+                className={`flex items-center justify-between px-3 py-2 rounded-xl text-[11px] font-semibold transition ${
+                  isTabActive
+                    ? 'bg-blue-600/30 text-blue-300 font-bold border border-blue-500/50 shadow-xs'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                }`}
+              >
+                <div className="flex items-center space-x-2.5 min-w-0">
+                  <SubIcon className={`w-3.5 h-3.5 shrink-0 ${isTabActive ? 'text-blue-400' : 'text-slate-500'}`} />
+                  <span className="truncate">{sub.label}</span>
+                </div>
+                {isTabActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"></span>
+                )}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -154,44 +251,10 @@ export function Sidebar() {
               })}
             </nav>
 
-            {/* Section Configuration & Paramètres */}
-            <div className="mt-6 pt-4 border-t border-slate-800/80">
-              <span className="px-3 text-[10px] uppercase font-extrabold tracking-wider text-slate-500 block mb-1">
-                Gouvernance Système
-              </span>
-
-              <Link
-                href="/parametres"
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl transition text-xs font-bold ${
-                  isSettingsActive
-                    ? 'bg-slate-800 text-white border border-slate-700/80'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                }`}
-              >
-                <div className="flex items-center space-x-3">
-                  <Settings className="w-4 h-4 shrink-0 text-blue-400" />
-                  <span>Paramètres & Hub</span>
-                </div>
-                <ChevronRight className={`w-3.5 h-3.5 transition ${isSettingsActive ? 'rotate-90 text-blue-400' : 'text-slate-500'}`} />
-              </Link>
-
-              {/* Sous-onglets de Paramètres */}
-              <div className="mt-1 pl-4 space-y-0.5">
-                {SETTINGS_SUB_ITEMS.map((sub) => {
-                  const SubIcon = sub.icon;
-                  return (
-                    <Link
-                      key={sub.tab}
-                      href={`/parametres?tab=${sub.tab}`}
-                      className="flex items-center space-x-2.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold text-slate-400 hover:text-white hover:bg-slate-800/40 transition"
-                    >
-                      <SubIcon className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                      <span className="truncate">{sub.label}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
+            {/* Section Configuration & Paramètres Repliable & Active */}
+            <Suspense fallback={<div className="h-12" />}>
+              <SettingsNavSection isSettingsActive={isSettingsActive} />
+            </Suspense>
           </div>
         </div>
 

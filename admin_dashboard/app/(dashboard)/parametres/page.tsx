@@ -186,8 +186,15 @@ function ParametresContent() {
   const router = useRouter();
 
   // Tab actif
-  const initialTab = (searchParams.get('tab') as SettingsTab) || 'general';
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const tabFromUrl = (searchParams.get('tab') as SettingsTab) || 'general';
+  const [activeTab, setActiveTab] = useState<SettingsTab>(tabFromUrl);
+
+  // Synchronisation automatique et immédiate quand l'utilisateur clique dans la sidebar
+  useEffect(() => {
+    if (tabFromUrl && ['general', 'sites', 'plannings', 'securite'].includes(tabFromUrl)) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [tabFromUrl]);
 
   const handleTabChange = (tab: SettingsTab) => {
     setActiveTab(tab);
