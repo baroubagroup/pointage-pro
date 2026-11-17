@@ -94,7 +94,8 @@ export default function EmployeesPage() {
 
   // Helpers pour le Lien Magique
   const getMagicLink = (emp: Employee) => {
-    return `https://pointagepro.app/join/${emp.token}?org=${orgCode}&mat=${encodeURIComponent(emp.matricule || '')}`;
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    return `${origin}/rejoindre?token=${emp.token}&org=${orgCode}&mat=${encodeURIComponent(emp.matricule || '')}`;
   };
 
   const handleCopyMagicLink = (emp: Employee) => {
@@ -452,6 +453,7 @@ export default function EmployeesPage() {
         const recordsToInsert = batch.map((r) => {
           const randNum = Math.floor(100000 + Math.random() * 900000);
           const token = `PPRO-${randNum}`;
+          const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
           
           newlyCreated.push({
             matricule: r.matricule,
@@ -459,7 +461,7 @@ export default function EmployeesPage() {
             classe: r.classe,
             telephone: r.telephone,
             token_activation: token,
-            lien_activation: `https://pointagepro.app/join/${token}`
+            lien_activation: `${origin}/rejoindre?token=${token}&org=${orgCode}&mat=${encodeURIComponent(r.matricule)}`
           });
 
           return {
