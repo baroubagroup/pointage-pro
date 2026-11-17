@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -675,6 +676,72 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
                   ),
                 ),
               ),
+
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Expanded(child: Divider(color: Color(0xFFE2E8F0))),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Text(
+                      "OU ACTIVATION EXPRESS",
+                      style: TextStyle(color: const Color(0xFF94A3B8), fontSize: 10.5, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  const Expanded(child: Divider(color: Color(0xFFE2E8F0))),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _tokenInputController,
+                      style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w800, fontSize: 13, letterSpacing: 1.2),
+                      decoration: InputDecoration(
+                        hintText: "PPRO-302667",
+                        hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.5),
+                        ),
+                        prefixIcon: const Icon(Icons.vpn_key_rounded, size: 18, color: Color(0xFF2563EB)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () {
+                      final code = _tokenInputController.text.trim();
+                      if (code.isNotEmpty) {
+                        _verifyAndEnroll(code);
+                      } else {
+                        _showError("Veuillez saisir votre code d'activation (ex: PPRO-302667).");
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                    child: const Text("Activer", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -922,6 +989,12 @@ class _CameraScanScreen extends StatefulWidget {
 
 class _CameraScanScreenState extends State<_CameraScanScreen> with WidgetsBindingObserver {
   MobileScannerController? _scannerController;
+  CameraController? _nativeCamController;
+  Timer? _nativeCamScanTimer;
+  bool _isNativeScanning = false;
+  bool _useNativeCameraFallback = false;
+  bool _isSwitchingToNative = false;
+
   bool _hasDetected = false;
   bool _isPermissionGranted = false;
   bool _isPermanentlyDenied = false;
@@ -943,6 +1016,8 @@ class _CameraScanScreenState extends State<_CameraScanScreen> with WidgetsBindin
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _nativeCamScanTimer?.cancel();
+    _nativeCamController?.dispose();
     _scannerController?.dispose();
     _inlineTokenController.dispose();
     super.dispose();
@@ -950,7 +1025,6 @@ class _CameraScanScreenState extends State<_CameraScanScreen> with WidgetsBindin
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Si l'utilisateur revient de l'écran des paramètres Android
     if (state == AppLifecycleState.resumed && !_isPermissionGranted) {
       _checkPermissionSilently();
     }
@@ -995,13 +1069,106 @@ class _CameraScanScreenState extends State<_CameraScanScreen> with WidgetsBindin
   }
 
   void _startScanner() {
+    _nativeCamScanTimer?.cancel();
+    _nativeCamController?.dispose();
+    _nativeCamController = null;
     _scannerController?.dispose();
+
     _scannerController = MobileScannerController(
       detectionSpeed: DetectionSpeed.normal,
       facing: CameraFacing.back,
       torchEnabled: false,
       autoStart: true,
     );
+  }
+
+  /// Bascule automatique vers le moteur caméra standard CameraController
+  Future<void> _startNativeCameraFallback() async {
+    if (_isSwitchingToNative) return;
+    _isSwitchingToNative = true;
+    _scannerController?.dispose();
+    _scannerController = null;
+
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _isSwitchingToNative = false;
+            _errorMessage = "Aucun capteur caméra détecté sur cet appareil.";
+          });
+        }
+        return;
+      }
+
+      final backCamera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+
+      _nativeCamController = CameraController(
+        backCamera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.jpeg,
+      );
+
+      await _nativeCamController!.initialize();
+      if (!mounted) return;
+
+      setState(() {
+        _useNativeCameraFallback = true;
+        _isSwitchingToNative = false;
+        _errorMessage = null;
+      });
+
+      // Analyse automatique de trame toutes les 1.2 secondes
+      _nativeCamScanTimer?.cancel();
+      _nativeCamScanTimer = Timer.periodic(const Duration(milliseconds: 1200), (_) {
+        _captureAndAnalyzeNativeFrame();
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSwitchingToNative = false;
+          _errorMessage = "Impossible d'initialiser l'appareil photo : $e";
+        });
+      }
+    }
+  }
+
+  Future<void> _captureAndAnalyzeNativeFrame() async {
+    if (_hasDetected || _isNativeScanning || _nativeCamController == null || !_nativeCamController!.value.isInitialized) {
+      return;
+    }
+    _isNativeScanning = true;
+    if (mounted) setState(() {});
+
+    try {
+      final XFile photo = await _nativeCamController!.takePicture();
+      final controller = MobileScannerController();
+      final capture = await controller.analyzeImage(photo.path);
+      controller.dispose();
+
+      if (capture != null && capture.barcodes.isNotEmpty) {
+        final raw = capture.barcodes.first.rawValue;
+        if (raw != null && raw.trim().isNotEmpty && mounted) {
+          _hasDetected = true;
+          _nativeCamScanTimer?.cancel();
+          Navigator.pop(context);
+          widget.onDetected(raw.trim());
+          return;
+        }
+      }
+    } catch (_) {
+      // Ignorer les erreurs d'une trame individuelle
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isNativeScanning = false;
+        });
+      }
+    }
   }
 
   Future<void> _importGalleryFromScanner() async {
@@ -1081,7 +1248,6 @@ class _CameraScanScreenState extends State<_CameraScanScreen> with WidgetsBindin
               ),
               const SizedBox(height: 20),
 
-              // Bouton Réessayer / Paramètres
               if (_isPermanentlyDenied) ...[
                 SizedBox(
                   width: double.infinity,
@@ -1210,7 +1376,6 @@ class _CameraScanScreenState extends State<_CameraScanScreen> with WidgetsBindin
 
               const SizedBox(height: 10),
 
-              // Bouton retour
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
@@ -1222,6 +1387,192 @@ class _CameraScanScreenState extends State<_CameraScanScreen> with WidgetsBindin
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildScanOverlay() {
+    return IgnorePointer(
+      child: Center(
+        child: Container(
+          width: 250,
+          height: 250,
+          decoration: BoxDecoration(
+            border: Border.all(color: const Color(0xFF2563EB), width: 3),
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                height: 3,
+                width: 180,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF60A5FA),
+                  borderRadius: BorderRadius.circular(2),
+                  boxShadow: [
+                    BoxShadow(color: const Color(0xFF60A5FA).withValues(alpha: 0.8), blurRadius: 6),
+                  ],
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text(
+                  "Alignez le QR code du gérant",
+                  style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloatingBottomBar() {
+    return Row(
+      children: [
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              widget.onManualFallback();
+            },
+            icon: const Icon(Icons.keyboard_outlined, size: 18),
+            label: const Text("Saisir mon Code", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: const Color(0xFF0F172A),
+              elevation: 4,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        ElevatedButton(
+          onPressed: _importGalleryFromScanner,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF1E293B),
+            foregroundColor: Colors.white,
+            elevation: 4,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          ),
+          child: const Icon(Icons.photo_library_rounded, size: 20),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileScannerView() {
+    return Stack(
+      children: [
+        MobileScanner(
+          controller: _scannerController!,
+          errorBuilder: (context, error, child) {
+            if (error.errorCode == MobileScannerErrorCode.permissionDenied) {
+              return _buildPermissionDeniedView();
+            }
+            // En cas d'erreur de flux direct (CameraX / MLKit), basculer automatiquement sur la caméra standard
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _startNativeCameraFallback();
+            });
+            return const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: Color(0xFF2563EB)),
+                  SizedBox(height: 14),
+                  Text("Bascule vers le capteur caméra standard...", style: TextStyle(color: Colors.white, fontSize: 13)),
+                ],
+              ),
+            );
+          },
+          onDetect: (capture) {
+            if (_hasDetected) return;
+            final List<Barcode> barcodes = capture.barcodes;
+            for (final barcode in barcodes) {
+              if (barcode.rawValue != null && barcode.rawValue!.trim().isNotEmpty) {
+                _hasDetected = true;
+                Navigator.pop(context);
+                widget.onDetected(barcode.rawValue!.trim());
+                break;
+              }
+            }
+          },
+        ),
+        _buildScanOverlay(),
+        Positioned(
+          bottom: 24,
+          left: 16,
+          right: 16,
+          child: _buildFloatingBottomBar(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNativeCameraView() {
+    if (_nativeCamController == null || !_nativeCamController!.value.isInitialized) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: Color(0xFF2563EB)),
+            const SizedBox(height: 16),
+            const Text("Démarrage du capteur photo...", style: TextStyle(color: Colors.white70, fontSize: 13)),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(_errorMessage!, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFF87171), fontSize: 12)),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: CameraPreview(_nativeCamController!),
+        ),
+        _buildScanOverlay(),
+        Positioned(
+          bottom: 24,
+          left: 16,
+          right: 16,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  onPressed: _isNativeScanning ? null : _captureAndAnalyzeNativeFrame,
+                  icon: _isNativeScanning
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.qr_code_scanner_rounded, size: 22),
+                  label: Text(
+                    _isNativeScanning ? "Analyse en cours..." : "Scanner ce QR Code",
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    elevation: 6,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              _buildFloatingBottomBar(),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1238,7 +1589,24 @@ class _CameraScanScreenState extends State<_CameraScanScreen> with WidgetsBindin
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          if (_isPermissionGranted && _scannerController != null) ...[
+          // Bouton bascule de mode caméra manuel
+          if (_isPermissionGranted)
+            IconButton(
+              icon: Icon(
+                _useNativeCameraFallback ? Icons.videocam_rounded : Icons.photo_camera_rounded,
+                color: const Color(0xFF60A5FA),
+              ),
+              tooltip: _useNativeCameraFallback ? "Passer en mode Flux Continu" : "Passer en mode Caméra Standard",
+              onPressed: () {
+                if (_useNativeCameraFallback) {
+                  setState(() => _useNativeCameraFallback = false);
+                  _startScanner();
+                } else {
+                  _startNativeCameraFallback();
+                }
+              },
+            ),
+          if (!_useNativeCameraFallback && _scannerController != null) ...[
             IconButton(
               icon: ValueListenableBuilder(
                 valueListenable: _scannerController!,
@@ -1269,106 +1637,11 @@ class _CameraScanScreenState extends State<_CameraScanScreen> with WidgetsBindin
                 ],
               ),
             )
-          : (!_isPermissionGranted || _errorMessage != null || _scannerController == null)
+          : (!_isPermissionGranted)
               ? _buildPermissionDeniedView()
-              : Stack(
-                  children: [
-                    MobileScanner(
-                      controller: _scannerController!,
-                      errorBuilder: (context, error, child) {
-                        return _buildPermissionDeniedView();
-                      },
-                      onDetect: (capture) {
-                        if (_hasDetected) return;
-                        final List<Barcode> barcodes = capture.barcodes;
-                        for (final barcode in barcodes) {
-                          if (barcode.rawValue != null && barcode.rawValue!.trim().isNotEmpty) {
-                            _hasDetected = true;
-                            Navigator.pop(context);
-                            widget.onDetected(barcode.rawValue!.trim());
-                            break;
-                          }
-                        }
-                      },
-                    ),
-                    // Reticule de ciblage enveloppé dans IgnorePointer pour ne JAMAIS bloquer les clics
-                    IgnorePointer(
-                      child: Center(
-                        child: Container(
-                          width: 250,
-                          height: 250,
-                          decoration: BoxDecoration(
-                            border: Border.all(color: const Color(0xFF2563EB), width: 3),
-                            borderRadius: BorderRadius.circular(24),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Container(
-                                margin: const EdgeInsets.only(top: 8),
-                                height: 3,
-                                width: 180,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF60A5FA),
-                                  borderRadius: BorderRadius.circular(2),
-                                  boxShadow: [
-                                    BoxShadow(color: const Color(0xFF60A5FA).withValues(alpha: 0.8), blurRadius: 6),
-                                  ],
-                                ),
-                              ),
-                              const Padding(
-                                padding: EdgeInsets.only(bottom: 12),
-                                child: Text(
-                                  "Alignez le QR code du gérant",
-                                  style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    // Boutons d'action rapides au bas de l'écran pendant le scan caméra
-                    Positioned(
-                      bottom: 24,
-                      left: 16,
-                      right: 16,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                Navigator.pop(context);
-                                widget.onManualFallback();
-                              },
-                              icon: const Icon(Icons.pin_outlined, size: 18),
-                              label: const Text("Saisir mon Code", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: const Color(0xFF0F172A),
-                                elevation: 4,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          ElevatedButton(
-                            onPressed: _importGalleryFromScanner,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1E293B),
-                              foregroundColor: Colors.white,
-                              elevation: 4,
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                            ),
-                            child: const Icon(Icons.photo_library_rounded, size: 20),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              : _useNativeCameraFallback
+                  ? _buildNativeCameraView()
+                  : _buildMobileScannerView(),
     );
   }
 }
