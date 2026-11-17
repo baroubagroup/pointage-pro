@@ -116,11 +116,12 @@ export function Header({ title, subtitle, actionButton }: HeaderProps) {
   useEffect(() => {
     if (!searchQuery.trim()) {
       setSearchResults([
-        { id: 'p-1', title: 'Supervision en Direct', subtitle: 'Journal des pointages et métriques live', type: 'page', href: '/dashboard' },
-        { id: 'p-2', title: 'Employés & Enrôlement', subtitle: 'Gestion de l\'effectif et imports de masse', type: 'page', href: '/employes' },
-        { id: 'p-3', title: 'Relevé d\'Assiduité', subtitle: 'Export des heures travaillées et des retards', type: 'page', href: '/releves' },
-        { id: 'p-4', title: 'Sites & Géofencing', subtitle: 'Rayons de tolérance GPS et box Wi-Fi', type: 'page', href: '/sites' },
-        { id: 'p-5', title: 'Paramètres Entreprise', subtitle: 'Code organisation ORG-8492 et règles', type: 'page', href: '/parametres' }
+        { id: 'p-1', title: 'Supervision Cockpit', subtitle: 'Synthèse des présences et indicateurs', type: 'page', href: '/dashboard' },
+        { id: 'p-2', title: 'Journal des Pointages', subtitle: 'Registre d\'audit WGS84 et historique complet', type: 'page', href: '/pointages' },
+        { id: 'p-3', title: 'Personnel & Effectif', subtitle: 'Gestion de l\'effectif et imports en masse', type: 'page', href: '/employes' },
+        { id: 'p-4', title: 'Relevé d\'Assiduité & Paie', subtitle: 'Export Excel et calcul des heures supp', type: 'page', href: '/releves' },
+        { id: 'p-5', title: 'Sites & Radar Géofencing', subtitle: 'Périmètres satellite et box Wi-Fi', type: 'page', href: '/parametres?tab=sites' },
+        { id: 'p-6', title: 'Paramètres & Hub Système', subtitle: 'Code organisation ORG-8492 et règles', type: 'page', href: '/parametres' }
       ]);
       return;
     }
