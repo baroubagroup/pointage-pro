@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Header } from '@/components/header';
 import { createClient } from '@/lib/supabase/client';
@@ -36,7 +36,11 @@ import {
   ChevronRight,
   ShieldCheck,
   Check,
-  Search
+  Search,
+  Sun,
+  Coffee,
+  Moon,
+  AlertTriangle
 } from 'lucide-react';
 
 // ==================== INTERFACES ====================
@@ -112,43 +116,32 @@ const DAY_LABELS = [
 
 const FALLBACK_SITES: SimpleSite[] = [
   {
-    id: 'site-1',
-    name: 'Siège Principal & Direction',
-    city: 'Abidjan (Plateau)',
-    lat: 5.321400,
-    lon: -4.015200,
-    radiusMeters: 80,
+    id: '00000000-0000-0000-0000-000000000010',
+    name: 'Siège Principal Ouagadougou',
+    city: 'Ouagadougou',
+    lat: 11.247000,
+    lon: -4.291800,
+    radiusMeters: 120,
     wifiSsid: 'PointagePro_Siege',
     wifiBssid: 'PointagePro_Siege (b4:ee:b4:91:a2:10)',
     activeCount: 14,
     isActive: true
   },
   {
-    id: 'site-2',
-    name: 'Entrepôt Logistique Zone Nord',
-    city: 'Abidjan (Yopougon)',
-    lat: 5.348200,
-    lon: -4.089100,
-    radiusMeters: 120,
+    id: '00000000-0000-0000-0000-000000000011',
+    name: 'Agence Cocody Riviera 2',
+    city: 'Abidjan',
+    lat: 5.358200,
+    lon: -3.974100,
+    radiusMeters: 80,
     wifiSsid: 'Orange_Pro_ZoneNord',
     wifiBssid: 'Orange_Pro_ZoneNord (7c:26:34:11:ff:80)',
     activeCount: 8,
     isActive: true
-  },
-  {
-    id: 'site-3',
-    name: 'Campus / Antenne Est',
-    city: 'Abidjan (Cocody)',
-    lat: 5.358200,
-    lon: -3.974100,
-    radiusMeters: 150,
-    wifiSsid: 'Campus_Wifi_ZoneA',
-    wifiBssid: 'Campus_Wifi_ZoneA (68:9e:29:3b:43:08)',
-    activeCount: 22,
-    isActive: true
   }
 ];
 
+// Calcul Haversine en mètres
 function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371e3;
   const phi1 = (lat1 * Math.PI) / 180;
@@ -164,7 +157,12 @@ function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2:
   return Math.round(R * c);
 }
 
-// Inner component using useSearchParams
+// Convertit HH:mm en minutes depuis minuit
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
 function ParametresContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -173,7 +171,6 @@ function ParametresContent() {
   const initialTab = (searchParams.get('tab') as SettingsTab) || 'general';
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 
-  // Sync tab with URL
   const handleTabChange = (tab: SettingsTab) => {
     setActiveTab(tab);
     router.push(`/parametres?tab=${tab}`, { scroll: false });
@@ -203,8 +200,10 @@ function ParametresContent() {
   const [hasWifiBox, setHasWifiBox] = useState(true);
   const [detectingWifi, setDetectingWifi] = useState(false);
   const [detectingLocation, setDetectingLocation] = useState(false);
-  const [simLat, setSimLat] = useState('5.321450');
-  const [simLon, setSimLon] = useState('-4.015220');
+
+  // Simulateur GPS
+  const [simLat, setSimLat] = useState<string>('11.247100');
+  const [simLon, setSimLon] = useState<string>('-4.291750');
   const [simResult, setSimResult] = useState<{ inside: boolean; distance: number } | null>(null);
 
   // State Plannings
@@ -220,6 +219,7 @@ function ParametresContent() {
   const [afternoonStart, setAfternoonStart] = useState('13:30');
   const [afternoonEnd, setAfternoonEnd] = useState('17:30');
   const [toleranceMinutes, setToleranceMinutes] = useState(15);
+  const [submittingSchedule, setSubmittingSchedule] = useState(false);
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
@@ -258,9 +258,9 @@ function ParametresContent() {
           const mapped: SimpleSite[] = sitesData.map((d: any, idx: number) => ({
             id: d.id,
             name: d.name,
-            city: d.city ? (d.city.startsWith('Abidjan') ? d.city : `Abidjan (${d.city})`) : 'Abidjan',
-            lat: Number(d.latitude) || 5.3214,
-            lon: Number(d.longitude) || -4.0152,
+            city: d.city || 'Abidjan',
+            lat: Number(d.latitude) || 11.247,
+            lon: Number(d.longitude) || -4.2918,
             radiusMeters: Number(d.radius_meters) || 80,
             wifiSsid: d.wifi_ssid || undefined,
             wifiBssid: d.wifi_ssid ? `${d.wifi_ssid} (${(d.wifi_bssids && d.wifi_bssids[0]) || 'Certifié'})` : 'Box Wi-Fi Non Déclarée',
@@ -307,7 +307,18 @@ function ParametresContent() {
     fetchData();
   }, []);
 
-  const selectedSite = sites.find(s => s.id === selectedSiteId) || sites[0] || FALLBACK_SITES[0];
+  const selectedSite = useMemo(() => {
+    return sites.find(s => s.id === selectedSiteId) || sites[0] || FALLBACK_SITES[0];
+  }, [sites, selectedSiteId]);
+
+  // Synchroniser le simulateur GPS dès que le site sélectionné change
+  // On initialise à ~14 mètres du centroïde du site pour qu'il soit immédiatement "AUTORISÉ"
+  useEffect(() => {
+    if (selectedSite) {
+      setSimLat((selectedSite.lat + 0.000100).toFixed(6));
+      setSimLon((selectedSite.lon + 0.000100).toFixed(6));
+    }
+  }, [selectedSite?.id]);
 
   // Calcul du verdict simulateur GPS
   useEffect(() => {
@@ -323,6 +334,27 @@ function ParametresContent() {
       }
     }
   }, [selectedSite, simLat, simLon]);
+
+  // Détection GPS du navigateur
+  const handleDetectCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      alert("La géolocalisation n'est pas supportée par votre navigateur.");
+      return;
+    }
+    setDetectingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setSimLat(pos.coords.latitude.toFixed(6));
+        setSimLon(pos.coords.longitude.toFixed(6));
+        setDetectingLocation(false);
+      },
+      (err) => {
+        setDetectingLocation(false);
+        alert(`Erreur GPS: ${err.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
 
   // Sauvegarde des paramètres généraux & sécurité
   const handleSaveGeneral = async (e: React.FormEvent) => {
@@ -392,8 +424,8 @@ function ParametresContent() {
     e.preventDefault();
     if (!newSiteName.trim()) return;
 
-    const parsedLat = parseFloat(newSiteLat) || 5.3582;
-    const parsedLon = parseFloat(newSiteLon) || -3.9741;
+    const parsedLat = parseFloat(newSiteLat) || 11.247;
+    const parsedLon = parseFloat(newSiteLon) || -4.2918;
     const parsedRadius = parseInt(newSiteRadius, 10) || 80;
     const cleanBssid = newSiteWifiBssid.trim().toLowerCase();
 
@@ -401,7 +433,7 @@ function ParametresContent() {
     const newSite: SimpleSite = {
       id: tempId,
       name: newSiteName.trim(),
-      city: newSiteCity.trim() ? `Abidjan (${newSiteCity.trim()})` : 'Abidjan',
+      city: newSiteCity.trim() ? newSiteCity.trim() : 'Abidjan',
       lat: parsedLat,
       lon: parsedLon,
       radiusMeters: parsedRadius,
@@ -451,27 +483,49 @@ function ParametresContent() {
     }
   };
 
+  // Calcul dynamique des heures de travail prévues pour le nouveau planning
+  const calculatedDailyHours = useMemo(() => {
+    if (newSchedCategory === 'Continu') {
+      const startMin = timeToMinutes(morningStart);
+      const endMin = timeToMinutes(afternoonEnd);
+      const diff = Math.max(0, endMin - startMin);
+      return Math.round((diff / 60) * 10) / 10;
+    } else {
+      // Fractionné
+      const morningMinutes = Math.max(0, timeToMinutes(morningEnd) - timeToMinutes(morningStart));
+      const afternoonMinutes = Math.max(0, timeToMinutes(afternoonEnd) - timeToMinutes(lunchEnd));
+      return Math.round(((morningMinutes + afternoonMinutes) / 60) * 10) / 10;
+    }
+  }, [newSchedCategory, morningStart, morningEnd, lunchEnd, afternoonEnd]);
+
+  const calculatedWeeklyHours = Math.round(calculatedDailyHours * selectedDays.length * 10) / 10;
+
   // Création planning
   const handleCreateSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSchedName.trim()) return;
 
+    setSubmittingSchedule(true);
     try {
       const supabase = createClient();
-      const weeklyHours = selectedDays.length * 8;
+      const actualLunchStart = newSchedCategory === 'Continu' ? morningStart : lunchStart;
+      const actualLunchEnd = newSchedCategory === 'Continu' ? morningStart : lunchEnd;
+      const actualMorningEnd = newSchedCategory === 'Continu' ? afternoonEnd : morningEnd;
+      const actualAfternoonStart = newSchedCategory === 'Continu' ? morningStart : lunchEnd;
+
       const { data, error } = await supabase.from('pointage_schedules').insert({
         org_id: '00000000-0000-0000-0000-000000000001',
         name: newSchedName.trim(),
         category: newSchedCategory,
         working_days: selectedDays,
         morning_start: morningStart,
-        morning_end: morningEnd,
-        lunch_start: lunchStart,
-        lunch_end: lunchEnd,
-        afternoon_start: afternoonStart,
+        morning_end: actualMorningEnd,
+        lunch_start: actualLunchStart,
+        lunch_end: actualLunchEnd,
+        afternoon_start: actualAfternoonStart,
         afternoon_end: afternoonEnd,
         tolerance_minutes: toleranceMinutes,
-        weekly_hours: weeklyHours,
+        weekly_hours: calculatedWeeklyHours,
         is_active: true
       }).select().single();
 
@@ -482,8 +536,11 @@ function ParametresContent() {
         setToastMsg(`Planning "${newSchedName}" créé avec succès !`);
         setTimeout(() => setToastMsg(null), 3500);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setToastMsg(`Erreur lors de la création : ${e.message}`);
+    } finally {
+      setSubmittingSchedule(false);
     }
   };
 
@@ -507,13 +564,13 @@ function ParametresContent() {
         </div>
       )}
 
-      {/* ==================== BARRE DE NAVIGATION DES ONGLETS DE PARAMÈTRES ==================== */}
+      {/* ==================== BARRE D'ONGLETS IMMERSIVE ==================== */}
       <div className="bg-white p-2 rounded-3xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
           
           <button
             onClick={() => handleTabChange('general')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex-1 sm:flex-none justify-center ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex-1 sm:flex-none justify-center cursor-pointer ${
               activeTab === 'general'
                 ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -525,7 +582,7 @@ function ParametresContent() {
 
           <button
             onClick={() => handleTabChange('sites')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex-1 sm:flex-none justify-center ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex-1 sm:flex-none justify-center cursor-pointer ${
               activeTab === 'sites'
                 ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -537,7 +594,7 @@ function ParametresContent() {
 
           <button
             onClick={() => handleTabChange('plannings')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex-1 sm:flex-none justify-center ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex-1 sm:flex-none justify-center cursor-pointer ${
               activeTab === 'plannings'
                 ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -549,7 +606,7 @@ function ParametresContent() {
 
           <button
             onClick={() => handleTabChange('securite')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex-1 sm:flex-none justify-center ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex-1 sm:flex-none justify-center cursor-pointer ${
               activeTab === 'securite'
                 ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -566,9 +623,7 @@ function ParametresContent() {
         </div>
       </div>
 
-      {/* ==================== CONTENU DES ONGLETS ==================== */}
-
-      {/* -------------------- ONGLET 1 : ORGANISATION & MÉTIER -------------------- */}
+      {/* ==================== ONGLET 1 : ORGANISATION & MÉTIER ==================== */}
       {activeTab === 'general' && (
         <form onSubmit={handleSaveGeneral} className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-xs space-y-7 animate-fadeIn">
           
@@ -722,52 +777,7 @@ function ParametresContent() {
             </div>
           </div>
 
-          {/* Seuils algorithmiques */}
-          <div className="pt-6 border-t border-slate-100 space-y-4">
-            <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-blue-600" />
-              Seuils Algorithmiques de Tolérance Temporelle
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Tolérance Retard Prise de Poste</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="0"
-                    max="60"
-                    value={securityConfig.grace_delay_minutes}
-                    onChange={(e) => setSecurityConfig(prev => ({
-                      ...prev,
-                      grace_delay_minutes: parseInt(e.target.value, 10) || 0
-                    }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                  />
-                  <span className="text-xs text-slate-500 font-semibold">minutes</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Durée Max Pause Déjeuner</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="15"
-                    max="180"
-                    value={securityConfig.max_break_minutes}
-                    onChange={(e) => setSecurityConfig(prev => ({
-                      ...prev,
-                      max_break_minutes: parseInt(e.target.value, 10) || 0
-                    }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                  />
-                  <span className="text-xs text-slate-500 font-semibold">minutes</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
+          {/* Bouton de sauvegarde */}
           <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
             {saved ? (
               <span className="text-xs font-bold text-emerald-600 flex items-center gap-1.5 animate-fadeIn">
@@ -788,11 +798,11 @@ function ParametresContent() {
         </form>
       )}
 
-      {/* -------------------- ONGLET 2 : SITES & GÉOFENCING -------------------- */}
+      {/* ==================== ONGLET 2 : SITES & RADAR GÉOFENCING ==================== */}
       {activeTab === 'sites' && (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start animate-fadeIn">
           
-          {/* Radar Visuel (7 colonnes) */}
+          {/* Radar Visuel & Simulateur (7 colonnes) */}
           <div className="xl:col-span-7 bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
             <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
               <div className="flex items-center gap-3">
@@ -809,20 +819,20 @@ function ParametresContent() {
               <button
                 type="button"
                 onClick={() => setShowAddSiteModal(true)}
-                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-xs"
+                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-xs cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Nouveau Périmètre</span>
               </button>
             </div>
 
-            {/* Radar Canvas */}
-            <div className="relative w-full aspect-[16/10] bg-slate-950 overflow-hidden flex items-center justify-center select-none">
+            {/* Radar Canvas (Hauteur calibrée h-72 pour affichage immédiat sans scroll) */}
+            <div className="relative w-full h-72 bg-slate-950 overflow-hidden flex items-center justify-center select-none">
               <div 
                 className="absolute inset-0 opacity-20 pointer-events-none"
                 style={{
                   backgroundImage: 'linear-gradient(to right, #38bdf8 1px, transparent 1px), linear-gradient(to bottom, #38bdf8 1px, transparent 1px)',
-                  backgroundSize: '40px 40px'
+                  backgroundSize: '36px 36px'
                 }}
               />
               <div className="absolute w-[80%] aspect-square rounded-full border border-sky-500/20 pointer-events-none" />
@@ -832,9 +842,18 @@ function ParametresContent() {
               <div className="absolute w-full h-[1px] bg-sky-500/20 pointer-events-none" />
               <div className="absolute h-full w-[1px] bg-sky-500/20 pointer-events-none" />
 
-              {/* Bulle de Géofencing autorisée */}
+              {/* Faisceau rotatif de balayage */}
               <div 
-                className="absolute rounded-full border-2 border-emerald-400 bg-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.3)] flex items-center justify-center pointer-events-none"
+                className="absolute w-[80%] aspect-square rounded-full pointer-events-none"
+                style={{
+                  background: 'conic-gradient(from 0deg, rgba(56, 189, 248, 0.22) 0deg, transparent 60deg, transparent 360deg)',
+                  animation: 'spin 4s linear infinite'
+                }}
+              />
+
+              {/* Bulle de Géofencing autorisée (Parfaitement centrée sur le centroïde) */}
+              <div 
+                className="absolute rounded-full border-2 border-emerald-400 bg-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.3)] flex items-center justify-center pointer-events-none transition-all duration-500"
                 style={{
                   width: `${Math.min(75, Math.max(30, (selectedSite?.radiusMeters || 80) * 0.45))}%`,
                   aspectRatio: '1/1'
@@ -845,7 +864,7 @@ function ParametresContent() {
                 </div>
               </div>
 
-              {/* Centoïde GPS */}
+              {/* Centoïde GPS (Pin vert central) */}
               <div className="absolute z-20 flex flex-col items-center pointer-events-none">
                 <div className="w-5 h-5 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center shadow-lg">
                   <div className="w-1.5 h-1.5 rounded-full bg-white" />
@@ -856,12 +875,46 @@ function ParametresContent() {
               </div>
             </div>
 
-            {/* Testeur de simulation GPS */}
+            {/* Testeur de simulation GPS & Actions Rapides */}
             <div className="p-4 sm:p-5 bg-slate-50/70 border-t border-slate-100 space-y-3">
-              <span className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
-                <Crosshair className="w-4 h-4 text-blue-600" />
-                Simulateur de Position WGS84 & Verdict Satellite
-              </span>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
+                  <Crosshair className="w-4 h-4 text-blue-600" />
+                  Simulateur de Position WGS84 & Verdict Satellite
+                </span>
+
+                <div className="flex items-center gap-1.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSimLat((selectedSite.lat + 0.000100).toFixed(6));
+                      setSimLon((selectedSite.lon + 0.000100).toFixed(6));
+                    }}
+                    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded-lg border border-emerald-200 transition cursor-pointer text-[11px]"
+                  >
+                    📍 Tester dans zone (14m)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSimLat((selectedSite.lat + 0.002200).toFixed(6));
+                      setSimLon((selectedSite.lon + 0.002200).toFixed(6));
+                    }}
+                    className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold rounded-lg border border-rose-200 transition cursor-pointer text-[11px]"
+                  >
+                    🚫 Tester hors zone (250m)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDetectCurrentLocation}
+                    disabled={detectingLocation}
+                    className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg border border-blue-200 transition cursor-pointer text-[11px] flex items-center gap-1"
+                  >
+                    <LocateFixed className={`w-3 h-3 ${detectingLocation ? 'animate-spin' : ''}`} />
+                    <span>Mon GPS</span>
+                  </button>
+                </div>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div>
@@ -945,7 +998,7 @@ function ParametresContent() {
 
                     <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
                       <div className="bg-slate-50 p-2 rounded-xl">
-                        <span className="text-slate-400 block text-[10px]">Rayon</span>
+                        <span className="text-slate-400 block text-[10px]">Rayon Satellite</span>
                         <span className="font-extrabold text-slate-800">{site.radiusMeters}m</span>
                       </div>
                       <div className="bg-slate-50 p-2 rounded-xl">
@@ -961,7 +1014,7 @@ function ParametresContent() {
         </div>
       )}
 
-      {/* -------------------- ONGLET 3 : PLANNINGS & HORAIRES -------------------- */}
+      {/* ==================== ONGLET 3 : PLANNINGS & HORAIRES ==================== */}
       {activeTab === 'plannings' && (
         <div className="space-y-6 animate-fadeIn">
           <div className="flex items-center justify-between">
@@ -972,7 +1025,7 @@ function ParametresContent() {
             <button
               type="button"
               onClick={() => setShowAddScheduleModal(true)}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-sm"
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-sm cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Nouveau Planning</span>
@@ -1036,7 +1089,7 @@ function ParametresContent() {
         </div>
       )}
 
-      {/* -------------------- ONGLET 4 : SÉCURITÉ & ANTI-TRICHE -------------------- */}
+      {/* ==================== ONGLET 4 : SÉCURITÉ & ANTI-TRICHE ==================== */}
       {activeTab === 'securite' && (
         <div className="space-y-6 animate-fadeIn">
           <div>
@@ -1151,7 +1204,7 @@ function ParametresContent() {
           <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 sm:p-7 space-y-5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-black text-base text-slate-900">Nouveau Périmètre de Pointage</h3>
-              <button onClick={() => setShowAddSiteModal(false)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setShowAddSiteModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1174,7 +1227,7 @@ function ParametresContent() {
                 <input
                   type="text"
                   required
-                  placeholder="Ex: Cocody, Plateau..."
+                  placeholder="Ex: Cocody, Plateau, Ouagadougou..."
                   value={newSiteCity}
                   onChange={(e) => setNewSiteCity(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800"
@@ -1214,7 +1267,7 @@ function ParametresContent() {
                       key={r}
                       type="button"
                       onClick={() => setNewSiteRadius(r)}
-                      className={`py-1.5 rounded-xl font-bold border transition ${
+                      className={`py-1.5 rounded-xl font-bold border transition cursor-pointer ${
                         newSiteRadius === r ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-700'
                       }`}
                     >
@@ -1228,13 +1281,13 @@ function ParametresContent() {
                 <button
                   type="button"
                   onClick={() => setShowAddSiteModal(false)}
-                  className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-bold"
+                  className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-bold cursor-pointer"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold shadow-md shadow-blue-500/20"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold shadow-md shadow-blue-500/20 cursor-pointer"
                 >
                   Créer le Périmètre
                 </button>
@@ -1244,32 +1297,126 @@ function ParametresContent() {
         </div>
       )}
 
-      {/* ==================== MODAL CRÉATION DE PLANNING ==================== */}
+      {/* ==================== MODAL AVANCÉ CRÉATION DE PLANNING (IMAGE 2 REHAUSSÉE) ==================== */}
       {showAddScheduleModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 sm:p-7 space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full p-6 sm:p-8 space-y-6 max-h-[92vh] overflow-y-auto">
+            
+            {/* Header du modal */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-black text-base text-slate-900">Nouveau Planning / Horaire</h3>
-              <button onClick={() => setShowAddScheduleModal(false)} className="text-slate-400 hover:text-slate-600">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center">
+                  <CalendarDays className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base text-slate-900">Nouveau Régime de Planning</h3>
+                  <p className="text-xs text-slate-500">Configurez les plages de travail, pause déjeuner et tolérances</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowAddScheduleModal(false)} 
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateSchedule} className="space-y-4 text-xs">
+            <form onSubmit={handleCreateSchedule} className="space-y-5 text-xs">
+              
+              {/* Intitulé */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Intitulé du Planning *</label>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Intitulé Officiel du Planning <span className="text-rose-500">*</span>
+                </label>
                 <input
                   type="text"
                   required
-                  placeholder="Ex: Équipe Bureau (Lun-Ven), Équipe Logistique (6j/7)..."
+                  placeholder="Ex: Équipe Bureaux (Lun-Ven 40h), Équipe Magasin (6j/7), Terminale A..."
                   value={newSchedName}
                   onChange={(e) => setNewSchedName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
+              {/* Régime / Catégorie */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Jours d'Activité</label>
+                <label className="block font-bold text-slate-700 mb-1">Type de Régime Horaire</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewSchedCategory('Fractionné')}
+                    className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                      newSchedCategory === 'Fractionné'
+                        ? 'border-blue-600 bg-blue-50/50 ring-2 ring-blue-500/20'
+                        : 'border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Coffee className={`w-4 h-4 mb-1.5 ${newSchedCategory === 'Fractionné' ? 'text-blue-600' : 'text-slate-400'}`} />
+                    <span className="font-bold text-slate-900 block">Fractionné</span>
+                    <span className="text-[10px] text-slate-400">Matin + Pause Déjeuner</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setNewSchedCategory('Continu')}
+                    className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                      newSchedCategory === 'Continu'
+                        ? 'border-blue-600 bg-blue-50/50 ring-2 ring-blue-500/20'
+                        : 'border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Clock className={`w-4 h-4 mb-1.5 ${newSchedCategory === 'Continu' ? 'text-blue-600' : 'text-slate-400'}`} />
+                    <span className="font-bold text-slate-900 block">Continu</span>
+                    <span className="text-[10px] text-slate-400">Journée sans coupure</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setNewSchedCategory('Personnalisé')}
+                    className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                      newSchedCategory === 'Personnalisé'
+                        ? 'border-blue-600 bg-blue-50/50 ring-2 ring-blue-500/20'
+                        : 'border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Moon className={`w-4 h-4 mb-1.5 ${newSchedCategory === 'Personnalisé' ? 'text-blue-600' : 'text-slate-400'}`} />
+                    <span className="font-bold text-slate-900 block">Posté / Nuit</span>
+                    <span className="text-[10px] text-slate-400">2x8, 3x8 ou garde</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Jours d'activité avec presets rapides */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block font-bold text-slate-700">Jours d'Activité Prévus</label>
+                  <div className="flex items-center gap-1.5 text-[10px] text-blue-600 font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDays([1, 2, 3, 4, 5])}
+                      className="hover:underline cursor-pointer"
+                    >
+                      Lun-Ven
+                    </button>
+                    <span>•</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDays([1, 2, 3, 4, 5, 6])}
+                      className="hover:underline cursor-pointer"
+                    >
+                      Lun-Sam
+                    </button>
+                    <span>•</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDays([1, 2, 3, 4, 5, 6, 7])}
+                      className="hover:underline cursor-pointer"
+                    >
+                      7j/7
+                    </button>
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-1.5">
                   {DAY_LABELS.map(d => {
                     const isSelected = selectedDays.includes(d.day);
@@ -1284,8 +1431,8 @@ function ParametresContent() {
                             setSelectedDays([...selectedDays, d.day].sort());
                           }
                         }}
-                        className={`flex-1 py-1.5 rounded-xl font-bold transition ${
-                          isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'
+                        className={`flex-1 py-2 rounded-xl font-bold transition cursor-pointer text-xs ${
+                          isSelected ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
                         }`}
                       >
                         {d.label}
@@ -1295,40 +1442,149 @@ function ParametresContent() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-500 mb-1">Arrivée Matin</label>
-                  <input
-                    type="time"
-                    value={morningStart}
-                    onChange={(e) => setMorningStart(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono"
-                  />
+              {/* Plages Horaires selon la catégorie */}
+              {newSchedCategory === 'Fractionné' ? (
+                <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+                    <Sun className="w-3.5 h-3.5 text-amber-500" />
+                    Plages Horaires Fractionnées (Matinée + Déjeuner + Après-midi)
+                  </span>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">Prise de Poste (Matin)</label>
+                      <input
+                        type="time"
+                        value={morningStart}
+                        onChange={(e) => setMorningStart(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">Début Pause Déjeuner</label>
+                      <input
+                        type="time"
+                        value={morningEnd}
+                        onChange={(e) => {
+                          setMorningEnd(e.target.value);
+                          setLunchStart(e.target.value);
+                        }}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">Reprise Après-midi (Fin Pause)</label>
+                      <input
+                        type="time"
+                        value={lunchEnd}
+                        onChange={(e) => {
+                          setLunchEnd(e.target.value);
+                          setAfternoonStart(e.target.value);
+                        }}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">Fin de Journée (Départ)</label>
+                      <input
+                        type="time"
+                        value={afternoonEnd}
+                        onChange={(e) => setAfternoonEnd(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-semibold text-slate-500 mb-1">Départ Après-midi</label>
-                  <input
-                    type="time"
-                    value={afternoonEnd}
-                    onChange={(e) => setAfternoonEnd(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono"
-                  />
+              ) : (
+                <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1">Heure de Début de Quart</label>
+                    <input
+                      type="time"
+                      value={morningStart}
+                      onChange={(e) => setMorningStart(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1">Heure de Fin de Quart</label>
+                    <input
+                      type="time"
+                      value={afternoonEnd}
+                      onChange={(e) => setAfternoonEnd(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Tolérance au retard */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Marge de Tolérance au Retard
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[0, 5, 10, 15, 30].map(m => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setToleranceMinutes(m)}
+                      className={`py-1.5 rounded-xl font-bold border transition cursor-pointer text-xs ${
+                        toleranceMinutes === m ? 'bg-blue-600 text-white border-blue-600 shadow-xs' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {m === 0 ? '0 min (Strict)' : `${m} min`}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+              {/* Synthèse calculée en temps réel */}
+              <div className="p-3.5 bg-blue-50/60 rounded-2xl border border-blue-200/80 flex items-center justify-between text-xs">
+                <div>
+                  <span className="font-extrabold text-blue-900 block">
+                    {calculatedDailyHours}h de travail / jour • {selectedDays.length} jours prévus
+                  </span>
+                  <span className="text-[11px] text-blue-700">
+                    Tolérance de {toleranceMinutes} min appliquée avant déclenchement d'une alerte
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-xl font-black text-blue-700 font-mono block">
+                    {calculatedWeeklyHours}h
+                  </span>
+                  <span className="text-[10px] text-blue-500 uppercase font-bold">/ semaine</span>
+                </div>
+              </div>
+
+              {/* Actions du formulaire */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowAddScheduleModal(false)}
-                  className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-bold"
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold cursor-pointer transition"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold shadow-md shadow-blue-500/20"
+                  disabled={submittingSchedule || !newSchedName.trim()}
+                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold px-5 py-2.5 shadow-md shadow-blue-500/20 cursor-pointer transition"
                 >
-                  Créer le Planning
+                  {submittingSchedule ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Création...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Créer le Planning</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
