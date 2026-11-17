@@ -25,7 +25,12 @@ import {
   FileCheck,
   Check,
   Sparkles,
-  Users
+  Users,
+  Wand2,
+  Link2,
+  Copy,
+  MessageSquare,
+  ExternalLink
 } from 'lucide-react';
 
 interface Employee {
@@ -52,6 +57,12 @@ export default function EmployeesPage() {
   const [showQrModal, setShowQrModal] = useState<Employee | null>(null);
   const [showScanModal, setShowScanModal] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  // Organization & Magic Link States
+  const [orgCode, setOrgCode] = useState('ORG-8492');
+  const [orgName, setOrgName] = useState('BAROUBA POINTAGE PRO');
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedToken, setCopiedToken] = useState(false);
 
   // New employee form
   const [newName, setNewName] = useState('');
@@ -81,10 +92,53 @@ export default function EmployeesPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
+  // Helpers pour le Lien Magique
+  const getMagicLink = (emp: Employee) => {
+    return `https://pointagepro.app/join/${emp.token}?org=${orgCode}&mat=${encodeURIComponent(emp.matricule || '')}`;
+  };
+
+  const handleCopyMagicLink = (emp: Employee) => {
+    const link = getMagicLink(emp);
+    navigator.clipboard.writeText(link);
+    setCopiedLink(true);
+    setToastMsg(`✓ Lien magique de ${emp.name} copié dans le presse-papier !`);
+    setTimeout(() => setCopiedLink(false), 2500);
+    setTimeout(() => setToastMsg(null), 3000);
+  };
+
+  const handleCopyToken = (token: string) => {
+    navigator.clipboard.writeText(token);
+    setCopiedToken(true);
+    setTimeout(() => setCopiedToken(false), 2000);
+  };
+
+  const handleShareWhatsApp = (emp: Employee) => {
+    const link = getMagicLink(emp);
+    const text = `Bonjour ${emp.name},\nVoici votre *Lien Magique d'Activation* pour l'application PointagePro (${orgName}) :\n\n👉 Cliquez directement ici pour activer votre compte :\n${link}\n\nVotre Matricule : *${emp.matricule}*\nCode Jeton : *${emp.token}*\nCode Établissement : *${orgCode}*\n\nInstallez l'application PointagePro et cliquez sur ce lien pour lier votre téléphone en 1 clic !`;
+    
+    const cleanPhone = (emp.phone || '').replace(/[^0-9]/g, '');
+    const waUrl = cleanPhone.length >= 8 
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`
+      : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    
+    window.open(waUrl, '_blank');
+  };
+
   const fetchEmployeesAndConfig = async () => {
     setLoading(true);
     try {
       const supabase = createClient();
+
+      // 0. Charger l'organisation & code multi-tenant
+      const { data: orgData } = await supabase
+        .from('pointage_organizations')
+        .select('name, org_code')
+        .limit(1)
+        .single();
+      if (orgData) {
+        if (orgData.org_code) setOrgCode(orgData.org_code);
+        if (orgData.name) setOrgName(orgData.name);
+      }
 
       // 1. Charger les sites
       const { data: estData } = await supabase
@@ -682,31 +736,46 @@ export default function EmployeesPage() {
                     )}
                   </td>
                   <td className="py-3.5 px-6 text-right">
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="flex items-center justify-end gap-1.5">
                       {!emp.isBound && (
-                        <button
-                          onClick={() => openScanModal(emp)}
-                          className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-semibold transition flex items-center gap-1 text-[11px]"
-                          title="Lier directement en scannant le smartphone de ce collaborateur"
-                        >
-                          <Scan className="w-3.5 h-3.5" />
-                          <span>Lier Smartphone</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyMagicLink(emp)}
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-bold transition flex items-center gap-1.5 text-[11px] cursor-pointer"
+                            title="Copier le Lien Magique d'enrôlement direct pour ce collaborateur"
+                          >
+                            <Wand2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Lien Magique</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openScanModal(emp)}
+                            className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-semibold transition flex items-center gap-1 text-[11px] cursor-pointer"
+                            title="Lier directement en scannant le smartphone de ce collaborateur"
+                          >
+                            <Scan className="w-3.5 h-3.5" />
+                            <span>Lier</span>
+                          </button>
+                        </>
                       )}
 
                       <button
+                        type="button"
                         onClick={() => setShowQrModal(emp)}
-                        className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold transition flex items-center gap-1 text-[11px]"
-                        title="Afficher le QR code d'enrôlement ou lien WhatsApp"
+                        className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold transition flex items-center gap-1 text-[11px] cursor-pointer"
+                        title="Ouvrir le Kit d'Invitation (Lien Magique, WhatsApp & QR Code)"
                       >
                         <QrCode className="w-3.5 h-3.5" />
-                        <span>QR Invitation</span>
+                        <span>Invitation & QR</span>
                       </button>
 
                       {emp.isBound && (
                         <button
+                          type="button"
                           onClick={() => handleUnbindDevice(emp.id)}
-                          className="px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 font-semibold transition flex items-center gap-1 text-[11px]"
+                          className="px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 font-semibold transition flex items-center gap-1 text-[11px] cursor-pointer"
                           title="Délier l'appareil (en cas de perte ou changement de smartphone)"
                         >
                           <Unlink className="w-3.5 h-3.5" />
@@ -930,57 +999,149 @@ export default function EmployeesPage() {
         </div>
       )}
 
-      {/* Modal QR Code Invitation */}
+      {/* ==================== MODAL LIEN MAGIQUE & INVITATION INDIVIDUELLE ==================== */}
       {showQrModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-sm p-6 text-center space-y-4">
-            <div className="flex justify-end">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg p-6 sm:p-7 space-y-5 max-h-[92vh] overflow-y-auto">
+            
+            {/* En-tête */}
+            <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-linear-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+                  <Wand2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                      Lien Magique Disponible
+                    </span>
+                    <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
+                      {showQrModal.matricule || 'Sans matricule'}
+                    </span>
+                  </div>
+                  <h3 className="font-extrabold text-lg text-slate-900 mt-0.5 leading-snug">
+                    {showQrModal.name}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {showQrModal.role} • {showQrModal.site}
+                  </p>
+                </div>
+              </div>
+
               <button
                 onClick={() => setShowQrModal(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-full"
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
-              <QrCode className="w-7 h-7" />
-            </div>
-
-            <div>
-              <h3 className="font-extrabold text-base text-slate-900">{showQrModal.name}</h3>
-              <p className="text-xs text-slate-500">Invitation d'activation de poste</p>
-              {showQrModal.matricule && (
-                <span className="inline-block mt-1 text-[11px] font-mono font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md">
-                  Matricule : {showQrModal.matricule}
+            {/* SECTION 1 : LIEN MAGIQUE EN 1 CLIC (MAGIC LINK) */}
+            <div className="p-4 sm:p-5 bg-linear-to-br from-blue-50 via-indigo-50/50 to-white rounded-2xl border border-blue-200/80 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-blue-600" />
+                  <span className="text-xs font-black uppercase tracking-wider text-blue-900">
+                    Lien Magique d'Enrôlement Mobile
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
+                  Zéro Saisie
                 </span>
-              )}
-            </div>
+              </div>
 
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 inline-block">
-              {/* Image QR simulée avec le token */}
-              <div className="w-44 h-44 bg-white border border-slate-200 rounded-xl flex flex-col items-center justify-center p-2 shadow-xs">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(showQrModal.token)}`}
-                  alt="QR Code d'activation"
-                  className="w-full h-full object-contain"
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Envoyez ce lien magique par WhatsApp ou SMS. En cliquant dessus depuis son smartphone, l'application PointagePro s'ouvre et configure instantanément son compte avec son matricule et son jeton sans aucune saisie manuelle !
+              </p>
+
+              {/* Champ d'affichage du lien */}
+              <div className="flex items-center gap-2 bg-white p-1.5 rounded-xl border border-blue-200 shadow-inner">
+                <input
+                  type="text"
+                  readOnly
+                  value={getMagicLink(showQrModal)}
+                  className="w-full text-xs font-mono text-slate-700 bg-transparent px-2 py-1 outline-none truncate select-all"
                 />
+                <button
+                  type="button"
+                  onClick={() => handleCopyMagicLink(showQrModal)}
+                  className="shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedLink ? 'Copié !' : 'Copier'}</span>
+                </button>
               </div>
-              <div className="mt-3 text-xs font-mono font-bold text-slate-800 bg-white py-1.5 px-3 rounded-lg border border-slate-200">
-                Code : {showQrModal.token}
+
+              {/* Boutons d'Action Rapide */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleShareWhatsApp(showQrModal)}
+                  className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-emerald-500/20"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>Envoyer sur WhatsApp</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleCopyMagicLink(showQrModal)}
+                  className="w-full py-2.5 px-3 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Link2 className="w-4 h-4 text-blue-600" />
+                  <span>{copiedLink ? '✓ Lien Copié !' : 'Copier le Lien Magique'}</span>
+                </button>
               </div>
             </div>
 
-            <p className="text-[11px] text-slate-400">
-              L'employé ouvre son application PointagePro et scanne ce QR Code ou saisit ce code pour lier son smartphone.
-            </p>
+            {/* SECTION 2 : QR CODE ET JETON */}
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row items-center gap-4">
+              <div className="p-2 bg-white rounded-xl border border-slate-200 shadow-xs shrink-0 flex flex-col items-center">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(getMagicLink(showQrModal))}`}
+                  alt="QR Code d'enrôlement magique"
+                  className="w-28 h-28 object-contain"
+                />
+                <span className="text-[9px] font-bold text-slate-400 mt-1 uppercase">Scan Caméra</span>
+              </div>
 
-            <button
-              onClick={() => setShowQrModal(null)}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs transition"
-            >
-              Fermer
-            </button>
+              <div className="space-y-2 flex-1 text-xs">
+                <h4 className="font-bold text-slate-800">Alternative : Scan QR ou Saisie du Jeton</h4>
+                <p className="text-[11px] text-slate-500 leading-snug">
+                  Si le collaborateur utilise un autre appareil ou préfère scanner, il peut pointer son appareil photo sur ce code.
+                </p>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <div className="bg-white border border-slate-200 px-3 py-1.5 rounded-lg flex-1 font-mono font-bold text-slate-800 text-xs">
+                    Jeton : <span className="text-blue-600">{showQrModal.token}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyToken(showQrModal.token)}
+                    className="p-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold transition cursor-pointer"
+                    title="Copier le jeton"
+                  >
+                    {copiedToken ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                <div className="text-[10px] text-slate-500 font-mono">
+                  Code Établissement : <strong className="text-slate-800">{orgCode}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Bouton de Fermeture */}
+            <div className="flex items-center justify-end pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowQrModal(null)}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Fermer
+              </button>
+            </div>
+
           </div>
         </div>
       )}
