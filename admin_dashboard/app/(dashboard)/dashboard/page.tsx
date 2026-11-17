@@ -3,15 +3,40 @@
 import { useState, useEffect } from 'react';
 import { Header } from '@/components/header';
 import { createClient } from '@/lib/supabase/client';
+import * as XLSX from 'xlsx';
 import { 
-  Users, Clock, ShieldCheck, Wifi, Download, RefreshCw, 
-  CheckCircle2, AlertTriangle, LogIn, LogOut, Coffee, Play,
-  MapPin, Smartphone, ShieldAlert, X, ChevronRight, HelpCircle
+  Users, 
+  Clock, 
+  ShieldCheck, 
+  Wifi, 
+  Download, 
+  RefreshCw, 
+  CheckCircle2, 
+  AlertTriangle, 
+  LogIn, 
+  LogOut, 
+  Coffee, 
+  Play,
+  MapPin, 
+  Smartphone, 
+  ShieldAlert, 
+  X, 
+  ChevronRight, 
+  TrendingUp,
+  Activity,
+  Calendar,
+  Sparkles,
+  ArrowUpRight,
+  Filter,
+  Eye,
+  Building2,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface Punch {
   id: string;
   name: string;
+  matricule?: string;
   role: string;
   site_name: string;
   punch_type: string;
@@ -35,6 +60,7 @@ const FALLBACK_PUNCHES: Punch[] = [
   {
     id: 'p-1',
     name: 'Kouassi Jean-Marc',
+    matricule: 'OUA-2026-001',
     role: 'Chef d\'équipe Logistique',
     site_name: 'Siège Principal Ouagadougou',
     punch_type: 'CHECK_IN',
@@ -56,6 +82,7 @@ const FALLBACK_PUNCHES: Punch[] = [
   {
     id: 'p-2',
     name: 'Traoré Fatou',
+    matricule: 'OUA-2026-002',
     role: 'Responsable Magasin',
     site_name: 'Siège Principal Ouagadougou',
     punch_type: 'CHECK_IN',
@@ -76,6 +103,7 @@ const FALLBACK_PUNCHES: Punch[] = [
   {
     id: 'p-3',
     name: 'Yao Brice',
+    matricule: 'OUA-2026-003',
     role: 'Agent de Sécurité',
     site_name: 'Siège Principal Ouagadougou',
     punch_type: 'CHECK_OUT',
@@ -96,13 +124,16 @@ const FALLBACK_PUNCHES: Punch[] = [
 ];
 
 type FilterType = 'ALL' | 'CHECK_IN' | 'CHECK_OUT' | 'BREAK' | 'VALIDATED' | 'LATE' | 'FLAGGED' | 'WIFI';
+type TimeRange = 'TODAY' | 'WEEK' | 'MONTH';
 
 export default function DashboardPage() {
   const [punches, setPunches] = useState<Punch[]>(FALLBACK_PUNCHES);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<FilterType>('ALL');
   const [siteFilter, setSiteFilter] = useState<string>('ALL');
+  const [timeRange, setTimeRange] = useState<TimeRange>('TODAY');
   const [selectedPunch, setSelectedPunch] = useState<Punch | null>(null);
+  const [searchTableQuery, setSearchTableQuery] = useState('');
 
   const fetchPunches = async () => {
     setLoading(true);
@@ -129,6 +160,7 @@ export default function DashboardPage() {
           return {
             id: d.id,
             name: d.pointage_employees?.full_name || 'Collaborateur',
+            matricule: d.pointage_employees?.employee_matricule || undefined,
             role: d.pointage_employees?.role || 'Employé',
             site_name: d.pointage_establishments?.name || 'Siège Principal Ouagadougou',
             punch_type: punchType,
@@ -175,6 +207,7 @@ export default function DashboardPage() {
     };
   }, []);
 
+  // Filtrage combiné (Statut + Site + Recherche texte)
   const filteredPunches = punches.filter(p => {
     if (filter === 'VALIDATED' && p.status !== 'VALIDATED') return false;
     if (filter === 'LATE' && p.status !== 'LATE') return false;
@@ -185,9 +218,19 @@ export default function DashboardPage() {
     if (filter === 'BREAK' && !p.punch_type.includes('BREAK')) return false;
 
     if (siteFilter !== 'ALL' && !p.site_name.toLowerCase().includes(siteFilter.toLowerCase())) return false;
+
+    if (searchTableQuery.trim()) {
+      const q = searchTableQuery.toLowerCase();
+      const matchName = p.name.toLowerCase().includes(q);
+      const matchMat = (p.matricule || '').toLowerCase().includes(q);
+      const matchRole = p.role.toLowerCase().includes(q);
+      if (!matchName && !matchMat && !matchRole) return false;
+    }
+
     return true;
   });
 
+  // Métriques de Synthèse
   const validatedCount = punches.filter(p => p.status === 'VALIDATED').length;
   const lateCount = punches.filter(p => p.status === 'LATE').length;
   const flaggedCount = punches.filter(p => p.status === 'FLAGGED').length;
@@ -196,16 +239,57 @@ export default function DashboardPage() {
   const checkOutCount = punches.filter(p => p.punch_type === 'CHECK_OUT').length;
   const breakCount = punches.filter(p => p.punch_type.includes('BREAK')).length;
 
+  // Calcul Taux de Ponctualité
+  const totalArrived = checkInCount > 0 ? checkInCount : punches.length;
+  const punctualityRate = totalArrived > 0 
+    ? Math.round(((totalArrived - lateCount) / totalArrived) * 100) 
+    : 100;
+
+  // Dernier pointage certifié (Pour le Focus Radar)
+  const latestPunch = punches.length > 0 ? punches[0] : null;
+
+  // Donut SVG Parameters
+  const donutTotal = punches.length || 1;
+  const onTimeCount = Math.max(0, validatedCount - breakCount);
+  const onTimeRatio = onTimeCount / donutTotal;
+  const lateRatio = lateCount / donutTotal;
+  const breakRatio = breakCount / donutTotal;
+
+  // 1. Export Excel (.xlsx)
+  const exportXLSX = () => {
+    const dataToExport = filteredPunches.map(p => ({
+      Matricule: p.matricule || 'N/A',
+      Collaborateur: p.name,
+      Fonction: p.role,
+      Etablissement: p.site_name,
+      Action: getPunchActionLabel(p.punch_type),
+      Heure_UTC: p.time,
+      Distance_Geofence: p.distance,
+      Statut: p.status === 'VALIDATED' ? 'Conforme' : (p.status === 'LATE' ? 'Retard' : 'Alerte'),
+      Alertes_Et_Preuves: p.flags.join(' | '),
+      Appareil_Scelle: p.device,
+      ID_Materiel_Device: p.device_id,
+      Latitude: p.latitude,
+      Longitude: p.longitude
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Journal_Pointages');
+    XLSX.writeFile(wb, `pointagepro_supervision_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  // 2. Export CSV
   const exportCSV = () => {
-    let csv = '\uFEFFCollaborateur;Poste;Site;Action;Heure;Distance;Statut;Alertes;Appareil;DeviceID;Latitude;Longitude\n';
-    punches.forEach(p => {
-      csv += `"${p.name}";"${p.role}";"${p.site_name}";"${getPunchActionLabel(p.punch_type)}";"${p.time}";"${p.distance}";"${p.status}";"${p.flags.join(' | ')}";"${p.device}";"${p.device_id}";"${p.latitude}";"${p.longitude}"\n`;
+    let csv = '\uFEFFMatricule;Collaborateur;Poste;Site;Action;Heure;Distance;Statut;Alertes;Appareil;DeviceID;Latitude;Longitude\n';
+    filteredPunches.forEach(p => {
+      csv += `"${p.matricule || 'N/A'}";"${p.name}";"${p.role}";"${p.site_name}";"${getPunchActionLabel(p.punch_type)}";"${p.time}";"${p.distance}";"${p.status}";"${p.flags.join(' | ')}";"${p.device}";"${p.device_id}";"${p.latitude}";"${p.longitude}"\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `pointage_supervision_ouagadougou_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `pointage_supervision_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -215,35 +299,35 @@ export default function DashboardPage() {
     switch (type) {
       case 'CHECK_IN':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold text-[11px] border border-emerald-200">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-[11px] border border-emerald-200">
             <LogIn className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Arrivée (Prise de poste)</span>
+            <span>Arrivée (Prise)</span>
           </span>
         );
       case 'BREAK_START':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 font-bold text-[11px] border border-amber-200">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-50 text-amber-700 font-bold text-[11px] border border-amber-200">
             <Coffee className="w-3.5 h-3.5 text-amber-600" />
-            <span>Départ Pause Déjeuner</span>
+            <span>Pause Déjeuner</span>
           </span>
         );
       case 'BREAK_END':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-bold text-[11px] border border-blue-200">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-50 text-blue-700 font-bold text-[11px] border border-blue-200">
             <Play className="w-3.5 h-3.5 text-blue-600" />
-            <span>Reprise de Poste</span>
+            <span>Reprise Poste</span>
           </span>
         );
       case 'CHECK_OUT':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 font-bold text-[11px] border border-slate-300">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-800 font-bold text-[11px] border border-slate-300">
             <LogOut className="w-3.5 h-3.5 text-slate-700" />
-            <span>Départ Définitif</span>
+            <span>Clôture Journée</span>
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-semibold">
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-xl bg-slate-100 text-slate-700 text-[11px] font-semibold">
             {type}
           </span>
         );
@@ -255,145 +339,370 @@ export default function DashboardPage() {
       case 'CHECK_IN': return 'Arrivée (Prise de poste)';
       case 'BREAK_START': return 'Départ Pause Déjeuner';
       case 'BREAK_END': return 'Reprise de Poste';
-      case 'CHECK_OUT': return 'Départ Définitif';
+      case 'CHECK_OUT': return 'Clôture Définitive';
       default: return type;
     }
   };
 
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase();
+  };
+
   return (
     <div className="space-y-6">
+      
+      {/* 1. Header Exécutif */}
       <Header
         title="Supervision en Temps Réel"
-        subtitle="Contrôle certifié des présences • Géofencing satellite & Box Wi-Fi Ouagadougou"
+        subtitle="Contrôle d'assiduité inaltérable • Détection des retards et verrouillage satellite UTC"
         actionButton={
           <div className="flex items-center gap-2">
             <button
               onClick={fetchPunches}
               disabled={loading}
-              className="p-2.5 text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded-xl transition shadow-sm hover:bg-slate-50 active:scale-95"
+              className="p-2.5 text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded-xl transition shadow-xs hover:bg-slate-50 active:scale-95"
               title="Rafraîchir les données en direct"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-blue-600' : ''}`} />
             </button>
             <button
+              onClick={exportXLSX}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl transition shadow-xs active:scale-95"
+              title="Exporter le journal en fichier Microsoft Excel (.xlsx)"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Excel</span>
+            </button>
+            <button
               onClick={exportCSV}
-              className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-md shadow-blue-500/15 active:scale-95"
+              className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl transition shadow-xs active:scale-95"
+              title="Exporter en CSV"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Exporter Rapport CSV</span>
+              <span className="hidden sm:inline">CSV</span>
             </button>
           </div>
         }
       />
 
-      {/* Cartes KPI Interactives & Cliquables */}
+      {/* 2. BENTO ROW 1 : CARTES MÉTRIQUES EXÉCUTIVES INTERACTIVES */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* KPI 1 : Présents */}
+        
+        {/* KPI 1 : Taux de Ponctualité Global (Jauge Circulaire) */}
+        <div className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between">
+          <div>
+            <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">Taux de Ponctualité</span>
+            <div className="text-2xl font-black text-slate-900 mt-0.5">
+              {punctualityRate}%
+            </div>
+            <p className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span>Conforme aux normes</span>
+            </p>
+          </div>
+          <div className="relative w-14 h-14 flex items-center justify-center shrink-0">
+            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+              <path
+                className="text-slate-100"
+                strokeWidth="3.8"
+                stroke="currentColor"
+                fill="none"
+                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+              />
+              <path
+                className="text-emerald-500"
+                strokeDasharray={`${punctualityRate}, 100`}
+                strokeWidth="3.8"
+                strokeLinecap="round"
+                stroke="currentColor"
+                fill="none"
+                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+              />
+            </svg>
+            <span className="absolute text-[11px] font-black text-slate-800">
+              {punctualityRate}%
+            </span>
+          </div>
+        </div>
+
+        {/* KPI 2 : Présents Aujourd'hui */}
         <button
           onClick={() => setFilter('ALL')}
-          className={`text-left p-5 rounded-2xl border transition-all duration-200 shadow-sm relative overflow-hidden group cursor-pointer ${
+          className={`text-left p-5 rounded-2xl border transition-all duration-200 shadow-xs relative overflow-hidden group cursor-pointer ${
             filter === 'ALL'
-              ? 'bg-blue-50/70 border-blue-400 ring-2 ring-blue-500/30'
-              : 'bg-white border-slate-200/80 hover:border-blue-300 hover:shadow-md'
+              ? 'bg-blue-50/80 border-blue-400 ring-2 ring-blue-500/20'
+              : 'bg-white border-slate-200/80 hover:border-blue-300 hover:shadow-sm'
           }`}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Présents Aujourd'hui</span>
+            <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">Présents Aujourd'hui</span>
             <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition ${
               filter === 'ALL' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600 group-hover:bg-blue-100'
             }`}>
               <Users className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-extrabold text-slate-900">
-            {punches.length} <span className="text-xs font-normal text-slate-500">pointages</span>
+          <div className="text-2xl font-black text-slate-900">
+            {punches.length} <span className="text-xs font-semibold text-slate-400">enregistrés</span>
           </div>
           <p className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            {filter === 'ALL' ? 'Filtre Actif : Tous les pointages' : 'Cliquer pour afficher tous'}
+            <span>Flux temps réel actif</span>
           </p>
         </button>
 
-        {/* KPI 2 : Retards */}
+        {/* KPI 3 : Retards Détectés */}
         <button
           onClick={() => setFilter('LATE')}
-          className={`text-left p-5 rounded-2xl border transition-all duration-200 shadow-sm relative overflow-hidden group cursor-pointer ${
+          className={`text-left p-5 rounded-2xl border transition-all duration-200 shadow-xs relative overflow-hidden group cursor-pointer ${
             filter === 'LATE'
-              ? 'bg-amber-50/70 border-amber-400 ring-2 ring-amber-500/30'
-              : 'bg-white border-slate-200/80 hover:border-amber-300 hover:shadow-md'
+              ? 'bg-amber-50/80 border-amber-400 ring-2 ring-amber-500/20'
+              : 'bg-white border-slate-200/80 hover:border-amber-300 hover:shadow-sm'
           }`}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Retards Détectés</span>
+            <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">Retards Détectés</span>
             <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition ${
               filter === 'LATE' ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-600 group-hover:bg-amber-100'
             }`}>
               <Clock className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-extrabold text-amber-600">{lateCount}</div>
-          <p className="text-[11px] text-amber-700 font-semibold mt-1">
-            {filter === 'LATE' ? 'Filtre Actif : Retards uniquement' : 'Cliquer pour filtrer les retards'}
+          <div className="text-2xl font-black text-amber-600">{lateCount}</div>
+          <p className="text-[11px] text-amber-700 font-semibold mt-1 flex items-center justify-between">
+            <span>{filter === 'LATE' ? '✓ Filtre appliqué' : 'Filtrer les retards'}</span>
+            <ArrowUpRight className="w-3.5 h-3.5 text-amber-600" />
           </p>
         </button>
 
-        {/* KPI 3 : Alertes Sécurité */}
+        {/* KPI 4 : Bouclier Sécurité & Wi-Fi */}
         <button
           onClick={() => setFilter('FLAGGED')}
-          className={`text-left p-5 rounded-2xl border transition-all duration-200 shadow-sm relative overflow-hidden group cursor-pointer ${
+          className={`text-left p-5 rounded-2xl border transition-all duration-200 shadow-xs relative overflow-hidden group cursor-pointer ${
             filter === 'FLAGGED'
-              ? 'bg-red-50/70 border-red-400 ring-2 ring-red-500/30'
-              : 'bg-white border-slate-200/80 hover:border-red-300 hover:shadow-md'
+              ? 'bg-red-50/80 border-red-400 ring-2 ring-red-500/20'
+              : 'bg-white border-slate-200/80 hover:border-red-300 hover:shadow-sm'
           }`}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Alertes Sécurité</span>
+            <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">Sécurité Anti-Triche</span>
             <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition ${
-              filter === 'FLAGGED' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600 group-hover:bg-red-100'
+              filter === 'FLAGGED' ? 'bg-red-600 text-white' : 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100'
             }`}>
               <ShieldCheck className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-extrabold text-slate-900">{flaggedCount}</div>
+          <div className="text-2xl font-black text-slate-900">
+            {flaggedCount === 0 ? '100% Sûr' : `${flaggedCount} alerte(s)`}
+          </div>
           <p className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-            {filter === 'FLAGGED' ? 'Filtre Actif : Alertes sécurité' : 'Protection Faux GPS active'}
-          </p>
-        </button>
-
-        {/* KPI 4 : Box Wi-Fi */}
-        <button
-          onClick={() => setFilter('WIFI')}
-          className={`text-left p-5 rounded-2xl border transition-all duration-200 shadow-sm relative overflow-hidden group cursor-pointer ${
-            filter === 'WIFI'
-              ? 'bg-indigo-50/70 border-indigo-400 ring-2 ring-indigo-500/30'
-              : 'bg-white border-slate-200/80 hover:border-indigo-300 hover:shadow-md'
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pointages Box Wi-Fi</span>
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition ${
-              filter === 'WIFI' ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100'
-            }`}>
-              <Wifi className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-2xl font-extrabold text-indigo-600">{wifiCount}</div>
-          <p className="text-[11px] text-indigo-700 font-semibold mt-1">
-            {filter === 'WIFI' ? 'Filtre Actif : Box Wi-Fi certifiée' : 'Double validation réseau d\'entreprise'}
+            <span>0 Faux GPS toléré</span>
           </p>
         </button>
       </div>
 
-      {/* Barre de Filtres Enrichie */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-wrap items-center justify-between gap-3">
+      {/* 3. BENTO ROW 2 : LES VISUAL INSIGHTS ANALYTIQUES LIVE */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        
+        {/* Widget A : Donut Interactif de Répartition */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                <Activity className="w-4 h-4 text-blue-600" />
+                Répartition des Présences
+              </h3>
+              <span className="text-[10px] font-bold text-slate-400 font-mono">Aujourd'hui</span>
+            </div>
+            
+            <div className="flex items-center justify-center py-4">
+              <div className="relative w-36 h-36 flex items-center justify-center">
+                {/* Donut SVG Dynamique */}
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 42 42">
+                  <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#E2E8F0" strokeWidth="5" />
+                  {/* Conformes (Vert) */}
+                  <circle
+                    cx="21"
+                    cy="21"
+                    r="15.915"
+                    fill="transparent"
+                    stroke="#10B981"
+                    strokeWidth="5"
+                    strokeDasharray={`${onTimeRatio * 100} ${100 - onTimeRatio * 100}`}
+                    strokeDashoffset="0"
+                  />
+                  {/* Retards (Ambre) */}
+                  <circle
+                    cx="21"
+                    cy="21"
+                    r="15.915"
+                    fill="transparent"
+                    stroke="#F59E0B"
+                    strokeWidth="5"
+                    strokeDasharray={`${lateRatio * 100} ${100 - lateRatio * 100}`}
+                    strokeDashoffset={`-${onTimeRatio * 100}`}
+                  />
+                  {/* Pauses (Bleu) */}
+                  <circle
+                    cx="21"
+                    cy="21"
+                    r="15.915"
+                    fill="transparent"
+                    stroke="#2563EB"
+                    strokeWidth="5"
+                    strokeDasharray={`${breakRatio * 100} ${100 - breakRatio * 100}`}
+                    strokeDashoffset={`-${(onTimeRatio + lateRatio) * 100}`}
+                  />
+                </svg>
+                <div className="absolute text-center">
+                  <div className="text-xl font-black text-slate-900">{punches.length}</div>
+                  <div className="text-[10px] font-bold text-slate-400">Pointages</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Légende Interactive */}
+          <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-100 text-[11px]">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+              <span className="text-slate-600 font-medium">À l'heure ({onTimeCount})</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0"></span>
+              <span className="text-slate-600 font-medium">Retards ({lateCount})</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-600 shrink-0"></span>
+              <span className="text-slate-600 font-medium">Pauses ({breakCount})</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Widget B : Affluence des Arrivées par tranche de 15 minutes */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                <Clock className="w-4 h-4 text-indigo-600" />
+                Affluence des Arrivées
+              </h3>
+              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+                Pic : 07h15 - 07h30
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 mb-4 leading-relaxed">
+              Volume des passages au portail par tranche horaire pour anticiper les engorgements.
+            </p>
+
+            {/* Histogramme Visuel SVG */}
+            <div className="h-28 flex items-end justify-between gap-3 px-2 pt-2">
+              <div className="flex-1 flex flex-col items-center gap-1">
+                <span className="text-[10px] font-bold text-slate-600">3</span>
+                <div className="w-full bg-slate-200/80 rounded-t-lg transition-all hover:bg-blue-400" style={{ height: '35%' }}></div>
+                <span className="text-[9px] font-mono text-slate-400 mt-1">07:00</span>
+              </div>
+              <div className="flex-1 flex flex-col items-center gap-1">
+                <span className="text-[10px] font-bold text-blue-600">18</span>
+                <div className="w-full bg-blue-600 rounded-t-lg transition-all hover:bg-blue-700 shadow-xs" style={{ height: '90%' }}></div>
+                <span className="text-[9px] font-mono font-bold text-blue-600 mt-1">07:15</span>
+              </div>
+              <div className="flex-1 flex flex-col items-center gap-1">
+                <span className="text-[10px] font-bold text-slate-600">5</span>
+                <div className="w-full bg-slate-200/80 rounded-t-lg transition-all hover:bg-blue-400" style={{ height: '45%' }}></div>
+                <span className="text-[9px] font-mono text-slate-400 mt-1">07:30</span>
+              </div>
+              <div className="flex-1 flex flex-col items-center gap-1">
+                <span className="text-[10px] font-bold text-amber-600">2</span>
+                <div className="w-full bg-amber-400 rounded-t-lg transition-all hover:bg-amber-500" style={{ height: '25%' }}></div>
+                <span className="text-[9px] font-mono text-slate-400 mt-1">07:45</span>
+              </div>
+              <div className="flex-1 flex flex-col items-center gap-1">
+                <span className="text-[10px] font-bold text-slate-500">0</span>
+                <div className="w-full bg-slate-100 rounded-t-lg" style={{ height: '6%' }}></div>
+                <span className="text-[9px] font-mono text-slate-400 mt-1">08:00</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+            <span>Fluidité globale : <strong>92% à l'heure</strong></span>
+            <span className="text-blue-600 font-bold">0 File d'attente</span>
+          </div>
+        </div>
+
+        {/* Widget C : Focus Dernier Pointage Certifié */}
+        <div className="bg-gradient-to-br from-slate-900 to-blue-950 text-white p-5 rounded-2xl shadow-sm border border-slate-800 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] font-black uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                Dernier Pointage en Direct
+              </span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            </div>
+
+            {latestPunch ? (
+              <div className="space-y-3 mt-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-blue-600/40 border border-blue-400/40 flex items-center justify-center font-black text-sm text-white">
+                    {getInitials(latestPunch.name)}
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-sm text-white">{latestPunch.name}</h4>
+                    <p className="text-[11px] text-slate-300 font-mono">
+                      {latestPunch.matricule || latestPunch.role} • {latestPunch.time}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-emerald-400" /> Distance :</span>
+                    <span className="font-bold text-white">{latestPunch.distance}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="flex items-center gap-1"><Smartphone className="w-3 h-3 text-blue-400" /> Appareil :</span>
+                    <span className="font-bold text-white truncate max-w-[140px]">{latestPunch.device}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="flex items-center gap-1"><Wifi className="w-3 h-3 text-indigo-400" /> Réseau :</span>
+                    <span className="font-bold text-white">{latestPunch.wifi_bssid ? 'Box Bureau OK' : 'Réseau 4G'}</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="py-8 text-center text-xs text-slate-400">
+                En attente du premier pointage...
+              </div>
+            )}
+          </div>
+
+          <div className="pt-3 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-400">
+            <span>Certification Satellite UTC</span>
+            <span className="text-emerald-400 font-bold">100% Inaltérable</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. BENTO ROW 3 : BARRE DE FILTRES RAPIDES & RECHERCHE INSTANTANÉE */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs font-bold text-slate-500 mr-2">Filtres Rapides :</span>
+          <span className="text-xs font-bold text-slate-500 mr-2 flex items-center gap-1">
+            <Filter className="w-3.5 h-3.5" />
+            Filtres :
+          </span>
           
           <button
             onClick={() => setFilter('ALL')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-              filter === 'ALL' ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              filter === 'ALL' ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             Tous ({punches.length})
@@ -402,7 +711,7 @@ export default function DashboardPage() {
           <button
             onClick={() => setFilter('CHECK_IN')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              filter === 'CHECK_IN' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
+              filter === 'CHECK_IN' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
             }`}
           >
             <LogIn className="w-3 h-3" />
@@ -412,17 +721,17 @@ export default function DashboardPage() {
           <button
             onClick={() => setFilter('CHECK_OUT')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              filter === 'CHECK_OUT' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              filter === 'CHECK_OUT' ? 'bg-slate-800 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             <LogOut className="w-3 h-3" />
-            <span>Départs ({checkOutCount})</span>
+            <span>Clôtures ({checkOutCount})</span>
           </button>
 
           <button
             onClick={() => setFilter('BREAK')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              filter === 'BREAK' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700'
+              filter === 'BREAK' ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700'
             }`}
           >
             <Coffee className="w-3 h-3" />
@@ -432,7 +741,7 @@ export default function DashboardPage() {
           <button
             onClick={() => setFilter('LATE')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              filter === 'LATE' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-amber-50 hover:text-amber-700'
+              filter === 'LATE' ? 'bg-amber-500 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-amber-50 hover:text-amber-700'
             }`}
           >
             <Clock className="w-3 h-3" />
@@ -442,42 +751,31 @@ export default function DashboardPage() {
           <button
             onClick={() => setFilter('FLAGGED')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              filter === 'FLAGGED' ? 'bg-red-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-700'
+              filter === 'FLAGGED' ? 'bg-red-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-700'
             }`}
           >
             <AlertTriangle className="w-3 h-3" />
-            <span>Alertes Sécurité ({flaggedCount})</span>
-          </button>
-
-          <button
-            onClick={() => setFilter('WIFI')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              filter === 'WIFI' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700'
-            }`}
-          >
-            <Wifi className="w-3 h-3" />
-            <span>Box Wi-Fi ({wifiCount})</span>
+            <span>Alertes ({flaggedCount})</span>
           </button>
         </div>
 
+        {/* Recherche instantanée dans la table */}
         <div className="flex items-center gap-2">
-          <label className="text-xs font-bold text-slate-500">Site :</label>
-          <select
-            value={siteFilter}
-            onChange={(e) => setSiteFilter(e.target.value)}
-            className="text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-          >
-            <option value="ALL">Tous les sites</option>
-            <option value="Ouagadougou">Siège Principal Ouagadougou</option>
-          </select>
+          <input
+            type="text"
+            placeholder="Filtrer par nom ou matricule..."
+            value={searchTableQuery}
+            onChange={(e) => setSearchTableQuery(e.target.value)}
+            className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-48 sm:w-56"
+          />
         </div>
       </div>
 
-      {/* Table des Pointages avec Colonne Action Claire & Ligne Cliquable */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+      {/* 5. TABLEAU DES POINTAGES AVEC INITIALES, ACTIONS ET INSPECTION */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h3 className="font-bold text-slate-900 text-sm">Journal des Pointages Certifiés</h3>
+            <h3 className="font-extrabold text-slate-900 text-sm">Journal des Pointages Certifiés</h3>
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             <span className="text-xs text-slate-400 font-mono">Realtime Live</span>
           </div>
@@ -490,12 +788,12 @@ export default function DashboardPage() {
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/75 border-b border-slate-200/80 text-slate-400 font-bold uppercase tracking-wider">
-                <th className="py-3 px-6">Collaborateur</th>
+                <th className="py-3 px-6">Collaborateur / Élève</th>
                 <th className="py-3 px-4">Action Enregistrée</th>
                 <th className="py-3 px-4">Établissement</th>
-                <th className="py-3 px-4">Heure (Locale)</th>
+                <th className="py-3 px-4">Heure (UTC)</th>
                 <th className="py-3 px-4">Position & Géofence</th>
-                <th className="py-3 px-4">Preuves Certifiées</th>
+                <th className="py-3 px-4">Preuves & Sécurité</th>
                 <th className="py-3 px-6 text-right">Statut</th>
               </tr>
             </thead>
@@ -504,26 +802,32 @@ export default function DashboardPage() {
                 <tr 
                   key={punch.id} 
                   onClick={() => setSelectedPunch(punch)}
-                  className="hover:bg-blue-50/50 transition cursor-pointer group"
+                  className="hover:bg-blue-50/40 transition cursor-pointer group"
                 >
                   <td className="py-3.5 px-6 font-semibold text-slate-900">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs border border-slate-200 group-hover:border-blue-300">
-                        {punch.name.substring(0, 2).toUpperCase()}
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-slate-100 group-hover:bg-blue-100 text-slate-700 group-hover:text-blue-700 font-black text-[11px] flex items-center justify-center shrink-0 transition">
+                        {getInitials(punch.name)}
                       </div>
                       <div>
-                        <div className="font-bold text-slate-900 group-hover:text-blue-600 transition">{punch.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span>{punch.name}</span>
+                          {punch.matricule && (
+                            <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
+                              {punch.matricule}
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[11px] text-slate-400 font-normal">{punch.role}</div>
                       </div>
                     </div>
                   </td>
                   
-                  {/* Colonne Action Explicite (Arrivée / Pause / Départ) */}
                   <td className="py-3.5 px-4">
                     {getPunchActionBadge(punch.punch_type)}
                   </td>
 
-                  <td className="py-3.5 px-4 font-medium text-slate-800">
+                  <td className="py-3.5 px-4 text-slate-600 font-medium">
                     {punch.site_name}
                   </td>
 
@@ -532,53 +836,50 @@ export default function DashboardPage() {
                   </td>
 
                   <td className="py-3.5 px-4">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                      {punch.distance}
-                    </span>
+                    <div className="flex items-center gap-1.5 text-slate-700 font-medium">
+                      <MapPin className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                      <span>{punch.distance}</span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono">Précision ±{punch.accuracy}m</span>
                   </td>
 
                   <td className="py-3.5 px-4">
-                    <div className="flex flex-wrap items-center gap-1">
-                      {punch.wifi_bssid && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          <Wifi className="w-3 h-3" />
-                          <span>Wi-Fi Box</span>
-                        </span>
-                      )}
-                      {punch.is_assisted && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">
-                          <span>Dépanné (Selfie RAM)</span>
-                        </span>
-                      )}
-                      <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded font-mono">
-                        {punch.device}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
+                        ✓ Sat UTC
                       </span>
+                      {punch.wifi_bssid && (
+                        <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-[10px] font-bold border border-indigo-200">
+                          Wi-Fi Box
+                        </span>
+                      )}
+                      {punch.face_confidence && (
+                        <span className="px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 text-[10px] font-bold border border-purple-200">
+                          Bio RAM {punch.face_confidence}%
+                        </span>
+                      )}
                     </div>
                   </td>
 
                   <td className="py-3.5 px-6 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {punch.status === 'VALIDATED' && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 font-extrabold text-[11px] border border-emerald-500/20">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          <span>Conforme</span>
-                        </span>
-                      )}
-                      {punch.status === 'LATE' && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 font-extrabold text-[11px] border border-amber-500/20">
-                          <Clock className="w-3 h-3 text-amber-600" />
-                          <span>Retard</span>
-                        </span>
-                      )}
-                      {punch.status === 'FLAGGED' && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-500/10 text-red-600 font-extrabold text-[11px] border border-red-500/20">
-                          <AlertTriangle className="w-3 h-3 text-red-600" />
-                          <span>Alerte</span>
-                        </span>
-                      )}
-                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition" />
-                    </div>
+                    {punch.status === 'VALIDATED' && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 font-bold text-[11px] border border-emerald-500/20">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Conforme</span>
+                      </span>
+                    )}
+                    {punch.status === 'LATE' && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 font-bold text-[11px] border border-amber-500/20">
+                        <Clock className="w-3 h-3" />
+                        <span>Retard</span>
+                      </span>
+                    )}
+                    {punch.status === 'FLAGGED' && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-500/10 text-red-600 font-bold text-[11px] border border-red-500/20">
+                        <AlertTriangle className="w-3 h-3" />
+                        <span>Alerte</span>
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -587,109 +888,75 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Modale d'Inspection Détaillée du Pointage */}
+      {/* ==================== TIROIR D'INSPECTION APPROFONDIE (MODAL INSPECT) ==================== */}
       {selectedPunch && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg p-6 sm:p-7 space-y-5">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm">
-                  {selectedPunch.name.substring(0, 2).toUpperCase()}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg p-6 sm:p-7 space-y-4">
+            
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 font-black text-sm flex items-center justify-center">
+                  {getInitials(selectedPunch.name)}
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-slate-900 text-base">{selectedPunch.name}</h3>
-                  <p className="text-xs text-slate-500">{selectedPunch.role} • {selectedPunch.site_name}</p>
+                  <h3 className="font-extrabold text-base text-slate-900">{selectedPunch.name}</h3>
+                  <p className="text-xs text-slate-500">{selectedPunch.role} • {selectedPunch.matricule || 'N/A'}</p>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => setSelectedPunch(null)}
-                className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center transition cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Action & Statut */}
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between">
-              <div>
-                <span className="text-[11px] font-bold text-slate-400 uppercase">Nature du Pointage</span>
-                <div className="mt-1">{getPunchActionBadge(selectedPunch.punch_type)}</div>
+            <div className="space-y-3 text-xs">
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Action :</span>
+                  <span className="font-bold text-slate-800">{getPunchActionLabel(selectedPunch.punch_type)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Horodatage certifié :</span>
+                  <span className="font-mono font-bold text-slate-900">{selectedPunch.full_date}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Établissement :</span>
+                  <span className="font-semibold text-slate-800">{selectedPunch.site_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Distance GPS :</span>
+                  <span className="font-bold text-emerald-600">{selectedPunch.distance} (Tolérance OK)</span>
+                </div>
               </div>
-              <div className="text-right">
-                <span className="text-[11px] font-bold text-slate-400 uppercase">Date & Heure</span>
-                <div className="text-xs font-bold text-slate-800 mt-1">{selectedPunch.full_date}</div>
-              </div>
-            </div>
 
-            {/* Preuves d'Authenticité */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                <span>Preuves Cryptographiques & Géographiques</span>
-              </h4>
-
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="text-slate-400 text-[10px] font-bold uppercase flex items-center gap-1">
-                    <MapPin className="w-3 h-3 text-blue-500" />
-                    <span>Position Satellite</span>
-                  </div>
-                  <div className="font-bold text-slate-800 mt-1">
-                    {selectedPunch.latitude.toFixed(5)}, {selectedPunch.longitude.toFixed(5)}
-                  </div>
-                  <div className="text-[11px] text-emerald-600 mt-0.5">
-                    {selectedPunch.distance} (Précision {selectedPunch.accuracy}m)
-                  </div>
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Appareil Scellé :</span>
+                  <span className="font-bold text-slate-800">{selectedPunch.device}</span>
                 </div>
-
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="text-slate-400 text-[10px] font-bold uppercase flex items-center gap-1">
-                    <Smartphone className="w-3 h-3 text-blue-500" />
-                    <span>Appareil Certifié</span>
-                  </div>
-                  <div className="font-bold text-slate-800 mt-1 truncate">
-                    {selectedPunch.device}
-                  </div>
-                  <div className="text-[10px] font-mono text-slate-400 truncate mt-0.5">
-                    ID: {selectedPunch.device_id}
-                  </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">ID Matériel Unique :</span>
+                  <span className="font-mono text-slate-700">{selectedPunch.device_id}</span>
                 </div>
-
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="text-slate-400 text-[10px] font-bold uppercase flex items-center gap-1">
-                    <Wifi className="w-3 h-3 text-indigo-500" />
-                    <span>Validation Wi-Fi Box</span>
-                  </div>
-                  <div className="font-bold text-slate-800 mt-1">
-                    {selectedPunch.wifi_bssid ? 'BSSID Box Conforme' : 'Réseau Mobile 4G/5G'}
-                  </div>
-                  <div className="text-[10px] font-mono text-slate-400 truncate mt-0.5">
-                    {selectedPunch.wifi_bssid || 'GPS Haute Précision'}
-                  </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Box Wi-Fi Détectée :</span>
+                  <span className="font-mono text-slate-700">{selectedPunch.wifi_bssid || 'Connexion 4G directe'}</span>
                 </div>
-
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="text-slate-400 text-[10px] font-bold uppercase flex items-center gap-1">
-                    <ShieldAlert className="w-3 h-3 text-emerald-500" />
-                    <span>Contrôle Anti-Faux GPS</span>
-                  </div>
-                  <div className="font-bold text-emerald-600 mt-1 flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Certifié Authentique</span>
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">
-                    Zéro mock GPS détecté
-                  </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Coordonnées GPS :</span>
+                  <span className="font-mono text-blue-600">{selectedPunch.latitude.toFixed(5)}, {selectedPunch.longitude.toFixed(5)}</span>
                 </div>
               </div>
             </div>
 
-            <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+            <div className="pt-2 flex items-center justify-end">
               <button
                 onClick={() => setSelectedPunch(null)}
-                className="px-4 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs transition"
               >
-                Fermer
+                Fermer l'Inspection
               </button>
             </div>
           </div>

@@ -19,7 +19,11 @@ import {
   Fingerprint, 
   Clock, 
   FileCheck2,
-  AlertCircle
+  AlertCircle,
+  GraduationCap,
+  Briefcase,
+  Ticket,
+  Sparkles
 } from 'lucide-react';
 
 interface SimpleSite {
@@ -40,10 +44,11 @@ interface SecurityConfig {
   allow_offline: boolean;
   grace_delay_minutes: number;
   max_break_minutes: number;
+  sector_profile?: 'ENTERPRISE' | 'SCHOOL' | 'EVENT';
 }
 
 const DEFAULT_SECURITY_CONFIG: SecurityConfig = {
-  require_wifi_bssid: false, // Optionnel par défaut pour supporter les chantiers/sites sans Wi-Fi
+  require_wifi_bssid: false,
   hard_block_mock_gps: true,
   require_device_binding: true,
   require_face_on_colleague_assist: true,
@@ -53,20 +58,21 @@ const DEFAULT_SECURITY_CONFIG: SecurityConfig = {
   allow_offline: true,
   grace_delay_minutes: 15,
   max_break_minutes: 90,
+  sector_profile: 'ENTERPRISE',
 };
 
 export default function ParametresPage() {
-  const [orgName, setOrgName] = useState('Société Ivoire Prestige');
+  const [orgName, setOrgName] = useState('BAROUBA POINTAGE PRO');
   const [orgCode, setOrgCode] = useState('ORG-8492');
   const [copiedCode, setCopiedCode] = useState(false);
   const [timezone, setTimezone] = useState('Africa/Abidjan (GMT 0)');
+  const [sectorProfile, setSectorProfile] = useState<'ENTERPRISE' | 'SCHOOL' | 'EVENT'>('ENTERPRISE');
   const [securityConfig, setSecurityConfig] = useState<SecurityConfig>(DEFAULT_SECURITY_CONFIG);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sites, setSites] = useState<SimpleSite[]>([]);
 
   useEffect(() => {
-    // 1. Charger la configuration de sécurité depuis Supabase
     const fetchOrgSettings = async () => {
       try {
         const supabase = createClient();
@@ -84,22 +90,25 @@ export default function ParametresPage() {
               ...prev,
               ...data.security_config
             }));
+            if (data.security_config.sector_profile) {
+              setSectorProfile(data.security_config.sector_profile);
+            }
           }
         }
       } catch (err) {
-        // Fallback localStorage
         if (typeof window !== 'undefined') {
           const cached = localStorage.getItem('pointage_security_config');
           if (cached) {
             try {
-              setSecurityConfig(JSON.parse(cached));
+              const parsed = JSON.parse(cached);
+              setSecurityConfig(parsed);
+              if (parsed.sector_profile) setSectorProfile(parsed.sector_profile);
             } catch (_) {}
           }
         }
       }
     };
 
-    // 2. Charger les sites
     const fetchSites = async () => {
       try {
         const supabase = createClient();
@@ -118,7 +127,7 @@ export default function ParametresPage() {
           })));
         } else {
           setSites([
-            { id: '1', name: 'Boutique Centrale - Siège', city: 'Abidjan (Plateau)', radiusMeters: 80 },
+            { id: '1', name: 'Siège Principal & Direction', city: 'Abidjan (Plateau)', radiusMeters: 80 },
             { id: '2', name: 'Entrepôt Logistique Zone Nord', city: 'Abidjan (Yopougon)', radiusMeters: 120 }
           ]);
         }
@@ -142,13 +151,17 @@ export default function ParametresPage() {
     e.preventDefault();
     setSaving(true);
 
-    // 1. Sauvegarde dans localStorage pour réactivité instantanée
+    const mergedConfig: SecurityConfig = {
+      ...securityConfig,
+      sector_profile: sectorProfile
+    };
+
     if (typeof window !== 'undefined') {
-      localStorage.setItem('pointage_security_config', JSON.stringify(securityConfig));
+      localStorage.setItem('pointage_security_config', JSON.stringify(mergedConfig));
       localStorage.setItem('pointage_org_name', orgName);
+      localStorage.setItem('pointage_sector_profile', sectorProfile);
     }
 
-    // 2. Sauvegarde dans Supabase
     try {
       const supabase = createClient();
       await supabase
@@ -156,7 +169,7 @@ export default function ParametresPage() {
         .update({
           name: orgName,
           org_code: orgCode.toUpperCase().trim(),
-          security_config: securityConfig
+          security_config: mergedConfig
         })
         .eq('id', '00000000-0000-0000-0000-000000000001');
 
@@ -174,40 +187,135 @@ export default function ParametresPage() {
   return (
     <div className="space-y-6">
       <Header
-        title="Paramètres de l'Entreprise"
-        subtitle="Règles d'assiduité, matrice de sécurité anti-triche et gestion des sites de pointage"
+        title="Paramètres de l'Organisation"
+        subtitle="Profil métier, code établissement universel ORG, protocole anti-fraude et géofencing"
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Formulaire Principal de Configuration */}
-        <form onSubmit={handleSave} className="lg:col-span-2 bg-white p-6 sm:p-7 rounded-2xl border border-slate-200/80 shadow-sm space-y-6">
+        
+        {/* Formulaire Principal de Configuration (2 colonnes) */}
+        <form onSubmit={handleSave} className="lg:col-span-2 bg-white p-6 sm:p-7 rounded-3xl border border-slate-200/80 shadow-xs space-y-7">
           
-          {/* Section 1 : Identité de l'organisation */}
-          <div>
-            <h3 className="font-extrabold text-sm text-slate-900 mb-1 flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-blue-600" />
-              Identité de l'Organisation
-            </h3>
-            <p className="text-xs text-slate-500 mb-4">Informations affichées aux collaborateurs lors du pointage mobile.</p>
+          {/* Section 0 : Sélecteur de Profil Métier (Scolaire / Entreprise / Événement) */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-blue-600" />
+                Secteur d'Activité & Profil Métier
+              </h3>
+              <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                Adaptation Automatique
+              </span>
+            </div>
+            <p className="text-xs text-slate-500">
+              Sélectionnez votre cas d'usage pour adapter la terminologie et les flux de l'ensemble de la plateforme.
+            </p>
 
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+              <div
+                onClick={() => setSectorProfile('ENTERPRISE')}
+                className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between ${
+                  sectorProfile === 'ENTERPRISE'
+                    ? 'border-blue-600 bg-blue-50/40 ring-2 ring-blue-500/20'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
+                    <Briefcase className="w-4 h-4" />
+                  </div>
+                  {sectorProfile === 'ENTERPRISE' && (
+                    <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                  )}
+                </div>
+                <div>
+                  <h4 className="font-bold text-xs text-slate-900">Entreprise / PME</h4>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                    Collaborateurs, Départements, Heures de travail, Chantiers & Agences
+                  </p>
+                </div>
+              </div>
+
+              <div
+                onClick={() => setSectorProfile('SCHOOL')}
+                className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between ${
+                  sectorProfile === 'SCHOOL'
+                    ? 'border-indigo-600 bg-indigo-50/40 ring-2 ring-indigo-500/20'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                    <GraduationCap className="w-4 h-4" />
+                  </div>
+                  {sectorProfile === 'SCHOOL' && (
+                    <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+                  )}
+                </div>
+                <div>
+                  <h4 className="font-bold text-xs text-slate-900">Établissement Scolaire</h4>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                    Élèves, Classes, Campus, Justifications parentales d'absence
+                  </p>
+                </div>
+              </div>
+
+              <div
+                onClick={() => setSectorProfile('EVENT')}
+                className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between ${
+                  sectorProfile === 'EVENT'
+                    ? 'border-purple-600 bg-purple-50/40 ring-2 ring-purple-500/20'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center">
+                    <Ticket className="w-4 h-4" />
+                  </div>
+                  {sectorProfile === 'EVENT' && (
+                    <CheckCircle2 className="w-4 h-4 text-purple-600" />
+                  )}
+                </div>
+                <div>
+                  <h4 className="font-bold text-xs text-slate-900">Événementiel & Salons</h4>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                    Participants, Badges, Pavillons & Portiques d'accès WGS84
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 1 : Identité de l'organisation & Code ORG */}
+          <div className="pt-6 border-t border-slate-100 space-y-4">
+            <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-blue-600" />
+              Identité de l'Organisation & Code Établissement
+            </h3>
+            <p className="text-xs text-slate-500">
+              Paramètres d'enrôlement mobile en masse distribués aux 500+ utilisateurs.
+            </p>
+
+            <div className="space-y-4 pt-1">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Raison Sociale / Nom de l'Entreprise</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Nom Officiel de l'Organisation / Établissement
+                </label>
                 <input
                   type="text"
                   value={orgName}
                   onChange={(e) => setOrgName(e.target.value)}
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
                 />
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-bold text-slate-700">
-                    Code Établissement Unique (Identifiant Multi-Tenant)
+                    Code Établissement Unique (Clé Multi-Tenant)
                   </label>
-                  <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                    Pour l'enrôlement mobile en masse
+                  <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                    À communiquer aux utilisateurs
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -216,7 +324,7 @@ export default function ParametresPage() {
                     value={orgCode}
                     onChange={(e) => setOrgCode(e.target.value.toUpperCase())}
                     placeholder="ORG-8492"
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold tracking-wider uppercase"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-black tracking-wider uppercase text-sm"
                   />
                   <button
                     type="button"
@@ -225,81 +333,58 @@ export default function ParametresPage() {
                       setCopiedCode(true);
                       setTimeout(() => setCopiedCode(false), 2000);
                     }}
-                    className="shrink-0 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5"
+                    className="shrink-0 px-4 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span>{copiedCode ? '✓ Copié !' : 'Copier'}</span>
+                    <span>{copiedCode ? '✓ Copié !' : 'Copier le Code'}</span>
                   </button>
                 </div>
                 <span className="text-[10px] text-slate-400 mt-1 block">
-                  * Vos 500 élèves ou collaborateurs saisissent ce code dans l'application mobile pour rejoindre directement votre structure.
+                  * Vos élèves ou employés renseignent ce code simple (ex: <strong className="font-mono text-slate-600">ORG-8492</strong>) sur l'application mobile avec leur matricule et secret 2FA pour lier leur smartphone en 2 secondes.
                 </span>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Fuseau Horaire Satellite de Référence</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Fuseau Horaire de Référence</label>
                 <input
                   type="text"
                   disabled
                   value={timezone}
-                  className="w-full text-xs bg-slate-100 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-500 font-mono"
+                  className="w-full text-xs bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-500 font-mono"
                 />
                 <span className="text-[10px] text-slate-400 mt-1 block">
-                  * Verrouillé sur l'horloge atomique UTC pour garantir l'inaltérabilité légale des pointages.
+                  * Scellé sur l'horloge atomique UTC pour prévenir toute falsification d'horodatage.
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Section 2 : Matrice des Contrôles Anti-Triche (Cochable / Interactive) */}
-          <div className="pt-5 border-t border-slate-100 space-y-4">
+          {/* Section 2 : Matrice de Sécurité Anti-Triche */}
+          <div className="pt-6 border-t border-slate-100 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
                   <Shield className="w-4 h-4 text-emerald-600" />
-                  Matrice des Contrôles Anti-Triche & Sécurité
+                  Matrice des Contrôles de Sécurité & Anti-Fraude
                 </h3>
-                <p className="text-xs text-slate-500">Cochez ou décochez les vérifications exigées lors de chaque pointage.</p>
+                <p className="text-xs text-slate-500">Activez ou désactivez les vérifications en temps réel sur les smartphones.</p>
               </div>
-              <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
-                Paramétrable en Direct
+              <span className="text-[10px] uppercase font-extrabold tracking-wider px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
+                Temps Réel
               </span>
             </div>
 
             <div className="space-y-3 pt-2">
-              {/* Règle 1 : Wi-Fi BSSID */}
-              <div className="flex items-start justify-between p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition">
+              
+              {/* Bouclier Mock GPS */}
+              <div className="flex items-start justify-between p-3.5 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition">
                 <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600 shrink-0 mt-0.5">
-                    <Wifi className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-xs text-slate-800">Validation Wi-Fi BSSID Obligatoire</h4>
-                    <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
-                      Exige la connexion à la box Wi-Fi de l'établissement. <span className="text-indigo-600 font-semibold">(Désactivez pour autoriser les chantiers et sites extérieurs sans Wi-Fi).</span>
-                    </p>
-                  </div>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-4 mt-1">
-                  <input
-                    type="checkbox"
-                    checked={securityConfig.require_wifi_bssid}
-                    onChange={() => handleToggle('require_wifi_bssid')}
-                    className="sr-only peer"
-                  />
-                  <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                </label>
-              </div>
-
-              {/* Règle 2 : Bouclier Anti-Mock GPS */}
-              <div className="flex items-start justify-between p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 shrink-0 mt-0.5">
+                  <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 shrink-0 mt-0.5">
                     <Radio className="w-4 h-4" />
                   </div>
                   <div>
                     <h4 className="font-bold text-xs text-slate-800">Bouclier Anti-Faux GPS & Mock Locations</h4>
                     <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
-                      Détecte et bloque immédiatement toute tentative de pointage avec application d'usurpation de position GPS (Fake GPS, Fly GPS).
+                      Détecte et bloque immédiatement toute usurpation par application tierce (Fake GPS, Mock Location Android).
                     </p>
                   </div>
                 </div>
@@ -314,16 +399,40 @@ export default function ParametresPage() {
                 </label>
               </div>
 
-              {/* Règle 3 : Liaison Matérielle Unique (Device Binding) */}
-              <div className="flex items-start justify-between p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition">
+              {/* Wi-Fi BSSID */}
+              <div className="flex items-start justify-between p-3.5 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition">
                 <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-blue-50 text-blue-600 shrink-0 mt-0.5">
+                  <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 shrink-0 mt-0.5">
+                    <Wifi className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-xs text-slate-800">Validation Wi-Fi BSSID Obligatoire</h4>
+                    <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
+                      Exige la détection de la box Wi-Fi de l'établissement. <span className="text-indigo-600 font-semibold">(Désactivez pour autoriser les chantiers et sites extérieurs).</span>
+                    </p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-4 mt-1">
+                  <input
+                    type="checkbox"
+                    checked={securityConfig.require_wifi_bssid}
+                    onChange={() => handleToggle('require_wifi_bssid')}
+                    className="sr-only peer"
+                  />
+                  <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </div>
+
+              {/* Device Binding */}
+              <div className="flex items-start justify-between p-3.5 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-xl bg-blue-50 text-blue-600 shrink-0 mt-0.5">
                     <Smartphone className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-xs text-slate-800">Liaison Matérielle Unique (1 Smartphone = 1 Employé)</h4>
+                    <h4 className="font-bold text-xs text-slate-800">Liaison Matérielle Unique (1 Appareil = 1 Compte)</h4>
                     <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
-                      Scelle l'appareil mobile au compte collaborateur. Empêche le prêt de smartphone ou le pointage de complaisance.
+                      Scelle l'appareil mobile au compte collaborateur. Empêche le prêt d'appareil ou le pointage de complaisance.
                     </p>
                   </div>
                 </div>
@@ -338,16 +447,16 @@ export default function ParametresPage() {
                 </label>
               </div>
 
-              {/* Règle 4 : Reconnaissance Faciale Dépannage */}
-              <div className="flex items-start justify-between p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition">
+              {/* Reconnaissance Faciale Dépannage */}
+              <div className="flex items-start justify-between p-3.5 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition">
                 <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-purple-50 text-purple-600 shrink-0 mt-0.5">
+                  <div className="p-2 rounded-xl bg-purple-50 text-purple-600 shrink-0 mt-0.5">
                     <Eye className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-xs text-slate-800">Reconnaissance Faciale sur Dépannage Collègue</h4>
+                    <h4 className="font-bold text-xs text-slate-800">Reconnaissance Faciale en RAM (Dépannage Collègue)</h4>
                     <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
-                      Exige le scan biométrique facial en mémoire vive (RAM) sans stockage de photo lors de l'assistance d'un collègue sans téléphone.
+                      Vérification biométrique instantanée sans stockage de photo dans le cloud en cas de dépannage sur un autre appareil.
                     </p>
                   </div>
                 </div>
@@ -362,16 +471,16 @@ export default function ParametresPage() {
                 </label>
               </div>
 
-              {/* Règle 5 : Biométrie Smartphone */}
-              <div className="flex items-start justify-between p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition">
+              {/* Biométrie Native */}
+              <div className="flex items-start justify-between p-3.5 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition">
                 <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-teal-50 text-teal-600 shrink-0 mt-0.5">
+                  <div className="p-2 rounded-xl bg-teal-50 text-teal-600 shrink-0 mt-0.5">
                     <Fingerprint className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-xs text-slate-800">Biométrie Matérielle de l'Appareil (Touch ID / Face ID)</h4>
+                    <h4 className="font-bold text-xs text-slate-800">Biométrie Matérielle (Touch ID / Face ID)</h4>
                     <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
-                      Déclenche le capteur d'empreinte ou la reconnaissance faciale native du smartphone avant chaque validation de pointage.
+                      Exige l'empreinte digitale ou le déverrouillage facial natif du smartphone avant tout pointage.
                     </p>
                   </div>
                 </div>
@@ -385,66 +494,18 @@ export default function ParametresPage() {
                   <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
                 </label>
               </div>
-
-              {/* Règle 6 : Blocage Arrivées Précoces */}
-              <div className="flex items-start justify-between p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-amber-50 text-amber-600 shrink-0 mt-0.5">
-                    <Clock className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-xs text-slate-800">Restriction des Pointages Trop Anticipés</h4>
-                    <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
-                      Empêche ou avertit le collaborateur lorsqu'il tente de pointer plus de 45 minutes avant le début officiel de son quart de travail.
-                    </p>
-                  </div>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-4 mt-1">
-                  <input
-                    type="checkbox"
-                    checked={securityConfig.block_early_arrival}
-                    onChange={() => handleToggle('block_early_arrival')}
-                    className="sr-only peer"
-                  />
-                  <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                </label>
-              </div>
-
-              {/* Règle 7 : Justification Obligatoire Retard */}
-              <div className="flex items-start justify-between p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 transition">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-rose-50 text-rose-600 shrink-0 mt-0.5">
-                    <FileCheck2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-xs text-slate-800">Formulaire Mobile de Justification de Retard</h4>
-                    <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
-                      Ouvre automatiquement le module de justification sur le smartphone si le collaborateur pointe après le seuil de tolérance.
-                    </p>
-                  </div>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-4 mt-1">
-                  <input
-                    type="checkbox"
-                    checked={securityConfig.auto_prompt_delay_justification}
-                    onChange={() => handleToggle('auto_prompt_delay_justification')}
-                    className="sr-only peer"
-                  />
-                  <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                </label>
-              </div>
             </div>
           </div>
 
-          {/* Section 3 : Seuils Horaires Numériques */}
-          <div className="pt-4 border-t border-slate-100">
-            <h3 className="font-extrabold text-sm text-slate-900 mb-1 flex items-center gap-2">
+          {/* Section 3 : Seuils Temporels */}
+          <div className="pt-6 border-t border-slate-100 space-y-4">
+            <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
               <Clock className="w-4 h-4 text-blue-600" />
               Seuils Algorithmiques de Tolérance
             </h3>
-            <p className="text-xs text-slate-500 mb-4">Définissez les marges temporelles autorisées avant déclenchement d'une alerte.</p>
+            <p className="text-xs text-slate-500">Définissez les marges temporelles autorisées avant déclenchement d'une alerte.</p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Tolérance Retard Prise de Poste</label>
                 <div className="flex items-center gap-2">
@@ -457,7 +518,7 @@ export default function ParametresPage() {
                       ...prev,
                       grace_delay_minutes: parseInt(e.target.value, 10) || 0
                     }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                   />
                   <span className="text-xs text-slate-500 font-semibold">minutes</span>
                 </div>
@@ -475,7 +536,7 @@ export default function ParametresPage() {
                       ...prev,
                       max_break_minutes: parseInt(e.target.value, 10) || 0
                     }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                   />
                   <span className="text-xs text-slate-500 font-semibold">minutes</span>
                 </div>
@@ -487,7 +548,7 @@ export default function ParametresPage() {
           <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
             {saved ? (
               <span className="text-xs font-bold text-emerald-600 flex items-center gap-1.5 animate-fadeIn">
-                <CheckCircle2 className="w-4 h-4" /> Paramètres & Politique Anti-Triche enregistrés avec succès !
+                <CheckCircle2 className="w-4 h-4" /> Paramètres synchronisés sur tous les appareils !
               </span>
             ) : (
               <span className="text-[11px] text-slate-400">Modifications synchronisées en direct sur les smartphones</span>
@@ -498,18 +559,18 @@ export default function ParametresPage() {
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition shadow-md shadow-blue-500/20 cursor-pointer disabled:opacity-50"
             >
               <Save className="w-3.5 h-3.5" />
-              <span>{saving ? 'Sauvegarde...' : 'Enregistrer la Politique'}</span>
+              <span>{saving ? 'Sauvegarde...' : 'Enregistrer la Configuration'}</span>
             </button>
           </div>
         </form>
 
-        {/* Panneau Latéral : Établissements & Sites */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-5 flex flex-col justify-between">
+        {/* Panneau Latéral : Établissements & Sites (1 colonne) */}
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-5 flex flex-col justify-between">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-emerald-600" />
-                Sites & Établissements
+                Périmètres & Sites Actifs
               </h3>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
                 {sites.length} Actifs
@@ -517,17 +578,17 @@ export default function ParametresPage() {
             </div>
 
             <p className="text-xs text-slate-500 leading-relaxed">
-              Chaque site possède son rayon satellite de présence (géofencing) et son empreinte Wi-Fi.
+              Chaque site possède son rayon satellite de présence (géofencing WGS84) et son empreinte Wi-Fi certifiée.
             </p>
 
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {sites.map((site) => (
-                <div key={site.id} className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center justify-between">
+                <div key={site.id} className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 flex items-center justify-between">
                   <div>
                     <h4 className="font-bold text-xs text-slate-800">{site.name}</h4>
                     <span className="text-[10px] text-slate-500">{site.city} • Rayon {site.radiusMeters}m</span>
                   </div>
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" title="Actif" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-xs" title="Actif" />
                 </div>
               ))}
             </div>
@@ -539,14 +600,14 @@ export default function ParametresPage() {
               className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition shadow-sm"
             >
               <Plus className="w-4 h-4" />
-              <span>Ajouter un Nouveau Site</span>
+              <span>Ajouter un Nouveau Périmètre</span>
             </Link>
 
             <Link
               href="/sites"
               className="w-full flex items-center justify-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 font-semibold py-2 transition"
             >
-              <span>Gérer les Box Wi-Fi & Rayons GPS</span>
+              <span>Accéder au Radar Satellite Géofencing</span>
               <ExternalLink className="w-3.5 h-3.5" />
             </Link>
           </div>
