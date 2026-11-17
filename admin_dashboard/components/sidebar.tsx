@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { 
@@ -12,8 +13,11 @@ import {
   ShieldAlert, 
   Settings, 
   LogOut, 
-  Building2 
+  Building2,
+  Copy,
+  Check
 } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Supervision Live', icon: PieChart },
@@ -29,12 +33,40 @@ const NAV_ITEMS = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const [orgName, setOrgName] = useState('PointagePro Enterprise');
+  const [orgCode, setOrgCode] = useState('ORG-8492');
+  const [copiedCode, setCopiedCode] = useState(false);
+
+  useEffect(() => {
+    const fetchOrg = async () => {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase
+          .from('pointage_organizations')
+          .select('name, org_code')
+          .limit(1)
+          .single();
+        if (data) {
+          if (data.name) setOrgName(data.name);
+          if (data.org_code) setOrgCode(data.org_code);
+        }
+      } catch (e) {
+        console.warn('Sidebar fetch org error:', e);
+      }
+    };
+    fetchOrg();
+  }, []);
+
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(orgCode);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
 
   const handleLogout = async () => {
     // Clear cookie & redirect
     document.cookie = 'pointage_manager_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     try {
-      const { createClient } = await import('@/lib/supabase/client');
       const supabase = createClient();
       await supabase.auth.signOut();
     } catch {}
@@ -46,19 +78,39 @@ export function Sidebar() {
       {/* 1. BARRE LATÉRALE BUREAU (Desktop Sidebar) */}
       <aside className="w-64 bg-slate-900 text-white flex-col justify-between hidden md:flex shrink-0 min-h-screen">
         <div>
-          {/* En-tête Organisation */}
-          <div className="h-16 flex items-center px-6 border-b border-slate-800 space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-md shadow-blue-500/20">
-              <i className="fa-solid fa-fingerprint"></i>
+          {/* En-tête Organisation avec Code Multi-Tenant */}
+          <div className="p-4 border-b border-slate-800">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-md shadow-blue-500/20 shrink-0">
+                <i className="fa-solid fa-fingerprint"></i>
+              </div>
+              <div className="overflow-hidden min-w-0">
+                <h1 className="font-extrabold text-sm leading-tight tracking-wide text-white truncate" title={orgName}>
+                  {orgName}
+                </h1>
+                <p className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5 mt-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Portail Gérant Sécurisé
+                </p>
+              </div>
             </div>
-            <div className="overflow-hidden">
-              <h1 className="font-extrabold text-sm leading-tight tracking-wide text-white truncate">
-                Société Ivoire Prestige
-              </h1>
-              <p className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                Portail Gérant Sécurisé
-              </p>
+
+            {/* Code Établissement Canonique pour les 500 élèves / collaborateurs */}
+            <div className="mt-3 bg-slate-800/80 rounded-xl p-2 flex items-center justify-between border border-slate-700/60">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Code :</span>
+                <span className="font-mono text-xs font-black text-amber-400 tracking-wider truncate">
+                  {orgCode}
+                </span>
+              </div>
+              <button
+                onClick={handleCopyCode}
+                className="text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-200 px-2 py-0.5 rounded-md flex items-center gap-1 transition shrink-0"
+                title="Copier le code à communiquer aux collaborateurs / élèves"
+              >
+                {copiedCode ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedCode ? 'Copié' : 'Copier'}</span>
+              </button>
             </div>
           </div>
 

@@ -57,6 +57,8 @@ const DEFAULT_SECURITY_CONFIG: SecurityConfig = {
 
 export default function ParametresPage() {
   const [orgName, setOrgName] = useState('Société Ivoire Prestige');
+  const [orgCode, setOrgCode] = useState('ORG-8492');
+  const [copiedCode, setCopiedCode] = useState(false);
   const [timezone, setTimezone] = useState('Africa/Abidjan (GMT 0)');
   const [securityConfig, setSecurityConfig] = useState<SecurityConfig>(DEFAULT_SECURITY_CONFIG);
   const [saved, setSaved] = useState(false);
@@ -76,6 +78,7 @@ export default function ParametresPage() {
 
         if (data) {
           if (data.name) setOrgName(data.name);
+          if (data.org_code) setOrgCode(data.org_code);
           if (data.security_config) {
             setSecurityConfig(prev => ({
               ...prev,
@@ -152,6 +155,7 @@ export default function ParametresPage() {
         .from('pointage_organizations')
         .update({
           name: orgName,
+          org_code: orgCode.toUpperCase().trim(),
           security_config: securityConfig
         })
         .eq('id', '00000000-0000-0000-0000-000000000001');
@@ -195,6 +199,40 @@ export default function ParametresPage() {
                   onChange={(e) => setOrgName(e.target.value)}
                   className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                 />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Code Établissement Unique (Identifiant Multi-Tenant)
+                  </label>
+                  <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                    Pour l'enrôlement mobile en masse
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={orgCode}
+                    onChange={(e) => setOrgCode(e.target.value.toUpperCase())}
+                    placeholder="ORG-8492"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold tracking-wider uppercase"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(orgCode);
+                      setCopiedCode(true);
+                      setTimeout(() => setCopiedCode(false), 2000);
+                    }}
+                    className="shrink-0 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5"
+                  >
+                    <span>{copiedCode ? '✓ Copié !' : 'Copier'}</span>
+                  </button>
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  * Vos 500 élèves ou collaborateurs saisissent ce code dans l'application mobile pour rejoindre directement votre structure.
+                </span>
               </div>
 
               <div>

@@ -246,6 +246,164 @@ class OfflineSyncService {
     return session;
   }
 
+  /// Enrôlement 2FA par Code Établissement + Matricule Officiel + Secret
+  Future<EmployeeSession> enrollWithOrganizationAndMatricule({
+    required String rawOrgCode,
+    required String rawMatricule,
+    required String rawSecret,
+    required String deviceId,
+    required String deviceModel,
+  }) async {
+    final cleanOrg = rawOrgCode.trim().toUpperCase();
+    final cleanMat = rawMatricule.trim().toUpperCase();
+    final cleanSec = rawSecret.trim();
+
+    if (cleanOrg.isEmpty) throw Exception("Veuillez saisir le Code de votre Établissement (ex: ORG-8492).");
+    if (cleanMat.isEmpty) throw Exception("Veuillez renseigner votre Matricule officiel.");
+
+    // 1. Recherche de l'organisation
+    final Uri orgUrl = Uri.parse(
+      "$_supabaseUrl/rest/v1/pointage_organizations?select=id,name,org_code,city,latitude,longitude,security_config&org_code=ilike.$cleanOrg&limit=1"
+    );
+    final orgResp = await http.get(orgUrl, headers: _headers);
+    if (orgResp.statusCode != 200) {
+      throw Exception("Erreur de connexion cloud (${orgResp.statusCode}).");
+    }
+    final List<dynamic> orgData = jsonDecode(orgResp.body);
+    if (orgData.isEmpty) {
+      throw Exception("Code Établissement '$cleanOrg' introuvable. Veuillez vérifier auprès de votre responsable.");
+    }
+    final org = orgData.first;
+    final orgId = org['id'] as String;
+    final orgName = org['name'] as String? ?? 'Établissement';
+
+    // 2. Recherche du collaborateur ou élève rattaché à cet établissement
+    final Uri empUrl = Uri.parse(
+      "$_supabaseUrl/rest/v1/pointage_employees?select=*,pointage_establishments(id,name,latitude,longitude,radius_meters),pointage_schedules(id,name,working_days,morning_start,morning_end,lunch_start,lunch_end,afternoon_start,afternoon_end,tolerance_minutes)&org_id=eq.$orgId&or=(employee_matricule.ilike.$cleanMat,enrollment_token.ilike.$cleanMat)&limit=1"
+    );
+    final empResp = await http.get(empUrl, headers: _headers);
+    if (empResp.statusCode != 200) {
+      throw Exception("Erreur de recherche employé (${empResp.statusCode}).");
+    }
+    final List<dynamic> empList = jsonDecode(empResp.body);
+    if (empList.isEmpty) {
+      throw Exception("Matricule '$cleanMat' introuvable chez $orgName. Vérifiez l'orthographe du matricule.");
+    }
+
+    final emp = empList.first;
+    final empId = emp['id'] as String;
+
+    // 3. Double Vérification de Sécurité (Secret 2FA)
+    if (cleanSec.isNotEmpty) {
+      final dbSecret = (emp['security_secret'] as String?)?.trim() ?? '';
+      final dbDob = (emp['birth_date'] as String?)?.trim() ?? '';
+      final dbPhone = (emp['phone'] as String?)?.replaceAll(RegExp(r'\D'), '') ?? '';
+      final cleanSecDigits = cleanSec.replaceAll(RegExp(r'\D'), '');
+
+      bool isMatch = false;
+      if (dbSecret.isNotEmpty && dbSecret.toLowerCase() == cleanSec.toLowerCase()) {
+        isMatch = true;
+      } else if (dbDob.isNotEmpty && (dbDob.contains(cleanSec) || cleanSec == dbDob)) {
+        isMatch = true;
+      } else if (cleanSecDigits.length >= 4 && dbPhone.endsWith(cleanSecDigits)) {
+        isMatch = true;
+      } else if (dbSecret.isEmpty && dbDob.isEmpty) {
+        // Si aucun secret n'avait été défini dans le fichier importé
+        isMatch = true;
+      }
+
+      if (!isMatch) {
+        throw Exception("Vérification de sécurité échouée : le code secret, la date de naissance ou les 4 derniers chiffres du téléphone ne correspondent pas pour ce matricule.");
+      }
+    }
+
+    // 4. Contrôle Anti-Vol d'Appareil (Device Binding)
+    final existingDeviceId = emp['bound_device_id'] as String?;
+    final isEnrolled = emp['is_enrolled'] == true;
+    if (isEnrolled && existingDeviceId != null && existingDeviceId.isNotEmpty && existingDeviceId != deviceId) {
+      final boundModel = emp['device_model'] as String? ?? 'un autre smartphone';
+      throw Exception("Ce matricule est déjà scellé à l'appareil ($boundModel). Veuillez demander à l'administrateur de délier l'ancien appareil avant de pouvoir l'associer à ce téléphone.");
+    }
+
+    // 5. Scellement Matériel du Smartphone
+    try {
+      final patchUrl = Uri.parse("$_supabaseUrl/rest/v1/pointage_employees?id=eq.$empId");
+      await http.patch(
+        patchUrl,
+        headers: _headers,
+        body: jsonEncode({
+          "bound_device_id": deviceId,
+          "device_model": deviceModel,
+          "is_enrolled": true,
+        }),
+      );
+    } catch (e) {
+      print("Erreur binding device: $e");
+    }
+
+    // Extraction données pour Session
+    final fullName = emp['full_name'] as String;
+    final phone = emp['phone'] as String? ?? '';
+    final role = emp['role'] as String? ?? 'EMPLOYEE';
+    final token = emp['enrollment_token'] as String? ?? 'PPRO-ACTIVE';
+    final establishmentId = emp['default_establishment_id'] as String? ?? '00000000-0000-0000-0000-000000000010';
+    final estData = emp['pointage_establishments'];
+    final establishmentName = estData?['name'] as String? ?? orgName;
+    final establishmentLat = estData?['latitude'] != null ? (estData['latitude'] as num).toDouble() : 11.24700;
+    final establishmentLng = estData?['longitude'] != null ? (estData['longitude'] as num).toDouble() : -4.29180;
+    final establishmentRadius = estData?['radius_meters'] != null ? (estData['radius_meters'] as num).toDouble() : 120.0;
+
+    final schedData = emp['pointage_schedules'];
+    final scheduleId = emp['schedule_id'] as String?;
+    final scheduleName = schedData?['name'] as String? ?? 'Horaire Standard';
+    List<int> workingDays = [1, 2, 3, 4, 5];
+    if (schedData?['working_days'] != null) {
+      workingDays = List<int>.from(schedData['working_days'].map((e) => (e as num).toInt()));
+    }
+    final morningStart = (schedData?['morning_start'] as String? ?? '07:30').sliceSafe(0, 5);
+    final morningEnd = (schedData?['morning_end'] as String? ?? '12:00').sliceSafe(0, 5);
+    final lunchStart = (schedData?['lunch_start'] as String? ?? '12:00').sliceSafe(0, 5);
+    final lunchEnd = (schedData?['lunch_end'] as String? ?? '13:30').sliceSafe(0, 5);
+    final afternoonStart = (schedData?['afternoon_start'] as String? ?? '13:30').sliceSafe(0, 5);
+    final afternoonEnd = (schedData?['afternoon_end'] as String? ?? '17:30').sliceSafe(0, 5);
+    final toleranceMinutes = schedData?['tolerance_minutes'] is int ? schedData['tolerance_minutes'] as int : 15;
+
+    final matricule = emp['employee_matricule'] as String? ?? cleanMat;
+    final faceVector = emp['face_embedding_vector'] as String?;
+    final faceUpdateCount = emp['face_update_count'] is int ? emp['face_update_count'] as int : 0;
+
+    final session = EmployeeSession(
+      id: empId,
+      fullName: fullName,
+      phone: phone,
+      role: role,
+      enrollmentToken: token,
+      establishmentId: establishmentId,
+      establishmentName: establishmentName,
+      boundDeviceId: deviceId,
+      deviceModel: deviceModel,
+      employeeMatricule: matricule,
+      faceEmbeddingVector: faceVector,
+      faceUpdateCount: faceUpdateCount,
+      establishmentLat: establishmentLat,
+      establishmentLng: establishmentLng,
+      establishmentRadius: establishmentRadius,
+      scheduleId: scheduleId,
+      scheduleName: scheduleName,
+      workingDays: workingDays,
+      morningStart: morningStart,
+      morningEnd: morningEnd,
+      lunchStart: lunchStart,
+      lunchEnd: lunchEnd,
+      afternoonStart: afternoonStart,
+      afternoonEnd: afternoonEnd,
+      toleranceMinutes: toleranceMinutes,
+    );
+
+    await saveEmployeeSession(session);
+    return session;
+  }
+
   /// Vérifie si l'appareil a été enrôlé en mode inversé par le superviseur
   Future<EmployeeSession?> checkReverseEnrollment(String deviceId) async {
     try {

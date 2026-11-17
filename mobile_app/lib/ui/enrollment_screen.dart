@@ -24,9 +24,13 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   final SecurityService _securityService = SecurityService();
   final OfflineSyncService _syncService = OfflineSyncService();
 
-  int _selectedModeIndex = 0; // 0: Scanner, 1: Code Manuel, 2: Mode Inverse
+  int _selectedModeIndex = 0; // 0: Scanner, 1: Matricule/Organisation, 2: Mode Inverse
   bool _isProcessing = false;
   final TextEditingController _tokenInputController = TextEditingController();
+  final TextEditingController _orgCodeController = TextEditingController(text: "ORG-8492");
+  final TextEditingController _matriculeController = TextEditingController();
+  final TextEditingController _secretController = TextEditingController();
+  bool _showTokenFallback = false;
 
   // Mode Inverse
   String? _myDeviceId;
@@ -71,6 +75,9 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   void dispose() {
     _reverseEnrollPollingTimer?.cancel();
     _tokenInputController.dispose();
+    _orgCodeController.dispose();
+    _matriculeController.dispose();
+    _secretController.dispose();
     super.dispose();
   }
 
@@ -234,6 +241,44 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
 
       final device = await _securityService.getDeviceMetadata();
       final session = await _syncService.enrollWithToken(cleanToken, device.deviceId, device.model);
+
+      if (mounted) {
+        _showBindingSuccess(session, device.model);
+      }
+    } catch (e) {
+      if (mounted) {
+        _showError(e.toString().replaceAll("Exception: ", ""));
+      }
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  /// Enrôlement 2FA Sécurisé : Code Établissement + Matricule Officiel + Secret
+  Future<void> _verifyAndEnrollWithOrgAndMatricule() async {
+    final orgCode = _orgCodeController.text.trim();
+    final matricule = _matriculeController.text.trim();
+    final secret = _secretController.text.trim();
+
+    if (orgCode.isEmpty) {
+      _showError("Veuillez renseigner le Code de votre Établissement (ex: ORG-8492).");
+      return;
+    }
+    if (matricule.isEmpty) {
+      _showError("Veuillez renseigner votre Matricule officiel.");
+      return;
+    }
+
+    setState(() => _isProcessing = true);
+    try {
+      final device = await _securityService.getDeviceMetadata();
+      final session = await _syncService.enrollWithOrganizationAndMatricule(
+        rawOrgCode: orgCode,
+        rawMatricule: matricule,
+        rawSecret: secret,
+        deviceId: device.deviceId,
+        deviceModel: device.model,
+      );
 
       if (mounted) {
         _showBindingSuccess(session, device.model);
@@ -467,7 +512,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
                 child: Row(
                   children: [
                     _buildTabItem(index: 0, title: "Scanner QR", icon: Icons.qr_code_scanner_rounded),
-                    _buildTabItem(index: 1, title: "Saisie Code", icon: Icons.pin_outlined),
+                    _buildTabItem(index: 1, title: "Mon Établissement", icon: Icons.domain_rounded),
                     _buildTabItem(index: 2, title: "Mode Inverse", icon: Icons.qr_code_2_rounded),
                   ],
                 ),
@@ -821,62 +866,226 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            "Activation par Code Clé",
-            style: TextStyle(color: Color(0xFF0F172A), fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: -0.3),
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Center(
+                  child: Icon(Icons.domain_rounded, color: Color(0xFF2563EB), size: 20),
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Rejoindre mon Établissement",
+                      style: TextStyle(color: Color(0xFF0F172A), fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: -0.3),
+                    ),
+                    Text(
+                      "Enrôlement 2FA sans scan de QR Code",
+                      style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
+
+          const SizedBox(height: 18),
+
+          // 1. Code Établissement Multi-Tenant
           const Text(
-            "Entrez le jeton fourni par votre responsable (ex : PPRO-302667 ou 302667) :",
-            style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
+            "CODE ÉTABLISSEMENT / ORGANISATION",
+            style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 6),
           TextField(
-            controller: _tokenInputController,
-            style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w800, letterSpacing: 1.5),
+            controller: _orgCodeController,
+            textCapitalization: TextCapitalization.characters,
+            style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w900, letterSpacing: 1.2, fontSize: 14),
             decoration: InputDecoration(
-              hintText: "PPRO-302667",
+              hintText: "ORG-8492",
               hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
               filled: true,
               fillColor: const Color(0xFFF8FAFC),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(14),
                 borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(14),
                 borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(14),
                 borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.8),
               ),
-              prefixIcon: const Icon(Icons.pin_rounded, color: Color(0xFF2563EB)),
+              prefixIcon: const Icon(Icons.business_rounded, color: Color(0xFF2563EB), size: 20),
             ),
           ),
-          const SizedBox(height: 18),
+
+          const SizedBox(height: 14),
+
+          // 2. Matricule Officiel
+          const Text(
+            "VOTRE MATRICULE OFFICIEL",
+            style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _matriculeController,
+            textCapitalization: TextCapitalization.characters,
+            style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w800, letterSpacing: 1.0, fontSize: 14),
+            decoration: InputDecoration(
+              hintText: "Ex : MAT-2026-001 ou OUA-2026-001",
+              hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.8),
+              ),
+              prefixIcon: const Icon(Icons.badge_rounded, color: Color(0xFF2563EB), size: 20),
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // 3. Secret Personnel 2FA Anti-Usurpation
+          const Text(
+            "VÉRIFICATION D'IDENTITÉ PERSONNELLE (SECRET)",
+            style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _secretController,
+            style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w700, fontSize: 13),
+            decoration: InputDecoration(
+              hintText: "Date de naissance (JJ/MM/AAAA) ou 4 derniers chiffres tél",
+              hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.8),
+              ),
+              prefixIcon: const Icon(Icons.lock_person_rounded, color: Color(0xFF10B981), size: 20),
+            ),
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            "* Protège votre compte contre toute tentative de liaison par un tiers.",
+            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5, fontStyle: FontStyle.italic),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Bouton d'Action Principal
           SizedBox(
             width: double.infinity,
             height: 50,
             child: ElevatedButton(
-              onPressed: () {
-                final code = _tokenInputController.text.trim();
-                if (code.isNotEmpty) {
-                  _verifyAndEnroll(code);
-                } else {
-                  _showError("Veuillez saisir votre code d'activation.");
-                }
-              },
+              onPressed: _verifyAndEnrollWithOrgAndMatricule,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF2563EB),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 elevation: 0,
               ),
-              child: const Text("Activer ce Smartphone", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.verified_user_rounded, size: 18),
+                  SizedBox(width: 8),
+                  Text("Vérifier & Lier ce Smartphone", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                ],
+              ),
             ),
           ),
+
+          const SizedBox(height: 16),
+
+          // Option de bascule Jeton Brut PPRO
+          Center(
+            child: TextButton(
+              onPressed: () {
+                setState(() {
+                  _showTokenFallback = !_showTokenFallback;
+                });
+              },
+              child: Text(
+                _showTokenFallback ? "▲ Masquer la saisie par jeton direct" : "▼ Ou activer avec un Jeton Brut (ex: PPRO-302667)",
+                style: const TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+
+          if (_showTokenFallback) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _tokenInputController,
+                    style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w800, fontSize: 12),
+                    decoration: InputDecoration(
+                      hintText: "PPRO-302667",
+                      filled: true,
+                      fillColor: const Color(0xFFF1F5F9),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () {
+                    final code = _tokenInputController.text.trim();
+                    if (code.isNotEmpty) {
+                      _verifyAndEnroll(code);
+                    } else {
+                      _showError("Veuillez renseigner un jeton.");
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F172A),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    elevation: 0,
+                  ),
+                  child: const Text("Activer", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );

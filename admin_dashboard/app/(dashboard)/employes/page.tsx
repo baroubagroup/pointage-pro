@@ -3,7 +3,30 @@
 import { useState, useEffect, useRef } from 'react';
 import { Header } from '@/components/header';
 import { createClient } from '@/lib/supabase/client';
-import { UserPlus, QrCode, Smartphone, Share2, Unlink, CheckCircle2, Clock, X, RefreshCw, Camera, Scan, AlertCircle } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { 
+  UserPlus, 
+  QrCode, 
+  Smartphone, 
+  Share2, 
+  Unlink, 
+  CheckCircle2, 
+  Clock, 
+  X, 
+  RefreshCw, 
+  Camera, 
+  Scan, 
+  AlertCircle,
+  FileSpreadsheet,
+  Download,
+  UploadCloud,
+  AlertTriangle,
+  ArrowRight,
+  FileCheck,
+  Check,
+  Sparkles,
+  Users
+} from 'lucide-react';
 
 interface Employee {
   id: string;
@@ -36,6 +59,18 @@ export default function EmployeesPage() {
   const [newPhone, setNewPhone] = useState('+226 ');
   const [selectedSiteId, setSelectedSiteId] = useState('');
   const [selectedScheduleId, setSelectedScheduleId] = useState('');
+
+  // Mass Import States (Pour 500+ élèves ou collaborateurs)
+  const [showMassModal, setShowMassModal] = useState(false);
+  const [massStep, setMassStep] = useState<'upload' | 'preview' | 'importing' | 'completed'>('upload');
+  const [massSiteId, setMassSiteId] = useState('');
+  const [massScheduleId, setMassScheduleId] = useState('');
+  const [massFileName, setMassFileName] = useState('');
+  const [massValidRows, setMassValidRows] = useState<any[]>([]);
+  const [massInvalidRows, setMassInvalidRows] = useState<{ row: number; matricule: string; name: string; error: string }[]>([]);
+  const [massImportProgress, setMassImportProgress] = useState(0);
+  const [massGeneratedList, setMassGeneratedList] = useState<any[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Manager Camera QR Scanner state
   const [cameraActive, setCameraActive] = useState(false);
@@ -177,6 +212,251 @@ export default function EmployeesPage() {
     setNewPhone('+226 ');
   };
 
+  // ==================== FONCTIONS IMPORT EN MASSE (EXCEL / CSV) ====================
+
+  // 1. Télécharger le modèle Excel officiel
+  const downloadTemplateXlsx = () => {
+    const templateData = [
+      {
+        Matricule: 'MAT-2026-001',
+        Nom: 'TRAORE',
+        Prenom: 'Amadou',
+        Telephone: '+226 70 12 34 56',
+        Classe_ou_Service: 'Terminale S2',
+        Date_Naissance_ou_Secret: '14/05/2006',
+        Role: 'Elève'
+      },
+      {
+        Matricule: 'MAT-2026-002',
+        Nom: 'SAWADOGO',
+        Prenom: 'Fatou',
+        Telephone: '+226 76 98 76 54',
+        Classe_ou_Service: 'Terminale S2',
+        Date_Naissance_ou_Secret: '22/11/2005',
+        Role: 'Elève'
+      },
+      {
+        Matricule: 'MAT-2026-003',
+        Nom: 'KABORE',
+        Prenom: 'Ibrahim',
+        Telephone: '+226 78 55 44 33',
+        Classe_ou_Service: '3ème A',
+        Date_Naissance_ou_Secret: '08/02/2008',
+        Role: 'Elève'
+      },
+      {
+        Matricule: 'MAT-2026-004',
+        Nom: 'OUEDRAOGO',
+        Prenom: 'Awa',
+        Telephone: '+226 71 00 11 22',
+        Classe_ou_Service: 'Administration',
+        Date_Naissance_ou_Secret: '03/09/1990',
+        Role: 'Collaborateur'
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Effectif_A_Importer');
+    XLSX.writeFile(wb, 'modele_import_pointagepro.xlsx');
+  };
+
+  // 2. Télécharger en CSV
+  const downloadTemplateCsv = () => {
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + "Matricule,Nom,Prenom,Telephone,Classe_ou_Service,Date_Naissance_ou_Secret,Role\n"
+      + "MAT-2026-001,TRAORE,Amadou,+226 70 12 34 56,Terminale S2,14/05/2006,Elève\n"
+      + "MAT-2026-002,SAWADOGO,Fatou,+226 76 98 76 54,Terminale S2,22/11/2005,Elève\n"
+      + "MAT-2026-003,KABORE,Ibrahim,+226 78 55 44 33,3ème A,08/02/2008,Elève\n"
+      + "MAT-2026-004,OUEDRAOGO,Awa,+226 71 00 11 22,Administration,03/09/1990,Collaborateur\n";
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "modele_import_pointagepro.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // 3. Traitement & Sas de Pré-validation (Dry-Run)
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setMassFileName(file.name);
+    const reader = new FileReader();
+
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const rawJson: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+        if (!rawJson || rawJson.length === 0) {
+          alert("Le fichier est vide ou n'a pas pu être lu.");
+          return;
+        }
+
+        const valid: any[] = [];
+        const invalid: { row: number; matricule: string; name: string; error: string }[] = [];
+        const seenMatriculesInFile = new Set<string>();
+        const existingMatriculesInDb = new Set(
+          employees.map(emp => (emp.matricule || '').toUpperCase().trim()).filter(Boolean)
+        );
+
+        rawJson.forEach((row, idx) => {
+          const rowNum = idx + 2; // Ligne 1 = en-tête
+
+          // Détection intelligente insensible à la casse et aux espaces
+          const getVal = (possibleKeys: string[]) => {
+            for (const key of Object.keys(row)) {
+              const cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+              for (const pk of possibleKeys) {
+                if (cleanKey === pk.toLowerCase().replace(/[^a-z0-9]/g, '')) {
+                  return String(row[key] || '').trim();
+                }
+              }
+            }
+            return '';
+          };
+
+          const matricule = getVal(['matricule', 'id', 'identifiant', 'code']);
+          const nom = getVal(['nom', 'nomfamille', 'lastname']);
+          const prenom = getVal(['prenom', 'prénom', 'firstname']);
+          const tel = getVal(['telephone', 'téléphone', 'tel', 'phone', 'contact', 'whatsapp']);
+          const classe = getVal(['classe_ou_service', 'classe', 'service', 'departement', 'section', 'groupe']);
+          const secret = getVal(['date_naissance_ou_secret', 'secret', 'date_naissance', 'datenaissance', 'dob', 'secret_personnel']);
+          const role = getVal(['role', 'fonction', 'statut']) || 'Collaborateur';
+
+          const fullName = [nom, prenom].filter(Boolean).join(' ');
+
+          // Contrôles de Sécurité & Conformité
+          if (!nom) {
+            invalid.push({ row: rowNum, matricule: matricule || '---', name: 'Inconnu', error: 'Nom obligatoire manquant' });
+            return;
+          }
+          if (!matricule) {
+            invalid.push({ row: rowNum, matricule: '---', name: fullName, error: 'Matricule officiel manquant' });
+            return;
+          }
+
+          const upperMat = matricule.toUpperCase().trim();
+          if (seenMatriculesInFile.has(upperMat)) {
+            invalid.push({ row: rowNum, matricule, name: fullName, error: 'Matricule en doublon dans le fichier' });
+            return;
+          }
+          seenMatriculesInFile.add(upperMat);
+
+          if (existingMatriculesInDb.has(upperMat)) {
+            invalid.push({ row: rowNum, matricule, name: fullName, error: 'Ce matricule existe déjà dans votre effectif' });
+            return;
+          }
+
+          valid.push({
+            matricule,
+            nom,
+            prenom,
+            fullName,
+            telephone: tel || '+226 --',
+            classe: classe || 'Général',
+            secret: secret || '1234',
+            role
+          });
+        });
+
+        setMassValidRows(valid);
+        setMassInvalidRows(invalid);
+        setMassStep('preview');
+      } catch (err: any) {
+        console.error('Erreur lecture fichier:', err);
+        alert("Erreur lors de l'analyse du fichier : " + err.message);
+      }
+    };
+
+    reader.readAsBinaryString(file);
+  };
+
+  // 4. Exécution de l'Import par Lots dans Supabase
+  const executeBatchImport = async () => {
+    if (massValidRows.length === 0) return;
+    setMassStep('importing');
+    setMassImportProgress(0);
+
+    const supabase = createClient();
+    const siteId = massSiteId || selectedSiteId || (establishments[0]?.id ?? '00000000-0000-0000-0000-000000000010');
+    const scheduleId = massScheduleId || selectedScheduleId || (schedules[0]?.id ?? '00000000-0000-0000-0000-000000000001');
+
+    const newlyCreated: any[] = [];
+    const total = massValidRows.length;
+    const batchSize = 25; // Par lots de 25 pour une insertion fluide
+
+    try {
+      for (let i = 0; i < total; i += batchSize) {
+        const batch = massValidRows.slice(i, i + batchSize);
+        const recordsToInsert = batch.map((r) => {
+          const randNum = Math.floor(100000 + Math.random() * 900000);
+          const token = `PPRO-${randNum}`;
+          
+          newlyCreated.push({
+            matricule: r.matricule,
+            nom_complet: r.fullName,
+            classe: r.classe,
+            telephone: r.telephone,
+            token_activation: token,
+            lien_activation: `https://pointagepro.app/join/${token}`
+          });
+
+          return {
+            org_id: '00000000-0000-0000-0000-000000000001',
+            default_establishment_id: siteId,
+            schedule_id: scheduleId,
+            full_name: r.fullName,
+            employee_matricule: r.matricule,
+            email: `${r.matricule.toLowerCase().replace(/[^a-z0-9]/g, '')}@pointagepro.bf`,
+            phone: r.telephone,
+            role: r.role === 'Elève' ? 'EMPLOYEE' : 'EMPLOYEE',
+            department: r.classe,
+            birth_date: r.secret,
+            security_secret: r.secret,
+            enrollment_token: token,
+            is_enrolled: false,
+            is_active: true
+          };
+        });
+
+        const { error } = await supabase.from('pointage_employees').insert(recordsToInsert);
+        if (error) {
+          console.error('Erreur lot Supabase:', error);
+          throw error;
+        }
+
+        const currentDone = Math.min(i + batchSize, total);
+        setMassImportProgress(Math.round((currentDone / total) * 100));
+      }
+
+      setMassGeneratedList(newlyCreated);
+      setMassStep('completed');
+      await fetchEmployeesAndConfig();
+      setToastMsg(`Succès : ${newlyCreated.length} profils créés et configurés avec succès !`);
+      setTimeout(() => setToastMsg(null), 4000);
+    } catch (err: any) {
+      console.error('Erreur import massif:', err);
+      alert("Erreur lors de l'enregistrement : " + err.message);
+      setMassStep('preview');
+    }
+  };
+
+  // 5. Exporter la liste des Badges / Tokens générés
+  const downloadGeneratedListXlsx = () => {
+    if (massGeneratedList.length === 0) return;
+    const ws = XLSX.utils.json_to_sheet(massGeneratedList);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Tokens_Activation');
+    XLSX.writeFile(wb, `pointagepro_tokens_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   const handleUnbindDevice = async (id: string) => {
     if (confirm("Voulez-vous réinitialiser l'appareil associé pour ce collaborateur ? Il devra scanner à nouveau un code d'activation.")) {
       setEmployees(prev => prev.map(e => e.id === id ? { ...e, isBound: false, device: 'En attente d\'activation' } : e));
@@ -290,6 +570,21 @@ export default function EmployeesPage() {
               title="Rafraîchir depuis Supabase"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={() => {
+                setMassStep('upload');
+                setMassValidRows([]);
+                setMassInvalidRows([]);
+                setMassImportProgress(0);
+                setMassGeneratedList([]);
+                setShowMassModal(true);
+              }}
+              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-sm"
+              title="Importer en 1 clic 500+ élèves ou collaborateurs depuis Excel / CSV avec pré-validation"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>📊 Import en Masse (Excel/CSV)</span>
             </button>
             <button
               onClick={() => openScanModal()}
@@ -686,6 +981,338 @@ export default function EmployeesPage() {
             >
               Fermer
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL IMPORT EN MASSE (EXCEL / CSV) ==================== */}
+      {showMassModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden">
+            
+            {/* En-tête de la Modal */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/60 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-md shadow-emerald-500/20">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900">
+                    Importation en Masse Sécurisée (500+ Utilisateurs)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Écoles, entreprises et grands événements • Sas de pré-validation anti-doublon
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (massStep === 'importing') return;
+                  setShowMassModal(false);
+                }}
+                disabled={massStep === 'importing'}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200/60 transition disabled:opacity-40"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Corps de la Modal selon l'Étape */}
+            <div className="p-6 overflow-y-auto space-y-5">
+              
+              {/* ÉTAPE 1 : DÉPÔT DU FICHIER & TÉLÉCHARGEMENT DU MODÈLE */}
+              {massStep === 'upload' && (
+                <div className="space-y-5">
+                  {/* Bloc A : Téléchargement du Modèle Officiel */}
+                  <div className="p-4 rounded-2xl bg-blue-50/60 border border-blue-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                      <h4 className="font-extrabold text-xs text-blue-950 flex items-center gap-1.5">
+                        <Download className="w-4 h-4 text-blue-600" />
+                        Étape 1 : Téléchargez le Modèle Standard Conforme
+                      </h4>
+                      <p className="text-[11px] text-blue-800/80 mt-0.5 leading-relaxed">
+                        Contient les colonnes requises : <em>Matricule, Nom, Prénom, Téléphone, Classe/Service, Date de Naissance / Secret</em>.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={downloadTemplateXlsx}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center gap-1.5"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5" />
+                        <span>Modèle Excel (.xlsx)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={downloadTemplateCsv}
+                        className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold rounded-xl transition"
+                      >
+                        <span>CSV</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Bloc B : Affectation par Défaut (Héritage Automatique) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Site / Établissement de Rattachement</label>
+                      <select
+                        value={massSiteId || (establishments[0]?.id ?? '')}
+                        onChange={(e) => setMassSiteId(e.target.value)}
+                        className="w-full text-xs bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-800 font-medium"
+                      >
+                        {establishments.map(est => (
+                          <option key={est.id} value={est.id}>{est.name} ({est.city || 'Principal'})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Planning / Horaires par Défaut</label>
+                      <select
+                        value={massScheduleId || (schedules[0]?.id ?? '')}
+                        onChange={(e) => setMassScheduleId(e.target.value)}
+                        className="w-full text-xs bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-800 font-medium"
+                      >
+                        {schedules.map(sch => (
+                          <option key={sch.id} value={sch.id}>{sch.name} ({sch.category})</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Bloc C : Zone de Dépôt Drag & Drop */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Étape 2 : Déposez votre fichier rempli (.xlsx, .xls ou .csv)
+                    </label>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".xlsx, .xls, .csv"
+                      onChange={handleFileSelected}
+                      className="hidden"
+                    />
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className="border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/20 rounded-2xl p-8 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2 group"
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center group-hover:scale-110 transition duration-200">
+                        <UploadCloud className="w-6 h-6" />
+                      </div>
+                      <div className="text-xs font-bold text-slate-800">
+                        Cliquez ici ou glissez votre fichier Excel / CSV
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Formats acceptés : Microsoft Excel (.xlsx, .xls) et CSV texte séparé par virgules
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ÉTAPE 2 : SAS DE PRÉ-VALIDATION (DRY-RUN) */}
+              {massStep === 'preview' && (
+                <div className="space-y-4">
+                  {/* Résumé Statistique du Sas */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="p-3.5 rounded-xl bg-slate-100 border border-slate-200">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Lignes Détectées</span>
+                      <div className="text-xl font-black text-slate-900 mt-0.5">
+                        {massValidRows.length + massInvalidRows.length}
+                      </div>
+                    </div>
+                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                      <span className="text-[10px] text-emerald-700 font-bold uppercase">100% Conformes & Prêts</span>
+                      <div className="text-xl font-black text-emerald-700 mt-0.5">
+                        {massValidRows.length}
+                      </div>
+                    </div>
+                    <div className={`p-3.5 rounded-xl ${massInvalidRows.length > 0 ? 'bg-red-50 border border-red-200' : 'bg-slate-50 border border-slate-200'}`}>
+                      <span className={`text-[10px] font-bold uppercase ${massInvalidRows.length > 0 ? 'text-red-700' : 'text-slate-500'}`}>
+                        Anomalies Bloquées
+                      </span>
+                      <div className={`text-xl font-black mt-0.5 ${massInvalidRows.length > 0 ? 'text-red-700' : 'text-slate-400'}`}>
+                        {massInvalidRows.length}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Rapport d'Anomalies si erreurs */}
+                  {massInvalidRows.length > 0 && (
+                    <div className="p-4 rounded-2xl bg-red-50/80 border border-red-200 space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-red-900">
+                        <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                        <span>{massInvalidRows.length} ligne(s) bloquée(s) pour non-conformité :</span>
+                      </div>
+                      <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+                        {massInvalidRows.map((err, i) => (
+                          <div key={i} className="text-[11px] bg-white p-2 rounded-lg border border-red-100 text-red-800 flex items-center justify-between">
+                            <span className="font-semibold">Ligne {err.row} : {err.name} (Matricule: {err.matricule})</span>
+                            <span className="font-bold text-red-600">{err.error}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-red-700 italic">
+                        * Les profils non conformes sont automatiquement écartés pour protéger l'intégrité de votre base de données.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Aperçu des Profils Valides */}
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800 mb-2 flex items-center gap-1.5">
+                      <Check className="w-4 h-4 text-emerald-600" />
+                      Aperçu des profils qui seront créés ({massValidRows.length}) :
+                    </h4>
+                    <div className="border border-slate-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+                      <table className="w-full text-left text-[11px]">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold sticky top-0">
+                          <tr>
+                            <th className="py-2 px-3">Matricule</th>
+                            <th className="py-2 px-3">Nom & Prénom</th>
+                            <th className="py-2 px-3">Classe / Service</th>
+                            <th className="py-2 px-3">Contact</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-slate-700">
+                          {massValidRows.slice(0, 15).map((row, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50">
+                              <td className="py-1.5 px-3 font-mono font-bold text-blue-600">{row.matricule}</td>
+                              <td className="py-1.5 px-3 font-semibold">{row.fullName}</td>
+                              <td className="py-1.5 px-3">{row.classe}</td>
+                              <td className="py-1.5 px-3 font-mono text-slate-500">{row.telephone}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {massValidRows.length > 15 && (
+                      <p className="text-[10px] text-slate-400 mt-1 italic">
+                        ... et {massValidRows.length - 15} autres profils prêts à être importés.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ÉTAPE 3 : EN COURS D'IMPORTATION */}
+              {massStep === 'importing' && (
+                <div className="py-10 text-center space-y-4">
+                  <div className="w-14 h-14 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center mx-auto animate-pulse">
+                    <Sparkles className="w-7 h-7 animate-spin" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-base text-slate-900">
+                      Importation et Génération des Jetons en Cours...
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Enregistrement sécurisé dans la base Supabase Cloud ({massImportProgress}%)
+                    </p>
+                  </div>
+                  <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden max-w-md mx-auto">
+                    <div
+                      className="bg-blue-600 h-full transition-all duration-300 rounded-full"
+                      style={{ width: `${massImportProgress}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+
+              {/* ÉTAPE 4 : IMPORTATION TERMINÉE AVEC SUCCÈS */}
+              {massStep === 'completed' && (
+                <div className="py-6 text-center space-y-5">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-lg text-slate-900">
+                      {massGeneratedList.length} Profils Importés avec Succès !
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto leading-relaxed">
+                      Chaque collaborateur/élève dispose désormais de son jeton unique et peut s'enrôler sur son application mobile.
+                    </p>
+                  </div>
+
+                  {/* Bouton Téléchargement Récapitulatif avec Tokens */}
+                  <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl max-w-md mx-auto space-y-3">
+                    <div className="text-xs font-bold text-emerald-950 flex items-center justify-center gap-1.5">
+                      <FileCheck className="w-4 h-4 text-emerald-600" />
+                      <span>Fiche Récapitulative des Tokens d'Activation</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-800/80">
+                      Téléchargez le classeur Excel contenant les matricules et tokens pour transmission aux élèves, parents ou chefs de service.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={downloadGeneratedListXlsx}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Télécharger le Fichier des Tokens (.xlsx)</span>
+                    </button>
+                  </div>
+
+                  {/* Rappel Code Établissement Mobile */}
+                  <div className="p-3 bg-slate-100 rounded-xl text-[11px] text-slate-600 max-w-md mx-auto">
+                    💡 <strong>Enrôlement Mobile 2FA :</strong> Les utilisateurs peuvent aussi simplement ouvrir leur app PointagePro, choisir <em>« Rejoindre mon Établissement »</em> et saisir le code organisation (<strong>ORG-8492</strong>) avec leur matricule !
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Pied de la Modal avec Boutons d'Action */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between shrink-0">
+              {massStep === 'upload' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowMassModal(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200/60 rounded-xl transition"
+                  >
+                    Fermer
+                  </button>
+                  <span className="text-[11px] text-slate-400 italic">
+                    Glissez votre fichier pour lancer la pré-validation
+                  </span>
+                </>
+              )}
+
+              {massStep === 'preview' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMassStep('upload');
+                      setMassValidRows([]);
+                      setMassInvalidRows([]);
+                    }}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200/60 rounded-xl transition"
+                  >
+                    ← Changer de Fichier
+                  </button>
+                  <button
+                    type="button"
+                    disabled={massValidRows.length === 0}
+                    onClick={executeBatchImport}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition disabled:opacity-40 flex items-center gap-2"
+                  >
+                    <span>Valider & Importer les {massValidRows.length} Profils</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </>
+              )}
+
+              {massStep === 'completed' && (
+                <button
+                  type="button"
+                  onClick={() => setShowMassModal(false)}
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs transition"
+                >
+                  Terminer et Revenir aux Collaborateurs
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
