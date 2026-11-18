@@ -46,36 +46,86 @@ export function Header({ title, subtitle, actionButton }: HeaderProps) {
 
   // Notification Drawer State
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(2);
-  const [recentEvents, setRecentEvents] = useState<any[]>([
-    {
-      id: 'notif-1',
-      title: 'Justification en attente',
-      desc: 'Traoré Fatou a déclaré un retard de 16 min (Embouteillage)',
-      time: 'Il y a 10 min',
-      type: 'warning',
-      href: '/justifications'
-    },
-    {
-      id: 'notif-2',
-      title: 'Pointage certifié',
-      desc: 'Kouassi Jean-Marc • Prise de poste 07:28 (Box Wi-Fi OK)',
-      time: 'Il y a 25 min',
-      type: 'success',
-      href: '/dashboard'
-    },
-    {
-      id: 'notif-3',
-      title: 'Sécurité GPS confirmée',
-      desc: 'Bouclier anti-triche : 0 faux-GPS détecté sur le site',
-      time: 'Il y a 1h',
-      type: 'info',
-      href: '/securite'
-    }
-  ]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [recentEvents, setRecentEvents] = useState<any[]>([]);
 
   // Horloge en direct
   const [currentTime, setCurrentTime] = useState<string>('');
+
+  useEffect(() => {
+    const fetchRecentEvents = async () => {
+      try {
+        const supabase = createClient();
+        // 1. Justifications réelles
+        const { data: justifs } = await supabase
+          .from('pointage_justifications')
+          .select('*, pointage_employees(full_name)')
+          .order('created_at', { ascending: false })
+          .limit(2);
+
+        // 2. Derniers pointages réels
+        const { data: logs } = await supabase
+          .from('pointage_logs')
+          .select('*, pointage_employees(full_name, role)')
+          .order('recorded_at_utc', { ascending: false })
+          .limit(3);
+
+        const events: any[] = [];
+        let unread = 0;
+
+        const formatNotificationTime = (date: Date): string => {
+          const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
+          if (diffSec < 60) return "À l'instant";
+          const diffMin = Math.floor(diffSec / 60);
+          if (diffMin < 60) return `Il y a ${diffMin} min`;
+          const diffHours = Math.floor(diffMin / 60);
+          if (diffHours < 24) return `Il y a ${diffHours}h`;
+          const diffDays = Math.floor(diffHours / 24);
+          return `Il y a ${diffDays}j`;
+        };
+
+        if (justifs && justifs.length > 0) {
+          justifs.forEach((j: any) => {
+            const timeAgo = formatNotificationTime(new Date(j.created_at));
+            const isPending = j.status === 'PENDING';
+            if (isPending) unread++;
+            events.push({
+              id: `j-${j.id}`,
+              title: isPending ? 'Justification en attente' : `Justification ${j.status === 'APPROVED' ? 'Approuvée' : 'Rejetée'}`,
+              desc: `${j.pointage_employees?.full_name || 'Collaborateur'} : ${j.reason_text || 'Déclaration mobile'}`,
+              time: timeAgo,
+              type: isPending ? 'warning' : 'info',
+              href: '/justifications'
+            });
+          });
+        }
+
+        if (logs && logs.length > 0) {
+          logs.forEach((l: any) => {
+            const timeAgo = formatNotificationTime(new Date(l.recorded_at_utc || l.created_at));
+            const pType = (l.punch_type || 'CHECK_IN').toUpperCase();
+            events.push({
+              id: `l-${l.id}`,
+              title: 'Pointage certifié',
+              desc: `${l.pointage_employees?.full_name || 'Collaborateur'} • ${pType} (${Math.round(l.distance_to_site_meters || 0)}m WGS84)`,
+              time: timeAgo,
+              type: 'success',
+              href: '/dashboard'
+            });
+          });
+        }
+
+        if (events.length > 0) {
+          setRecentEvents(events);
+          setUnreadCount(unread);
+        }
+      } catch (err) {
+        console.warn('Recent events fetch error:', err);
+      }
+    };
+
+    fetchRecentEvents();
+  }, []);
 
   useEffect(() => {
     const updateTime = () => {
@@ -114,6 +164,8 @@ export function Header({ title, subtitle, actionButton }: HeaderProps) {
 
   // Recherche dynamique des employés & pages
   useEffect(() => {
+    const currentOrgCode = (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') : null) || 'Gouvernance';
+
     if (!searchQuery.trim()) {
       setSearchResults([
         { id: 'p-1', title: 'Supervision Cockpit', subtitle: 'Synthèse des présences et indicateurs', type: 'page', href: '/dashboard' },
@@ -121,7 +173,7 @@ export function Header({ title, subtitle, actionButton }: HeaderProps) {
         { id: 'p-3', title: 'Personnel & Effectif', subtitle: 'Gestion de l\'effectif et imports en masse', type: 'page', href: '/employes' },
         { id: 'p-4', title: 'Relevé d\'Assiduité & Paie', subtitle: 'Export Excel et calcul des heures supp', type: 'page', href: '/releves' },
         { id: 'p-5', title: 'Sites & Radar Géofencing', subtitle: 'Périmètres satellite et box Wi-Fi', type: 'page', href: '/parametres?tab=sites' },
-        { id: 'p-6', title: 'Paramètres & Hub Système', subtitle: 'Code organisation ORG-8492 et règles', type: 'page', href: '/parametres' }
+        { id: 'p-6', title: 'Paramètres & Hub Système', subtitle: `Code établissement (${currentOrgCode}) et règles`, type: 'page', href: '/parametres' }
       ]);
       return;
     }

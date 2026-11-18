@@ -208,7 +208,7 @@ export default function PointagesPage() {
     try {
       const supabase = createClient();
       const { data, error } = await supabase
-        .from('pointage_punches')
+        .from('pointage_logs')
         .select(`
           *,
           pointage_employees (
@@ -221,61 +221,65 @@ export default function PointagesPage() {
             name
           )
         `)
-        .order('punched_at', { ascending: false })
-        .limit(100);
+        .order('recorded_at_utc', { ascending: false })
+        .limit(200);
 
       if (data && data.length > 0) {
         const mapped: Punch[] = data.map((d: any) => {
-          const punchDate = new Date(d.punched_at);
+          const punchDate = new Date(d.recorded_at_utc || d.created_at);
           const timeStr = punchDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
           const fullDateStr = punchDate.toLocaleString('fr-FR', { 
             day: '2-digit', month: '2-digit', year: 'numeric',
             hour: '2-digit', minute: '2-digit', second: '2-digit' 
           }) + ' UTC';
 
-          let punchType = d.punch_type || 'CHECK_IN';
-          if (punchType === 'IN') punchType = 'CHECK_IN';
-          if (punchType === 'OUT') punchType = 'CHECK_OUT';
+          let punchType = (d.punch_type || 'CHECK_IN').toUpperCase();
+          if (punchType === 'IN' || punchType === 'CHECKIN') punchType = 'CHECK_IN';
+          if (punchType === 'OUT' || punchType === 'CHECKOUT') punchType = 'CHECK_OUT';
+          if (punchType === 'BREAKSTART' || punchType === 'BREAK_START' || punchType === 'BREAK') punchType = 'BREAK_START';
+          if (punchType === 'BREAKEND' || punchType === 'BREAK_END') punchType = 'BREAK_END';
 
           const flagsList: string[] = [];
-          if (d.distance_meters !== null && d.distance_meters !== undefined) {
-            flagsList.push(`GPS_${Math.round(d.distance_meters)}m`);
-          }
-          if (d.verified_wifi_bssid) {
-            flagsList.push('WIFI_VÉRIFIÉ');
-          }
-          if (d.device_binding_verified) {
-            flagsList.push('APPAREIL_CONFORME');
-          }
-          if (d.is_late) {
-            flagsList.push('RETARD_ENREGISTRÉ');
+          if (Array.isArray(d.flag_reasons) && d.flag_reasons.length > 0) {
+            d.flag_reasons.forEach((f: string) => flagsList.push(f));
+          } else {
+            if (d.distance_to_site_meters !== null && d.distance_to_site_meters !== undefined) {
+              flagsList.push(`GPS_${Math.round(d.distance_to_site_meters)}m`);
+            }
+            if (d.wifi_bssid) flagsList.push('WIFI_VÉRIFIÉ');
+            if (d.is_mock_location === false) flagsList.push('GPS_INTÈGRE');
           }
 
           let punchStatus: 'VALIDATED' | 'LATE' | 'FLAGGED' = 'VALIDATED';
-          if (d.is_flagged) punchStatus = 'FLAGGED';
-          else if (d.is_late) punchStatus = 'LATE';
+          if (d.status === 'FLAGGED' || d.status === 'SUSPECT' || d.is_mock_location) {
+            punchStatus = 'FLAGGED';
+          } else if (flagsList.some(f => f.includes('RETARD') || f.includes('LATE'))) {
+            punchStatus = 'LATE';
+          }
+
+          const distMeters = Math.round(d.distance_to_site_meters || 0);
 
           return {
             id: d.id,
             name: d.pointage_employees?.full_name || 'Collaborateur',
             matricule: d.pointage_employees?.employee_matricule || undefined,
-            role: d.pointage_employees?.role || 'Employé',
+            role: d.pointage_employees?.role === 'EMPLOYEE' ? 'Collaborateur' : (d.pointage_employees?.role || 'Employé'),
             site_name: d.pointage_establishments?.name || 'Siège Principal Ouagadougou',
             punch_type: punchType,
             time: timeStr,
             full_date: fullDateStr,
-            distance: d.distance_meters ? `${Math.round(d.distance_meters)}m du centre` : '15m du centre',
-            distance_meters: d.distance_meters ? Math.round(d.distance_meters) : 15,
+            distance: `${distMeters}m du périmètre`,
+            distance_meters: distMeters,
             latitude: d.latitude || 11.24700,
             longitude: d.longitude || -4.29180,
-            accuracy: d.accuracy || 4.5,
+            accuracy: Math.round((d.accuracy_meters || 5) * 10) / 10,
             status: punchStatus,
-            flags: flagsList.length > 0 ? flagsList : ['VALIDÉ_PAR_SATELLITE'],
-            device: d.device_model || d.pointage_employees?.device_model || 'Appareil Certifié',
-            device_id: d.device_id || 'HARDWARE-BOUND-DEVICE',
-            wifi_bssid: d.verified_wifi_bssid || null,
+            flags: flagsList.length > 0 ? flagsList : ['VALIDÉ_PAR_SATELLITE_WGS84'],
+            device: d.device_model || d.pointage_employees?.device_model || 'Smartphone Déclaré',
+            device_id: d.device_id || 'ID-MATERIEL-CERTIFIE',
+            wifi_bssid: d.wifi_bssid || null,
             is_assisted: d.is_assisted ?? false,
-            face_confidence: d.face_confidence_score ? Math.round(d.face_confidence_score * 100) / 100 : undefined
+            face_confidence: d.face_match_confidence ? Math.round(d.face_match_confidence * 100) / 100 : undefined
           };
         });
 
@@ -294,7 +298,7 @@ export default function PointagesPage() {
     const supabase = createClient();
     const channel = supabase
       .channel('realtime_pointages_journal')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pointage_punches' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pointage_logs' }, () => {
         fetchPunches();
       })
       .subscribe();

@@ -1,16 +1,36 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Lock, Mail, ShieldCheck, ArrowRight, Building } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('direction@ivoireprestige.ci');
+  const [orgName, setOrgName] = useState('PointagePro');
+  const [orgLogo, setOrgLogo] = useState<string | null>(null);
+  const [email, setEmail] = useState('admin@baroubapro.com');
   const [password, setPassword] = useState('••••••••••••');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const localName = localStorage.getItem('pointage_org_name');
+      if (localName) setOrgName(localName);
+      const localLogo = localStorage.getItem('pointage_org_logo');
+      if (localLogo) setOrgLogo(localLogo);
+    }
+    const fetchOrg = async () => {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.from('pointage_organizations').select('name, security_config').limit(1).single();
+        if (data?.name) setOrgName(data.name);
+        if (data?.security_config?.org_logo) setOrgLogo(data.security_config.org_logo);
+      } catch {}
+    };
+    fetchOrg();
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,7 +85,7 @@ export default function LoginPage() {
           <p className="text-xs text-slate-400 mt-1">Espace de Gestion & Direction d'Entreprise</p>
           <div className="inline-flex items-center gap-1.5 mt-3 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-[11px] font-semibold text-blue-400">
             <Building className="w-3.5 h-3.5" />
-            <span>Organisation : Société Ivoire Prestige</span>
+            <span>Organisation : {orgName}</span>
           </div>
         </div>
 

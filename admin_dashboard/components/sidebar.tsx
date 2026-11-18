@@ -32,7 +32,7 @@ const OP_ITEMS = [
   { href: '/pointages', label: 'Journal des Pointages', icon: ClipboardList },
   { href: '/employes', label: 'Personnel & Effectif', icon: Users },
   { href: '/releves', label: 'Relevés & Heures RH', icon: FileSpreadsheet },
-  { href: '/justifications', label: 'Justifications', icon: ClipboardCheck, badge: '1' },
+  { href: '/justifications', label: 'Justifications', icon: ClipboardCheck },
 ];
 
 const SETTINGS_SUB_ITEMS = [
@@ -174,6 +174,34 @@ export function Sidebar() {
   const [orgLogo, setOrgLogo] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [pendingJustifCount, setPendingJustifCount] = useState<number>(0);
+
+  // Charger les justifications réelles en attente depuis Supabase
+  useEffect(() => {
+    const fetchPendingJustifs = async () => {
+      try {
+        const supabase = createClient();
+        const { count } = await supabase
+          .from('pointage_justifications')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'PENDING');
+        setPendingJustifCount(count || 0);
+      } catch {}
+    };
+    fetchPendingJustifs();
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel('realtime_sidebar_justifs')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pointage_justifications' }, () => {
+        fetchPendingJustifs();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Charger la préférence de pliage depuis localStorage au montage
   useEffect(() => {
@@ -392,15 +420,15 @@ export function Sidebar() {
                   >
                     <Icon className="w-4 h-4 shrink-0" />
                     {!isCollapsed && <span className="truncate">{item.label}</span>}
-                    {item.badge && (
+                    {item.href === '/justifications' && pendingJustifCount > 0 ? (
                       isCollapsed ? (
                         <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
                       ) : (
                         <span className="ml-auto bg-amber-500 text-slate-900 font-black text-[10px] px-1.5 py-0.5 rounded-full">
-                          {item.badge}
+                          {pendingJustifCount}
                         </span>
                       )
-                    )}
+                    ) : null}
 
                     {/* Tooltip en mode replié au survol */}
                     {isCollapsed && (
