@@ -34,6 +34,7 @@ import {
   X,
   Layers,
   ChevronRight,
+  ChevronDown,
   ShieldCheck,
   Check,
   Search,
@@ -370,7 +371,8 @@ function ParametresContent() {
   const [detectingWifi, setDetectingWifi] = useState(false);
   const [detectingLocation, setDetectingLocation] = useState(false);
 
-  // Simulateur GPS
+  // Simulateur GPS (replié par défaut pour alléger l'interface)
+  const [showSimulator, setShowSimulator] = useState(false);
   const [simLat, setSimLat] = useState<string>('11.247100');
   const [simLon, setSimLon] = useState<string>('-4.291750');
   const [simResult, setSimResult] = useState<{ inside: boolean; distance: number } | null>(null);
@@ -1722,78 +1724,101 @@ function ParametresContent() {
               </div>
             </div>
 
-            {/* Testeur de simulation GPS & Actions Rapides */}
-            <div className="p-4 sm:p-5 bg-slate-50/70 border-t border-slate-100 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
-                  <Crosshair className="w-4 h-4 text-blue-600" />
-                  Simulateur de Position WGS84 & Verdict Satellite
-                </span>
+            {/* Testeur de simulation GPS & Actions Rapides - Replié par défaut */}
+            <div className="border-t border-slate-100 bg-slate-50/70">
+              {/* Barre de toggle à la demande */}
+              <button
+                type="button"
+                onClick={() => setShowSimulator(!showSimulator)}
+                className="w-full p-3.5 sm:px-5 flex items-center justify-between text-xs font-bold text-slate-700 hover:text-blue-600 hover:bg-slate-100/60 transition cursor-pointer select-none"
+              >
+                <div className="flex items-center gap-2">
+                  <Crosshair className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Simulateur de Position WGS84 & Test Satellite</span>
+                  <span className="text-[10px] font-semibold text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full ml-1">
+                    Optionnel
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-slate-500 font-semibold text-[11px]">
+                  <span>{showSimulator ? 'Replier' : 'Tester des coordonnées'}</span>
+                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${showSimulator ? 'rotate-180' : ''}`} />
+                </div>
+              </button>
 
-                <div className="flex items-center gap-1.5 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSimLat((selectedSite.lat + 0.000100).toFixed(6));
-                      setSimLon((selectedSite.lon + 0.000100).toFixed(6));
-                    }}
-                    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded-lg border border-emerald-200 transition cursor-pointer text-[11px]"
-                  >
-                    📍 Tester dans zone (14m)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSimLat((selectedSite.lat + 0.002200).toFixed(6));
-                      setSimLon((selectedSite.lon + 0.002200).toFixed(6));
-                    }}
-                    className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold rounded-lg border border-rose-200 transition cursor-pointer text-[11px]"
-                  >
-                    🚫 Tester hors zone (250m)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDetectCurrentLocation}
-                    disabled={detectingLocation}
-                    className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg border border-blue-200 transition cursor-pointer text-[11px] flex items-center gap-1"
-                  >
-                    <LocateFixed className={`w-3 h-3 ${detectingLocation ? 'animate-spin' : ''}`} />
-                    <span>Mon GPS</span>
-                  </button>
-                </div>
-              </div>
+              {/* Contenu affiché uniquement à la demande */}
+              {showSimulator && (
+                <div className="p-4 sm:p-5 pt-2 space-y-3 border-t border-slate-200/60 animate-fadeIn">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11px] font-medium text-slate-500">
+                      Injectez des coordonnées virtuelles pour simuler un pointage mobile
+                    </span>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">Latitude Test</label>
-                  <input
-                    type="text"
-                    value={simLat}
-                    onChange={(e) => setSimLat(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 font-mono text-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">Longitude Test</label>
-                  <input
-                    type="text"
-                    value={simLon}
-                    onChange={(e) => setSimLon(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 font-mono text-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">Verdict Système</label>
-                  <div className={`px-3 py-1.5 rounded-xl border font-bold flex items-center justify-between ${
-                    simResult?.inside
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                      : 'bg-rose-50 border-rose-200 text-rose-800'
-                  }`}>
-                    <span>{simResult?.inside ? 'AUTORISÉ' : 'REJETÉ'}</span>
-                    <span className="text-[11px] font-mono">{simResult?.distance}m / {selectedSite.radiusMeters}m</span>
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSimLat((selectedSite.lat + 0.000100).toFixed(6));
+                          setSimLon((selectedSite.lon + 0.000100).toFixed(6));
+                        }}
+                        className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded-lg border border-emerald-200 transition cursor-pointer text-[11px]"
+                      >
+                        Tester dans zone (14m)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSimLat((selectedSite.lat + 0.002200).toFixed(6));
+                          setSimLon((selectedSite.lon + 0.002200).toFixed(6));
+                        }}
+                        className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold rounded-lg border border-rose-200 transition cursor-pointer text-[11px]"
+                      >
+                        Tester hors zone (250m)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDetectCurrentLocation}
+                        disabled={detectingLocation}
+                        className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg border border-blue-200 transition cursor-pointer text-[11px] flex items-center gap-1"
+                      >
+                        <LocateFixed className={`w-3 h-3 ${detectingLocation ? 'animate-spin' : ''}`} />
+                        <span>Mon GPS</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Latitude Test</label>
+                      <input
+                        type="text"
+                        value={simLat}
+                        onChange={(e) => setSimLat(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 font-mono text-slate-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Longitude Test</label>
+                      <input
+                        type="text"
+                        value={simLon}
+                        onChange={(e) => setSimLon(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 font-mono text-slate-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Verdict Système</label>
+                      <div className={`px-3 py-1.5 rounded-xl border font-bold flex items-center justify-between ${
+                        simResult?.inside
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                          : 'bg-rose-50 border-rose-200 text-rose-800'
+                      }`}>
+                        <span>{simResult?.inside ? 'AUTORISÉ' : 'REJETÉ'}</span>
+                        <span className="text-[11px] font-mono">{simResult?.distance}m / {selectedSite.radiusMeters}m</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
