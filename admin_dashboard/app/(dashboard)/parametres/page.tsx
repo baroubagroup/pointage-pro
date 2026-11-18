@@ -385,7 +385,10 @@ function ParametresContent() {
   const [detectingModalGps, setDetectingModalGps] = useState(false);
   const [modalGpsSuccess, setModalGpsSuccess] = useState<string | null>(null);
   const [modalGpsError, setModalGpsError] = useState<string | null>(null);
-  const [detectingWifi, setDetectingWifi] = useState(false);
+  const [detectingModalWifi, setDetectingModalWifi] = useState(false);
+  const [modalWifiSuccess, setModalWifiSuccess] = useState<string | null>(null);
+  const [modalWifiError, setModalWifiError] = useState<string | null>(null);
+  const [detectingSiteCardWifi, setDetectingSiteCardWifi] = useState(false);
   const [detectingLocation, setDetectingLocation] = useState(false);
 
   // Radar satellite & Simulateur WGS84 (replié / masqué par défaut pour alléger l'interface)
@@ -815,7 +818,71 @@ function ParametresContent() {
     setHasWifiBox(false);
     setModalGpsSuccess(null);
     setModalGpsError(null);
+    setModalWifiSuccess(null);
+    setModalWifiError(null);
     setShowAddSiteModal(true);
+  };
+
+  // Détection automatique 1-clic du Wi-Fi pour le modal de création
+  const handleDetectModalWifi = async () => {
+    setDetectingModalWifi(true);
+    setModalWifiError(null);
+    setModalWifiSuccess(null);
+    try {
+      const res = await fetch('/api/wifi/current');
+      const data = await res.json();
+      if (data && data.success && (data.ssid || data.bssid)) {
+        setNewSiteWifiSsid(data.ssid || '');
+        setNewSiteWifiBssid(data.bssid || '');
+        setHasWifiBox(true);
+        setModalWifiSuccess(`Box Wi-Fi détectée : "${data.ssid || 'Réseau'}" (${data.bssid || 'MAC certifiée'})`);
+      } else {
+        setModalWifiError(data?.error || "Impossible d'identifier automatiquement le réseau Wi-Fi local.");
+      }
+    } catch (err: any) {
+      setModalWifiError(err?.message || "Erreur de communication avec le détecteur Wi-Fi.");
+    } finally {
+      setDetectingModalWifi(false);
+    }
+  };
+
+  // Détection et association automatique du Wi-Fi sur le site sélectionné
+  const handleDetectSelectedSiteWifi = async () => {
+    if (!selectedSiteId) return;
+    setDetectingSiteCardWifi(true);
+    try {
+      const res = await fetch('/api/wifi/current');
+      const data = await res.json();
+      if (data && data.success && (data.ssid || data.bssid)) {
+        const ssid = data.ssid || 'Wi-Fi_Entreprise';
+        const bssid = data.bssid || '68:9e:29:3b:43:08';
+        setSites(prev => prev.map(s => {
+          if (s.id === selectedSiteId) {
+            return {
+              ...s,
+              wifiSsid: ssid,
+              wifiBssid: `${ssid} (${bssid})`
+            };
+          }
+          return s;
+        }));
+        setToastMsg(`Box Wi-Fi "${ssid}" associée au site avec succès !`);
+        setTimeout(() => setToastMsg(null), 3500);
+
+        // Mise à jour Supabase
+        const supabase = createClient();
+        await supabase.from('pointage_establishments').update({
+          wifi_ssid: ssid,
+          wifi_bssids: [bssid]
+        }).eq('id', selectedSiteId);
+      } else {
+        alert("Impossible de détecter automatiquement le Wi-Fi local.");
+      }
+    } catch (e: any) {
+      alert("Erreur lors de la détection du Wi-Fi : " + e.message);
+    } finally {
+      setDetectingSiteCardWifi(false);
+    }
   };
 
   // Détection de position GPS pour le modal
@@ -1719,14 +1786,28 @@ function ParametresContent() {
                   <span className="text-[10px] text-emerald-600 font-semibold block mt-0.5">Périmètre tracé sur la carte</span>
                 </div>
 
-                <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-200/70">
-                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Box Wi-Fi Réseau</span>
-                  <span className="text-xs font-bold text-slate-900 truncate block mt-0.5" title={selectedSite?.wifiSsid || 'Sans Wi-Fi'}>
-                    {selectedSite?.wifiSsid || 'Non déclarée'}
-                  </span>
-                  <span className="text-[10px] text-slate-500 block truncate mt-0.5">
-                    {selectedSite?.wifiBssid || 'Anti-fraude satellite seul'}
-                  </span>
+                <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-200/70 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Box Wi-Fi Réseau</span>
+                      <button
+                        type="button"
+                        onClick={handleDetectSelectedSiteWifi}
+                        disabled={detectingSiteCardWifi}
+                        title="Détecter et associer automatiquement le Wi-Fi actuel à ce site"
+                        className="text-[10px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50 transition"
+                      >
+                        <Radio className={`w-3 h-3 ${detectingSiteCardWifi ? 'animate-spin' : ''}`} />
+                        <span>{detectingSiteCardWifi ? 'Scan...' : 'Auto-Détecter'}</span>
+                      </button>
+                    </div>
+                    <span className="text-xs font-bold text-slate-900 truncate block mt-0.5" title={selectedSite?.wifiSsid || 'Sans Wi-Fi'}>
+                      {selectedSite?.wifiSsid || 'Non déclarée'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 block truncate mt-0.5 font-mono">
+                      {selectedSite?.wifiBssid || 'Anti-fraude satellite seul'}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-200/70">
@@ -2443,46 +2524,88 @@ function ParametresContent() {
                   </div>
                 </div>
 
-                {/* Box Wi-Fi / Borne Réseau Optionnelle */}
-                <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-200/80 space-y-2.5">
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={hasWifiBox}
-                      onChange={(e) => setHasWifiBox(e.target.checked)}
-                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                        <Wifi className="w-3.5 h-3.5 text-blue-600" />
-                        Associer une Box Wi-Fi d'établissement (Optionnel)
-                      </span>
-                      <span className="text-[10px] text-slate-500 block">
-                        Permet la validation sous dalle béton et renforce la sécurité anti-fraude GPS
-                      </span>
+                {/* Box Wi-Fi / Borne Réseau Optionnelle avec Détection Automatique 1-Clic */}
+                <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/80 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={hasWifiBox}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setHasWifiBox(checked);
+                          if (checked && !newSiteWifiSsid) {
+                            handleDetectModalWifi();
+                          }
+                        }}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <Wifi className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Associer une Box Wi-Fi d'établissement (Optionnel)</span>
+                        </span>
+                        <span className="text-[10px] text-slate-500 block">
+                          Validation sous dalle béton & renfort anti-fraude GPS
+                        </span>
+                      </div>
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={handleDetectModalWifi}
+                      disabled={detectingModalWifi}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-lg transition text-[11px] flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    >
+                      <Radio className={`w-3.5 h-3.5 ${detectingModalWifi ? 'animate-spin' : ''}`} />
+                      <span>{detectingModalWifi ? 'Scan Wi-Fi...' : 'Détecter mon Wi-Fi actuel'}</span>
+                    </button>
+                  </div>
+
+                  {modalWifiSuccess && (
+                    <div className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 animate-fadeIn">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>{modalWifiSuccess}</span>
                     </div>
-                  </label>
+                  )}
+
+                  {modalWifiError && (
+                    <div className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 animate-fadeIn">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                      <span>{modalWifiError}</span>
+                    </div>
+                  )}
 
                   {hasWifiBox && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200/60 animate-fadeIn">
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Nom du Réseau Wi-Fi (SSID)</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] font-bold text-slate-600">Nom du Réseau Wi-Fi (SSID)</label>
+                          {newSiteWifiSsid && (
+                            <span className="text-[9px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">Auto-capté</span>
+                          )}
+                        </div>
                         <input
                           type="text"
                           placeholder="Ex: Orange_Pro_Siege"
                           value={newSiteWifiSsid}
                           onChange={(e) => setNewSiteWifiSsid(e.target.value)}
-                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800"
+                          className="w-full bg-white border border-slate-200 focus:border-blue-600 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-semibold transition"
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Adresse MAC / BSSID</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] font-bold text-slate-600">Adresse MAC / BSSID</label>
+                          {newSiteWifiBssid && (
+                            <span className="text-[9px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded font-mono">Certifiée</span>
+                          )}
+                        </div>
                         <input
                           type="text"
                           placeholder="Ex: 68:9e:29:3b:43:08"
                           value={newSiteWifiBssid}
                           onChange={(e) => setNewSiteWifiBssid(e.target.value)}
-                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-800"
+                          className="w-full bg-white border border-slate-200 focus:border-blue-600 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-800 font-bold transition"
                         />
                       </div>
                     </div>
