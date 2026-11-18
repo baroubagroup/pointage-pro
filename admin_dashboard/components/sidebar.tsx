@@ -184,6 +184,8 @@ export function Sidebar() {
       }
       const localLogo = localStorage.getItem('pointage_org_logo');
       if (localLogo) setOrgLogo(localLogo);
+      const localCode = localStorage.getItem('pointage_org_code');
+      if (localCode) setOrgCode(localCode);
     }
   }, []);
 
@@ -222,13 +224,15 @@ export function Sidebar() {
     };
     fetchOrg();
 
-    // Écouteur de mise à jour instantanée du logo/nom depuis les Paramètres
+    // Écouteur de mise à jour instantanée du logo/nom/code depuis les Paramètres
     const handleOrgUpdate = (e: any) => {
       if (typeof window !== 'undefined') {
         const localLogo = localStorage.getItem('pointage_org_logo');
         if (localLogo !== null) setOrgLogo(localLogo);
         const localName = localStorage.getItem('pointage_org_name');
         if (localName) setOrgName(localName);
+        const localCode = localStorage.getItem('pointage_org_code');
+        if (localCode) setOrgCode(localCode);
       }
     };
     window.addEventListener('pointage_org_updated', handleOrgUpdate);

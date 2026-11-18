@@ -23,22 +23,27 @@ function RejoindreContent() {
   const token = searchParams.get('token') || '';
   const org = searchParams.get('org') || 'ORG-8492';
   const mat = searchParams.get('mat') || '';
+  const nameParam = searchParams.get('name') || '';
 
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedMat, setCopiedMat] = useState(false);
   const [deepLinkTriggered, setDeepLinkTriggered] = useState(false);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [orgLogo, setOrgLogo] = useState<string | null>(null);
-  const [orgName, setOrgName] = useState<string>('PointagePro');
+  const [orgName, setOrgName] = useState<string>(nameParam || 'PointagePro');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const localLogo = localStorage.getItem('pointage_org_logo');
       if (localLogo) setOrgLogo(localLogo);
       const localName = localStorage.getItem('pointage_org_name');
-      if (localName) setOrgName(localName);
+      if (localName) {
+        setOrgName(localName);
+      } else if (nameParam) {
+        setOrgName(nameParam);
+      }
     }
-  }, []);
+  }, [nameParam]);
 
   // 1. Android Intent URI (Standard officiel Chrome Android)
   const androidIntentUrl = `intent://join?token=${token}&org=${org}&mat=${encodeURIComponent(mat)}#Intent;scheme=pointagepro;package=com.example.pointage_mobile;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;end`;

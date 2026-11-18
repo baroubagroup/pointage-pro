@@ -58,7 +58,9 @@ import {
   CalendarCheck,
   CalendarX,
   Upload,
-  Image as ImageIcon
+  Image as ImageIcon,
+  KeyRound,
+  Link as LinkIcon
 } from 'lucide-react';
 
 // ==================== INTERFACES ====================
@@ -309,6 +311,7 @@ function ParametresContent() {
   const [orgCode, setOrgCode] = useState('ORG-8492');
   const [orgLogo, setOrgLogo] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
   const [showPosterModal, setShowPosterModal] = useState(false);
   const [timezone, setTimezone] = useState('Africa/Abidjan (GMT 0)');
@@ -319,6 +322,20 @@ function ParametresContent() {
   const [securityConfig, setSecurityConfig] = useState<SecurityConfig>(DEFAULT_SECURITY_CONFIG);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // URL dynamique d'enrôlement officiel sur le domaine courant
+  const liveJoinUrl = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      return `${window.location.origin}/rejoindre?org=${encodeURIComponent(orgCode)}&name=${encodeURIComponent(orgName)}`;
+    }
+    return `http://localhost:3000/rejoindre?org=${encodeURIComponent(orgCode)}&name=${encodeURIComponent(orgName)}`;
+  }, [orgCode, orgName]);
+
+  const handleCopyLiveJoinUrl = () => {
+    navigator.clipboard.writeText(liveJoinUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
 
   // State Plannings & Jours Fériés / Congés
   const [planningsSubTab, setPlanningsSubTab] = useState<'schedules' | 'holidays'>('schedules');
@@ -331,18 +348,18 @@ function ParametresContent() {
   const [newHolidayNeutralize, setNewHolidayNeutralize] = useState(true);
   const [newHolidayNotes, setNewHolidayNotes] = useState('');
 
-  // Helper copie message WhatsApp
+  // Helper copie message WhatsApp officiel avec lien d'enrôlement direct
   const handleCopyWhatsAppMessage = () => {
-    const terminology = sectorProfile === 'SCHOOL' ? 'élèves / parents' : 'collaborateurs';
-    const text = `📢 *PointagePro - Guide de Connexion Officiel*\n🏛️ *${orgName}*\n\nBonjour chers ${terminology},\nPour valider vos présences et pointages directement depuis votre smartphone :\n\n1️⃣ Téléchargez l'application mobile *PointagePro* sur votre téléphone.\n2️⃣ À l'ouverture, appuyez sur « Rejoindre mon Organisation ».\n3️⃣ Saisissez votre Code Établissement : *${orgCode}*\n4️⃣ Renseignez votre Matricule personnel et activez votre sécurité locale (Empreinte / FaceID).\n\n🔒 Vos pointages sont certifiés par satellite WGS84 et réseau certifié.\n📞 Support : ${supportContact}`;
+    const terminology = sectorProfile === 'SCHOOL' ? 'élèves / parents d\'élèves' : 'collaborateurs / agents';
+    const text = `📢 *PointagePro - Guide de Connexion Officiel*\n🏛️ *${orgName}*\n\nBonjour chers ${terminology},\nPour valider vos présences et pointages certifiés directement depuis votre smartphone :\n\n🔗 *Lien Direct d'Enrôlement Mobile :*\n${liveJoinUrl}\n\nOu suivez ces 3 étapes simples :\n1️⃣ Ouvrez l'application *PointagePro* (ou cliquez sur le lien ci-dessus).\n2️⃣ Saisissez votre Code Établissement Officiel : *${orgCode}*\n3️⃣ Renseignez votre Matricule personnel et activez votre sécurité locale (Empreinte / FaceID).\n\n🔒 Pointages certifiés par satellite WGS84 et réseau certifié.\n📞 Assistance & Support : ${supportContact}`;
     navigator.clipboard.writeText(text);
     setCopiedWhatsApp(true);
     setTimeout(() => setCopiedWhatsApp(false), 2500);
   };
 
-  // Helper téléchargement du QR code
+  // Helper téléchargement du QR code HD basé sur le lien d'onboarding réel
   const handleDownloadQrCode = () => {
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent('pointagepro://join?org=' + orgCode + '&name=' + encodeURIComponent(orgName))}`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=15&data=${encodeURIComponent(liveJoinUrl)}`;
     window.open(qrUrl, '_blank');
   };
 
@@ -427,6 +444,8 @@ function ParametresContent() {
         if (typeof window !== 'undefined') {
           const localLogo = localStorage.getItem('pointage_org_logo');
           if (localLogo) setOrgLogo(localLogo);
+          const localCode = localStorage.getItem('pointage_org_code');
+          if (localCode) setOrgCode(localCode);
           const localHolidays = localStorage.getItem('pointage_holidays');
           if (localHolidays) {
             try {
@@ -551,7 +570,11 @@ function ParametresContent() {
   const handleGenerateSecureCode = () => {
     const newCode = generateCanonicalOrgCode(orgName);
     setOrgCode(newCode);
-    setToastMsg(`Code Canonique Haute Entropie généré : ${newCode}`);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pointage_org_code', newCode);
+      window.dispatchEvent(new Event('pointage_org_updated'));
+    }
+    setToastMsg(`Code Canonique Sécurisé généré : ${newCode}`);
     setTimeout(() => setToastMsg(null), 3500);
   };
 
@@ -700,6 +723,7 @@ function ParametresContent() {
     if (typeof window !== 'undefined') {
       localStorage.setItem('pointage_security_config', JSON.stringify(mergedConfig));
       localStorage.setItem('pointage_org_name', orgName);
+      localStorage.setItem('pointage_org_code', orgCode.toUpperCase().trim());
       localStorage.setItem('pointage_sector_profile', sectorProfile);
       localStorage.setItem('pointage_org_logo', orgLogo || '');
       localStorage.setItem('pointage_holidays', JSON.stringify(holidays));
@@ -1066,115 +1090,33 @@ function ParametresContent() {
             </div>
           </div>
 
-          {/* Identité de l'Organisation & Code Canonique */}
-          <div className="pt-6 border-t border-slate-100 space-y-4">
-            <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-blue-600" />
-              Identité de l'Organisation & Code Canonique
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Nom Officiel de l'Organisation / Établissement
-                </label>
-                <input
-                  type="text"
-                  value={orgName}
-                  onChange={(e) => setOrgName(e.target.value)}
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-slate-700">
-                    Code Établissement Unique (Clé Multi-Tenant)
-                  </label>
-                  <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                    Distribué aux élèves & employés
-                  </span>
-                </div>
-                <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
-                  <input
-                    type="text"
-                    value={orgCode}
-                    onChange={(e) => setOrgCode(e.target.value.toUpperCase())}
-                    placeholder="ORG-XXXXX-INIT"
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-black tracking-wider uppercase text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleGenerateSecureCode}
-                    title="Générer un format canonique aléatoire haute entropie"
-                    className="shrink-0 px-3.5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer border border-indigo-200"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>⚡ Générer Code Sécurisé</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(orgCode);
-                      setCopiedCode(true);
-                      setTimeout(() => setCopiedCode(false), 2000);
-                    }}
-                    className="shrink-0 px-3.5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <span>{copiedCode ? '✓ Copié !' : 'Copier'}</span>
-                  </button>
-                </div>
-
-                {/* Badge d'évaluation cryptographique Anti-Collision / Anti-Devinette */}
-                {isCanonicalCode(orgCode) ? (
-                  <div className="mt-2.5 flex items-start gap-2 p-2.5 bg-emerald-50 border border-emerald-200/80 rounded-2xl text-[11px] text-emerald-900">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <div>
-                      <span className="font-extrabold text-emerald-800">Format Canonique Anti-Collision Conforme</span>
-                      <p className="text-[10px] text-emerald-700 mt-0.5 leading-snug">
-                        Entropie cryptographique (33,5 Millions de combinaisons) et initiales d'établissement. Empêche toute tentative de devinette par des tiers.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-2.5 flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-200/80 rounded-2xl text-[11px] text-amber-900">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <span className="font-extrabold text-amber-800">Code Personnalisé Détecté</span>
-                      <p className="text-[10px] text-amber-700 mt-0.5 leading-snug">
-                        Pour éliminer tout risque de doublon avec un autre établissement et empêcher les devinettes, cliquez sur <strong>« ⚡ Générer Code Sécurisé »</strong>.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Logo & Blason Officiel de l'Organisation (Import fichier direct uniquement) */}
-          <div className="pt-6 border-t border-slate-100 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-                  <ImageIcon className="w-4 h-4 text-blue-600" />
-                  Logo & Image de Marque Officielle
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Personnalisez l'identité visuelle de votre établissement sur la barre latérale, les fiches de présence imprimables et l'application mobile.
-                </p>
-              </div>
-              {orgLogo && (
-                <button
-                  type="button"
-                  onClick={handleRemoveLogo}
-                  className="text-[11px] font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Supprimer le logo</span>
-                </button>
-              )}
+          {/* Section 1 : Identité de l'Organisation & Image de Marque */}
+          <div className="pt-6 border-t border-slate-100 space-y-5">
+            <div>
+              <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-blue-600" />
+                Identité de l'Organisation & Image de Marque
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Renseignez la dénomination officielle et personnalisez le logo/blason affiché sur la barre latérale, les feuilles d'émargement et l'application mobile.
+              </p>
             </div>
 
+            {/* Nom Officiel - Pleine Largeur */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Nom Officiel de l'Organisation / Établissement
+              </label>
+              <input
+                type="text"
+                value={orgName}
+                onChange={(e) => setOrgName(e.target.value)}
+                placeholder="Ex: GROUPE SCOLAIRE LES LAURÉATS ou BAROUBA PRO"
+                className="w-full text-sm bg-slate-50/80 hover:bg-white focus:bg-white border border-slate-200 focus:border-blue-500 rounded-2xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-500/10 font-bold transition shadow-2xs"
+              />
+            </div>
+
+            {/* Import Logo Fichier Direct Exclusif */}
             <div className="p-4 sm:p-5 bg-slate-50/70 border border-slate-200/80 rounded-3xl flex flex-col sm:flex-row items-center gap-5">
               {/* Aperçu Visuel */}
               <div className="relative shrink-0">
@@ -1201,12 +1143,12 @@ function ParametresContent() {
                     Importer le Blason / Logo de l'Établissement
                   </h4>
                   <p className="text-slate-500 text-[11px] mt-0.5 leading-relaxed">
-                    Sélectionnez votre logo directement depuis votre appareil (PNG, JPG, SVG, WebP • maximum 2 Mo). L'image est instantanément intégrée à l'application.
+                    Sélectionnez votre logo directement depuis votre appareil (PNG, JPG, SVG, WebP • maximum 2 Mo). L'image s'intègre instantanément sans aucune configuration serveur.
                   </p>
                 </div>
 
                 <div className="pt-1 flex flex-wrap items-center gap-3">
-                  <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition shadow-sm shadow-blue-600/20">
+                  <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition shadow-sm shadow-blue-600/20 active:scale-[0.98]">
                     <Upload className="w-4 h-4" />
                     <span>Choisir un fichier image</span>
                     <input
@@ -1232,85 +1174,239 @@ function ParametresContent() {
             </div>
           </div>
 
-          {/* ==================== KIT D'ENRÔLEMENT FLASH & DIFFUSION MASSIVE ==================== */}
-          <div className="p-5 sm:p-6 bg-linear-to-br from-blue-50/70 via-indigo-50/40 to-slate-50 rounded-3xl border border-blue-200/80 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          {/* Section 2 : CODE CANONIQUE & KIT D'ENRÔLEMENT MASSIF (500+ UTILISATEURS) */}
+          <div className="pt-6 border-t border-slate-100 space-y-6">
+            
+            {/* En-tête de section prestigieux */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 bg-blue-100/80 px-2.5 py-0.5 rounded-full inline-block mb-1">
-                  Déploiement Massif & Zéro Friction
-                </span>
-                <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-                  <QrCode className="w-4 h-4 text-blue-600" />
-                  Kit d'Enrôlement Flash pour Smartphones (500+ Utilisateurs)
-                </h4>
-                <p className="text-xs text-slate-600 mt-0.5">
-                  Élimine les erreurs de saisie : les élèves ou employés scannent ce QR Code officiel pour connecter instantanément leur smartphone à votre établissement.
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-blue-700 bg-blue-100/90 px-2.5 py-0.5 rounded-full inline-block">
+                    Sécurité Multi-Tenant & Diffusion Massive
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                    500+ Utilisateurs
+                  </span>
+                </div>
+                <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2 mt-1">
+                  <KeyRound className="w-5 h-5 text-blue-600" />
+                  Code Canonique & Kit d'Enrôlement Flash
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  La clé cryptographique unique de votre organisation et les supports officiels de diffusion (Affiche A4, QR Code, Annonce WhatsApp, Lien Web) pour connecter vos effectifs sans aucune friction.
                 </p>
-              </div>
-
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={() => setShowPosterModal(true)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm shadow-blue-500/20 cursor-pointer transition"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Affiche A4 Imprimable</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCopyWhatsAppMessage}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm shadow-emerald-500/20 cursor-pointer transition"
-                >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  <span>{copiedWhatsApp ? '✓ Message Copié !' : 'Annonce WhatsApp'}</span>
-                </button>
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-blue-100 flex flex-col md:flex-row items-center gap-5">
-              {/* Image QR Code */}
-              <div className="relative shrink-0 p-2.5 bg-white rounded-2xl border border-slate-200 shadow-xs flex flex-col items-center">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent('pointagepro://join?org=' + orgCode + '&name=' + encodeURIComponent(orgName))}`}
-                  alt="QR Code d'enrôlement établissement"
-                  className="w-32 h-32 object-contain"
-                />
-                <span className="text-[10px] font-mono font-bold text-slate-700 mt-1.5 bg-slate-100 px-2 py-0.5 rounded">
-                  {orgCode}
+            {/* BLOC 1 : LE CODE CANONIQUE HAUTE ENTROPIE (Pleine Largeur, Spacieux, Sans Écrasement) */}
+            <div className="p-5 sm:p-6 bg-slate-50/70 border-2 border-slate-200/90 rounded-3xl space-y-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="block text-xs font-extrabold text-slate-800 uppercase tracking-wide">
+                    Code Établissement Unique (Clé Multi-Tenant d'Enrôlement)
+                  </label>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Identifiant cryptographique partagé à vos collaborateurs ou élèves pour rattacher leur téléphone à votre établissement.
+                  </p>
+                </div>
+                <span className="hidden sm:inline-flex text-[10px] text-blue-700 font-extrabold bg-blue-100/70 border border-blue-200 px-2.5 py-1 rounded-full">
+                  Distribué aux 500+ utilisateurs
                 </span>
               </div>
 
-              {/* Guide et explications */}
-              <div className="flex-1 space-y-2 text-xs">
-                <h5 className="font-bold text-slate-900">Comment distribuer l'accès à grande échelle ?</h5>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                    <span className="font-bold text-blue-700 block mb-0.5">1. Affiche Babillard</span>
-                    <span className="text-slate-500">Imprimez l'affiche officielle A4 et posez-la dans le hall ou les salles de classe.</span>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                    <span className="font-bold text-emerald-700 block mb-0.5">2. Groupes WhatsApp</span>
-                    <span className="text-slate-500">Copiez le message d'enrôlement officiel et diffusez-le en 1 clic dans les groupes des classes.</span>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                    <span className="font-bold text-indigo-700 block mb-0.5">3. Scan 2 Secondes</span>
-                    <span className="text-slate-500">L'élève pointe sa caméra sur le QR code et renseigne uniquement son matricule.</span>
-                  </div>
+              {/* Champ & Boutons d'action - Parfaitement proportionnés sans flex squash */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={orgCode}
+                    onChange={(e) => setOrgCode(e.target.value.toUpperCase().trim())}
+                    placeholder="ORG-XXXXX-INIT"
+                    className="w-full text-base sm:text-lg font-mono font-black tracking-widest text-blue-700 bg-white border-2 border-slate-300 focus:border-blue-600 rounded-2xl px-4 py-3.5 text-center sm:text-left shadow-inner uppercase transition focus:outline-none focus:ring-4 focus:ring-blue-500/10 select-all"
+                  />
                 </div>
-                
-                <div className="pt-2 flex items-center gap-3">
+
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
-                    onClick={handleDownloadQrCode}
-                    className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                    onClick={handleGenerateSecureCode}
+                    title="Générer un format canonique aléatoire haute entropie"
+                    className="flex-1 sm:flex-none px-4 py-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-2xl transition flex items-center justify-center gap-2 cursor-pointer border border-indigo-200 shadow-2xs hover:shadow-xs active:scale-[0.98]"
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Télécharger le QR Code PNG Haute Définition</span>
+                    <Sparkles className="w-4 h-4 text-indigo-600" />
+                    <span>⚡ Générer Code Sécurisé</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(orgCode);
+                      setCopiedCode(true);
+                      setTimeout(() => setCopiedCode(false), 2000);
+                    }}
+                    className="flex-1 sm:flex-none px-5 py-3.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-2xl transition flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-blue-500/25 active:scale-[0.98]"
+                  >
+                    {copiedCode ? (
+                      <>
+                        <Check className="w-4 h-4 text-white" />
+                        <span>Copié !</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4 text-white" />
+                        <span>Copier le Code</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
+
+              {/* Évaluation Cryptographique Anti-Collision & Anti-Devinette */}
+              {isCanonicalCode(orgCode) ? (
+                <div className="p-3.5 bg-emerald-50/90 border border-emerald-200 rounded-2xl flex items-start gap-3 text-xs text-emerald-950">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-extrabold text-emerald-800 block text-xs">
+                      Format Canonique Anti-Collision Conforme (Haute Entropie)
+                    </span>
+                    <p className="text-[11px] text-emerald-700 mt-0.5 leading-relaxed">
+                      Entropie cryptographique 32 symboles (33,5 Millions de combinaisons) et initiales d'établissement. Clé unique garantie sans doublon et protégée contre toute tentative de devinette par des tiers.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 bg-amber-50/90 border border-amber-200 rounded-2xl flex items-start gap-3 text-xs text-amber-950">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <span className="font-extrabold text-amber-800 block text-xs">
+                      Code Personnalisé Détecté
+                    </span>
+                    <p className="text-[11px] text-amber-700 mt-0.5 leading-relaxed">
+                      Ce code ne respecte pas le standard canonique haute entropie. Pour éliminer tout risque de collision multi-tenant avec un autre établissement et empêcher les devinettes, cliquez sur <strong>« ⚡ Générer Code Sécurisé »</strong>.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
+
+            {/* BLOC 2 : KIT D'ENRÔLEMENT FLASH & SUPPORTS DE DIFFUSION (AFFICHE A4, QR CODE LIVE, WHATSAPP, LIEN WEB) */}
+            <div className="p-6 bg-linear-to-br from-blue-50/80 via-indigo-50/50 to-slate-50 border-2 border-blue-200/90 rounded-3xl space-y-5 shadow-xs">
+              
+              <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+                <div>
+                  <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                    <QrCode className="w-4 h-4 text-blue-600" />
+                    Kit d'Enrôlement Flash pour Smartphones (Diffusion Massive)
+                  </h4>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    Scannable directement avec l'appareil photo ordinaire (iPhone / Android) ou partageable en un clic sur vos canaux officiels.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => setShowPosterModal(true)}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/25 cursor-pointer transition active:scale-[0.98]"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>Affiche A4 Imprimable</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyWhatsAppMessage}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-500/25 cursor-pointer transition active:scale-[0.98]"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span>{copiedWhatsApp ? '✓ Annonce Copiée !' : 'Annonce WhatsApp'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => window.open(liveJoinUrl, '_blank')}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-200 cursor-pointer transition shadow-2xs"
+                    title="Tester la page d'onboarding mobile dans un nouvel onglet"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Tester le Portail (/rejoindre)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Contenu Interactif : QR Code Live + Lien URL direct + Guide 3 Étapes */}
+              <div className="bg-white p-5 rounded-2xl border border-blue-100 flex flex-col md:flex-row items-center gap-6 shadow-xs">
+                
+                {/* Visualisation QR Code Haute Résolution */}
+                <div className="relative shrink-0 p-3 bg-white rounded-2xl border-2 border-slate-200 shadow-sm flex flex-col items-center">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(liveJoinUrl)}`}
+                    alt="QR Code d'enrôlement établissement"
+                    className="w-36 h-36 object-contain"
+                  />
+                  <span className="text-[11px] font-mono font-black text-blue-700 mt-2 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-lg tracking-wider">
+                    {orgCode}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleDownloadQrCode}
+                    className="mt-2 text-[10px] font-bold text-slate-500 hover:text-blue-600 flex items-center gap-1 cursor-pointer transition"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Télécharger PNG HD</span>
+                  </button>
+                </div>
+
+                {/* Détails & Canaux de Déploiement */}
+                <div className="flex-1 w-full space-y-3.5 text-xs">
+                  
+                  {/* Lien Web Direct d'Activation */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Lien Web Direct d'Enrôlement (Caméra & Navigateur Mobile)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={liveJoinUrl}
+                        className="flex-1 text-[11px] font-mono font-semibold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 select-all"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCopyLiveJoinUrl}
+                        className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg transition shrink-0 cursor-pointer flex items-center gap-1"
+                      >
+                        {copiedLink ? <Check className="w-3.5 h-3.5 text-blue-700" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedLink ? 'Copié !' : 'Copier'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 3 Méthodes de Déploiement Massif */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 text-[11px]">
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/70 space-y-1">
+                      <span className="font-extrabold text-blue-700 block">1. Affiche Babillard</span>
+                      <p className="text-slate-500 leading-snug">Imprimez l'affiche officielle A4 pour le hall, les portes de service ou les salles.</p>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/70 space-y-1">
+                      <span className="font-extrabold text-emerald-700 block">2. Groupes WhatsApp</span>
+                      <p className="text-slate-500 leading-snug">Diffusez le message prêt à l'emploi aux délégués et responsables d'équipe.</p>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/70 space-y-1">
+                      <span className="font-extrabold text-indigo-700 block">3. Scan 2 Secondes</span>
+                      <p className="text-slate-500 leading-snug">L'appareil photo de l'utilisateur ouvre le portail et lie son smartphone sans erreur.</p>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
           </div>
 
           {/* ==================== MATRICE DE POLITIQUE D'ADMISSION ==================== */}
@@ -2791,19 +2887,22 @@ function ParametresContent() {
               <div className="bg-slate-50 border-2 border-dashed border-blue-300 rounded-3xl p-6 sm:p-8 flex flex-col items-center justify-center space-y-4 text-center">
                 <div className="bg-white p-4 rounded-2xl shadow-md border border-slate-200 inline-block">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent('pointagepro://join?org=' + orgCode + '&name=' + encodeURIComponent(orgName))}`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=10&data=${encodeURIComponent(liveJoinUrl)}`}
                     alt="QR Code Enrôlement"
                     className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
                   />
                 </div>
 
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
                     Code Établissement Officiel
                   </span>
-                  <span className="font-mono font-black text-2xl sm:text-3xl text-blue-700 bg-white px-5 py-1.5 rounded-xl border border-blue-200 inline-block tracking-widest">
+                  <span className="font-mono font-black text-2xl sm:text-3xl text-blue-700 bg-white px-5 py-2 rounded-2xl border border-blue-200 inline-block tracking-widest shadow-2xs">
                     {orgCode}
                   </span>
+                  <p className="text-[11px] font-mono text-slate-500 max-w-sm mx-auto pt-1 break-all">
+                    {liveJoinUrl}
+                  </p>
                 </div>
               </div>
 
@@ -2811,20 +2910,20 @@ function ParametresContent() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1">
                   <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-black text-xs flex items-center justify-center">1</span>
-                  <h4 className="font-bold text-xs text-slate-900">Téléchargez l'App</h4>
-                  <p className="text-[11px] text-slate-500">Ouvrez PointagePro sur votre smartphone Android ou iPhone.</p>
+                  <h4 className="font-bold text-xs text-slate-900">Scannez le QR Code</h4>
+                  <p className="text-[11px] text-slate-500">Pointez l'appareil photo ordinaire de votre smartphone sur le code ci-dessus.</p>
                 </div>
 
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1">
                   <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-black text-xs flex items-center justify-center">2</span>
-                  <h4 className="font-bold text-xs text-slate-900">Scannez le QR</h4>
-                  <p className="text-[11px] text-slate-500">Pointez la caméra sur ce code ou saisissez le code : {orgCode}.</p>
+                  <h4 className="font-bold text-xs text-slate-900">Ouvrez le Portail</h4>
+                  <p className="text-[11px] text-slate-500">La page d'enrôlement s'ouvre avec votre code {orgCode} pré-rempli.</p>
                 </div>
 
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1">
                   <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-black text-xs flex items-center justify-center">3</span>
                   <h4 className="font-bold text-xs text-slate-900">Validez votre Profil</h4>
-                  <p className="text-[11px] text-slate-500">Indiquez votre matricule et activez la biométrie locale.</p>
+                  <p className="text-[11px] text-slate-500">Indiquez votre matricule personnel et activez la biométrie locale.</p>
                 </div>
               </div>
 
