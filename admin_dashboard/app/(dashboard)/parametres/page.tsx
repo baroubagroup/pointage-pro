@@ -308,7 +308,6 @@ function ParametresContent() {
   const [orgName, setOrgName] = useState('BAROUBA POINTAGE PRO');
   const [orgCode, setOrgCode] = useState('ORG-8492');
   const [orgLogo, setOrgLogo] = useState<string | null>(null);
-  const [logoUrlInput, setLogoUrlInput] = useState<string>('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
   const [showPosterModal, setShowPosterModal] = useState(false);
@@ -576,18 +575,6 @@ function ParametresContent() {
       setTimeout(() => setToastMsg(null), 3000);
     };
     reader.readAsDataURL(file);
-  };
-
-  const handleApplyLogoUrl = () => {
-    if (!logoUrlInput.trim()) return;
-    setOrgLogo(logoUrlInput.trim());
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('pointage_org_logo', logoUrlInput.trim());
-      window.dispatchEvent(new Event('pointage_org_updated'));
-    }
-    setLogoUrlInput('');
-    setToastMsg('URL de logo appliquée avec succès !');
-    setTimeout(() => setToastMsg(null), 3000);
   };
 
   const handleRemoveLogo = () => {
@@ -1164,7 +1151,7 @@ function ParametresContent() {
             </div>
           </div>
 
-          {/* Logo & Blason Officiel de l'Organisation */}
+          {/* Logo & Blason Officiel de l'Organisation (Import fichier direct uniquement) */}
           <div className="pt-6 border-t border-slate-100 space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -1207,15 +1194,21 @@ function ParametresContent() {
                 </span>
               </div>
 
-              {/* Contrôles d'upload et URL */}
-              <div className="flex-1 w-full space-y-3 text-xs">
+              {/* Import Fichier Unique (Pas d'URL) */}
+              <div className="flex-1 w-full space-y-2 text-xs">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Téléverser un logo (PNG, JPG, SVG, WebP • Max 2 Mo)
-                  </label>
-                  <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-100 text-slate-800 font-bold border border-slate-200 rounded-xl transition shadow-2xs">
-                    <Upload className="w-4 h-4 text-blue-600" />
-                    <span>Choisir un fichier sur mon appareil</span>
+                  <h4 className="font-bold text-slate-800 text-sm">
+                    Importer le Blason / Logo de l'Établissement
+                  </h4>
+                  <p className="text-slate-500 text-[11px] mt-0.5 leading-relaxed">
+                    Sélectionnez votre logo directement depuis votre appareil (PNG, JPG, SVG, WebP • maximum 2 Mo). L'image est instantanément intégrée à l'application.
+                  </p>
+                </div>
+
+                <div className="pt-1 flex flex-wrap items-center gap-3">
+                  <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition shadow-sm shadow-blue-600/20">
+                    <Upload className="w-4 h-4" />
+                    <span>Choisir un fichier image</span>
                     <input
                       type="file"
                       accept="image/png,image/jpeg,image/svg+xml,image/webp"
@@ -1223,28 +1216,17 @@ function ParametresContent() {
                       className="hidden"
                     />
                   </label>
-                </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Ou renseigner l'adresse web (URL) d'un logo
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="url"
-                      placeholder="https://mon-entreprise.com/assets/logo.png"
-                      value={logoUrlInput}
-                      onChange={(e) => setLogoUrlInput(e.target.value)}
-                      className="flex-1 text-xs bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                  {orgLogo && (
                     <button
                       type="button"
-                      onClick={handleApplyLogoUrl}
-                      className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition cursor-pointer shrink-0"
+                      onClick={handleRemoveLogo}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-red-50 text-red-600 font-semibold border border-red-200 rounded-xl transition cursor-pointer"
                     >
-                      Appliquer
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Retirer le logo</span>
                     </button>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
