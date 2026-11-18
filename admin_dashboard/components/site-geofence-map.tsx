@@ -14,6 +14,9 @@ interface SiteGeofenceMapProps {
   wifiSsid?: string;
   onCoordinatesChange?: (lat: number, lon: number) => void;
   interactive?: boolean;
+  mode?: 'test' | 'picker';
+  defaultStyle?: 'streets' | 'satellite';
+  heightClassName?: string;
 }
 
 export function SiteGeofenceMap({
@@ -25,6 +28,9 @@ export function SiteGeofenceMap({
   wifiSsid,
   onCoordinatesChange,
   interactive = true,
+  mode = 'test',
+  defaultStyle = 'streets',
+  heightClassName,
 }: SiteGeofenceMapProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -33,7 +39,7 @@ export function SiteGeofenceMap({
   const testMarkerRef = useRef<L.Marker | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
 
-  const [mapStyle, setMapStyle] = useState<'streets' | 'satellite'>('streets');
+  const [mapStyle, setMapStyle] = useState<'streets' | 'satellite'>(defaultStyle);
   const [testResult, setTestResult] = useState<{
     inside: boolean;
     distanceMeters: number;
@@ -107,46 +113,69 @@ export function SiteGeofenceMap({
         iconSize: [0, 0],
       });
 
-      const marker = L.marker([lat, lon], { icon }).addTo(map);
-      markerRef.current = marker;
+      if (mode === 'picker') {
+        // En mode calibrage / picker : le marqueur est déplaçable au glisser-déposer
+        const marker = L.marker([lat, lon], { icon, draggable: true }).addTo(map);
+        markerRef.current = marker;
 
-      // Clic interactif sur la carte pour simuler / tester une position
-      if (interactive) {
-        map.on('click', (e: L.LeafletMouseEvent) => {
-          const clickLat = e.latlng.lat;
-          const clickLon = e.latlng.lng;
-
-          // Calcul géodésique Haversine
-          const centerLatLng = L.latLng(lat, lon);
-          const distance = Math.round(centerLatLng.distanceTo(e.latlng));
-          const inside = distance <= radiusMeters;
-
-          setTestResult({
-            inside,
-            distanceMeters: distance,
-            testLat: clickLat,
-            testLon: clickLon,
-          });
-
-          // Marqueur de test
-          if (testMarkerRef.current) {
-            testMarkerRef.current.setLatLng(e.latlng);
-          } else {
-            const testIcon = L.divIcon({
-              className: 'custom-test-pin',
-              html: `
-                <div style="display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
-                  <div style="background: ${inside ? '#059669' : '#dc2626'}; color: white; padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: 800; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
-                    ${inside ? '✓ Dans zone' : '✕ Hors zone'} (${distance}m)
-                  </div>
-                  <div style="width: 12px; height: 12px; background: ${inside ? '#10b981' : '#ef4444'}; border: 2px solid #ffffff; border-radius: 50%;"></div>
-                </div>
-              `,
-              iconSize: [0, 0],
-            });
-            testMarkerRef.current = L.marker(e.latlng, { icon: testIcon }).addTo(map);
-          }
+        marker.on('dragend', (e: any) => {
+          const pos = e.target.getLatLng();
+          const pLat = Number(pos.lat.toFixed(6));
+          const pLon = Number(pos.lng.toFixed(6));
+          if (circleRef.current) circleRef.current.setLatLng(pos);
+          onCoordinatesChange?.(pLat, pLon);
         });
+
+        // Et un clic n'importe où sur le toit d'un bâtiment recale le repère immédiatement
+        map.on('click', (e: L.LeafletMouseEvent) => {
+          const clickLat = Number(e.latlng.lat.toFixed(6));
+          const clickLon = Number(e.latlng.lng.toFixed(6));
+          if (markerRef.current) markerRef.current.setLatLng(e.latlng);
+          if (circleRef.current) circleRef.current.setLatLng(e.latlng);
+          onCoordinatesChange?.(clickLat, clickLon);
+        });
+      } else {
+        const marker = L.marker([lat, lon], { icon }).addTo(map);
+        markerRef.current = marker;
+
+        // Clic interactif sur la carte pour simuler / tester une position
+        if (interactive) {
+          map.on('click', (e: L.LeafletMouseEvent) => {
+            const clickLat = e.latlng.lat;
+            const clickLon = e.latlng.lng;
+
+            // Calcul géodésique Haversine
+            const centerLatLng = L.latLng(lat, lon);
+            const distance = Math.round(centerLatLng.distanceTo(e.latlng));
+            const inside = distance <= radiusMeters;
+
+            setTestResult({
+              inside,
+              distanceMeters: distance,
+              testLat: clickLat,
+              testLon: clickLon,
+            });
+
+            // Marqueur de test
+            if (testMarkerRef.current) {
+              testMarkerRef.current.setLatLng(e.latlng);
+            } else {
+              const testIcon = L.divIcon({
+                className: 'custom-test-pin',
+                html: `
+                  <div style="display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
+                    <div style="background: ${inside ? '#059669' : '#dc2626'}; color: white; padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: 800; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+                      ${inside ? '✓ Dans zone' : '✕ Hors zone'} (${distance}m)
+                    </div>
+                    <div style="width: 12px; height: 12px; background: ${inside ? '#10b981' : '#ef4444'}; border: 2px solid #ffffff; border-radius: 50%;"></div>
+                  </div>
+                `,
+                iconSize: [0, 0],
+              });
+              testMarkerRef.current = L.marker(e.latlng, { icon: testIcon }).addTo(map);
+            }
+          });
+        }
       }
 
       mapInstanceRef.current = map;
@@ -243,7 +272,7 @@ export function SiteGeofenceMap({
   };
 
   return (
-    <div className="relative w-full h-80 sm:h-96 rounded-2xl overflow-hidden border border-slate-200/80 shadow-inner bg-slate-100 flex flex-col">
+    <div className={`relative w-full ${heightClassName || 'h-80 sm:h-96'} rounded-2xl overflow-hidden border border-slate-200/80 shadow-inner bg-slate-100 flex flex-col`}>
       {/* Conteneur DOM Leaflet */}
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
@@ -334,11 +363,23 @@ export function SiteGeofenceMap({
         </div>
       )}
 
-      {/* Message d'aide discret pour simuler un clic */}
-      {!testResult && interactive && (
-        <div className="absolute bottom-3 left-3 z-10 bg-slate-900/70 text-white text-[10px] font-medium px-2.5 py-1 rounded-lg backdrop-blur-xs pointer-events-none hidden sm:block">
-          💡 Cliquez n'importe où sur la carte pour tester si une position est autorisée
+      {/* Message d'aide discret */}
+      {mode === 'picker' ? (
+        <div className="absolute bottom-3 left-3 right-3 z-10 bg-slate-900/90 text-white text-[11px] font-semibold px-3 py-1.5 rounded-xl backdrop-blur-md border border-slate-700/60 shadow-lg flex items-center justify-between pointer-events-none">
+          <span className="flex items-center gap-1.5 text-emerald-400">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+            <span>Calage au mètre près : cliquez ou glissez le repère sur votre bureau</span>
+          </span>
+          <span className="font-mono text-[10px] text-slate-300 hidden sm:inline">
+            WGS84 : {lat.toFixed(6)}°, {lon.toFixed(6)}°
+          </span>
         </div>
+      ) : (
+        !testResult && interactive && (
+          <div className="absolute bottom-3 left-3 z-10 bg-slate-900/70 text-white text-[10px] font-medium px-2.5 py-1 rounded-lg backdrop-blur-xs pointer-events-none hidden sm:block">
+            💡 Cliquez n'importe où sur la carte pour tester si une position est autorisée
+          </div>
+        )
       )}
     </div>
   );

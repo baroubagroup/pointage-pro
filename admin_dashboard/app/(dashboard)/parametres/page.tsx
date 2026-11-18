@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Header } from '@/components/header';
@@ -383,6 +383,7 @@ function ParametresContent() {
   const [newSiteWifiBssid, setNewSiteWifiBssid] = useState('');
   const [hasWifiBox, setHasWifiBox] = useState(false);
   const [detectingModalGps, setDetectingModalGps] = useState(false);
+  const gpsWatchIdRef = useRef<number | null>(null);
   const [modalGpsSuccess, setModalGpsSuccess] = useState<string | null>(null);
   const [modalGpsError, setModalGpsError] = useState<string | null>(null);
   const [detectingModalWifi, setDetectingModalWifi] = useState(false);
@@ -808,6 +809,7 @@ function ParametresContent() {
 
   // Ouverture du modal de création de périmètre avec réinitialisation complète
   const handleOpenAddSiteModal = () => {
+    stopGpsWatch();
     setNewSiteName('');
     setNewSiteCity('');
     setNewSiteLat('');
@@ -885,32 +887,77 @@ function ParametresContent() {
     }
   };
 
-  // Détection de position GPS pour le modal
+  const stopGpsWatch = () => {
+    if (gpsWatchIdRef.current !== null && typeof navigator !== 'undefined') {
+      navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+      gpsWatchIdRef.current = null;
+    }
+    setDetectingModalGps(false);
+  };
+
+  // Détection de position GPS par affinement continu multi-échantillons (style WhatsApp)
   const handleDetectModalGps = () => {
     if (typeof window === 'undefined' || !navigator.geolocation) {
       setModalGpsError("La géolocalisation n'est pas supportée par ce terminal.");
       return;
     }
+    stopGpsWatch();
     setDetectingModalGps(true);
-    setModalGpsSuccess(null);
+    setModalGpsSuccess("Synchronisation satellite en cours... Affinement progressif...");
     setModalGpsError(null);
 
-    navigator.geolocation.getCurrentPosition(
+    let bestAcc = Infinity;
+
+    // Timeout de sécurité au bout de 12 secondes
+    const timeoutTimer = setTimeout(() => {
+      stopGpsWatch();
+      if (bestAcc < Infinity) {
+        if (bestAcc <= 10) {
+          setModalGpsSuccess(`Position satellite haute précision verrouillée (±${bestAcc}m)`);
+        } else if (bestAcc <= 40) {
+          setModalGpsSuccess(`Signal GPS stabilisé (±${bestAcc}m). Vous pouvez ajuster au mètre près sur la carte satellite ci-dessous.`);
+        } else {
+          setModalGpsError(`Précision réseau PC approximative (±${bestAcc}m). Les ordinateurs n'ont pas de puce satellite GNSS. Ajustez le repère directement sur votre bureau sur la carte ci-dessous pour une précision au mètre près.`);
+        }
+      } else {
+        setModalGpsError("Délai d'acquisition GPS dépassé. Veuillez pointer directement sur la carte satellite ci-dessous.");
+      }
+    }, 12000);
+
+    const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        const lat = pos.coords.latitude.toFixed(6);
-        const lon = pos.coords.longitude.toFixed(6);
         const acc = Math.round(pos.coords.accuracy);
-        setNewSiteLat(lat);
-        setNewSiteLon(lon);
-        setModalGpsSuccess(`Position GPS captée avec précision (±${acc}m)`);
-        setDetectingModalGps(false);
+
+        if (acc <= bestAcc || bestAcc === Infinity) {
+          bestAcc = acc;
+          const lat = pos.coords.latitude.toFixed(6);
+          const lon = pos.coords.longitude.toFixed(6);
+          setNewSiteLat(lat);
+          setNewSiteLon(lon);
+
+          // Si on atteint la précision satellite maximale (<= 5 mètres), verrouillage instantané
+          if (acc <= 5) {
+            clearTimeout(timeoutTimer);
+            stopGpsWatch();
+            setModalGpsSuccess(`Précision satellite optimale atteinte (±${acc}m) - Fix WGS84 verrouillé !`);
+          } else if (acc <= 15) {
+            setModalGpsSuccess(`Affinement satellite en cours : ±${acc}m (Verrouillage imminent)...`);
+          } else if (acc <= 50) {
+            setModalGpsSuccess(`Signal capté (±${acc}m)... Recherche de satellites supplémentaires pour descendre à ±5m...`);
+          } else {
+            setModalGpsSuccess(`Échantillonnage préliminaire (±${acc}m)... Affinement en cours...`);
+          }
+        }
       },
       (err) => {
-        setDetectingModalGps(false);
-        setModalGpsError(`Signal GPS indisponible (${err.message}). Saisie manuelle possible.`);
+        clearTimeout(timeoutTimer);
+        stopGpsWatch();
+        setModalGpsError(`Signal GPS indisponible (${err.message}). Ajustez votre bureau sur la carte ci-dessous.`);
       },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
+
+    gpsWatchIdRef.current = watchId;
   };
 
   // Copier les coordonnées du site principal comme base
@@ -2486,6 +2533,41 @@ function ParametresContent() {
                         className="w-full bg-white border border-slate-200 focus:border-blue-600 rounded-xl px-3 py-1.5 font-mono text-xs text-slate-900 transition focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       />
                     </div>
+                  </div>
+
+                  {/* Calage Visuel Satellite Haute Précision (~1m) */}
+                  <div className="pt-2 border-t border-slate-200/60 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-extrabold text-slate-700 flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Calage Visuel au Mètre Près (Plan & Satellite Aérien)</span>
+                      </span>
+                      <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-md">
+                        Précision physique ~1m
+                      </span>
+                    </div>
+
+                    <div className="rounded-2xl overflow-hidden border border-slate-200">
+                      <DynamicSiteGeofenceMap
+                        name={newSiteName || 'Nouveau Site'}
+                        city={newSiteCity || 'Établissement'}
+                        lat={parseFloat(newSiteLat) || (sites[0]?.lat ?? 11.247)}
+                        lon={parseFloat(newSiteLon) || (sites[0]?.lon ?? -4.2918)}
+                        radiusMeters={parseInt(newSiteRadius, 10) || 80}
+                        mode="picker"
+                        defaultStyle="satellite"
+                        heightClassName="h-56 sm:h-64"
+                        onCoordinatesChange={(pickedLat, pickedLon) => {
+                          setNewSiteLat(pickedLat.toFixed(6));
+                          setNewSiteLon(pickedLon.toFixed(6));
+                          setModalGpsSuccess('🎯 Position verrouillée au mètre près sur le bâtiment !');
+                          setModalGpsError(null);
+                        }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-400 block italic">
+                      💡 Cliquez ou glissez le repère directement sur le toit ou le portail de votre bureau pour caler la position à 1 mètre près.
+                    </span>
                   </div>
                 </div>
 
