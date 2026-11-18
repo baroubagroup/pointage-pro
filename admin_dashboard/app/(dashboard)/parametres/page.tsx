@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, Suspense } from 'react';
+import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Header } from '@/components/header';
 import { createClient } from '@/lib/supabase/client';
@@ -68,7 +69,7 @@ import {
 // ==================== INTERFACES ====================
 type SettingsTab = 'general' | 'sites' | 'plannings' | 'securite';
 
-export interface HolidayExemption {
+interface HolidayExemption {
   id: string;
   date: string; // YYYY-MM-DD
   name: string;
@@ -131,7 +132,7 @@ interface SecurityConfig {
 }
 
 // Générateur canonique de code d'organisation anti-collision et anti-devinette
-export function generateCanonicalOrgCode(orgName: string): string {
+function generateCanonicalOrgCode(orgName: string): string {
   const words = (orgName || 'POINTAGE')
     .trim()
     .replace(/[^a-zA-Z0-9\s]/g, '')
@@ -166,7 +167,7 @@ export function generateCanonicalOrgCode(orgName: string): string {
   return `ORG-${entropy}-${initials}`;
 }
 
-export function isCanonicalCode(code: string): boolean {
+function isCanonicalCode(code: string): boolean {
   if (!code) return false;
   return /^ORG-[2-9A-HJ-NP-Z0-9]{4,6}-[A-Z0-9]{2,5}$/i.test(code.trim());
 }
@@ -275,6 +276,22 @@ function timeToMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number);
   return (h || 0) * 60 + (m || 0);
 }
+
+// Chargement dynamique côté client de la carte Leaflet / OpenStreetMap (sans SSR)
+const DynamicSiteGeofenceMap = dynamic(
+  () => import('@/components/site-geofence-map').then((mod) => mod.SiteGeofenceMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-80 sm:h-96 rounded-2xl bg-slate-100 flex items-center justify-center border border-slate-200">
+        <div className="flex flex-col items-center gap-2 text-slate-400">
+          <MapPin className="w-6 h-6 animate-bounce text-blue-500" />
+          <span className="text-xs font-semibold">Chargement de la carte interactive...</span>
+        </div>
+      </div>
+    ),
+  }
+);
 
 function ParametresContent() {
   const searchParams = useSearchParams();
@@ -1651,12 +1668,12 @@ function ParametresContent() {
       {activeTab === 'sites' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-16 animate-fadeIn">
           
-          {/* Fiche Synthétique du Site Sélectionné & Radar à la Demande (7 colonnes sur desktop/laptop) */}
+          {/* Véritable Carte Interactive (Vue Google Maps / Rues / Satellite Réel) */}
           <div className="lg:col-span-7 bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
             {/* Header de la carte */}
             <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold shadow-xs">
                   <MapPin className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
@@ -1681,18 +1698,30 @@ function ParametresContent() {
               </button>
             </div>
 
-            {/* Synthèse Métier Épurée (Light Bento UI) */}
-            <div className="p-4 sm:p-5 space-y-4">
+            {/* CARTE GÉOGRAPHIQUE RÉELLE (Plan / Satellite 100% Gratuit & Interactif) */}
+            <div className="p-4 sm:p-5">
+              <DynamicSiteGeofenceMap
+                name={selectedSite?.name || 'Site'}
+                city={selectedSite?.city || ''}
+                lat={selectedSite?.lat || 11.247}
+                lon={selectedSite?.lon || -4.2918}
+                radiusMeters={selectedSite?.radiusMeters || 80}
+                wifiSsid={selectedSite?.wifiSsid}
+              />
+            </div>
+
+            {/* Synthèse Métier & Paramètres d'Établissement */}
+            <div className="p-4 sm:p-5 pt-0 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/70">
-                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Rayon Satellite</span>
-                  <span className="text-base font-black text-slate-900 block mt-0.5">{selectedSite?.radiusMeters} mètres</span>
-                  <span className="text-[10px] text-emerald-600 font-semibold block mt-0.5">Tolérance WGS84 certifiée</span>
+                <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-200/70">
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Rayon Satellite WGS84</span>
+                  <span className="text-sm font-black text-slate-900 block mt-0.5">{selectedSite?.radiusMeters} mètres</span>
+                  <span className="text-[10px] text-emerald-600 font-semibold block mt-0.5">Périmètre tracé sur la carte</span>
                 </div>
 
-                <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/70">
+                <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-200/70">
                   <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Box Wi-Fi Réseau</span>
-                  <span className="text-xs font-bold text-slate-900 truncate block mt-1" title={selectedSite?.wifiSsid || 'Sans Wi-Fi'}>
+                  <span className="text-xs font-bold text-slate-900 truncate block mt-0.5" title={selectedSite?.wifiSsid || 'Sans Wi-Fi'}>
                     {selectedSite?.wifiSsid || 'Non déclarée'}
                   </span>
                   <span className="text-[10px] text-slate-500 block truncate mt-0.5">
@@ -1700,168 +1729,31 @@ function ParametresContent() {
                   </span>
                 </div>
 
-                <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/70">
+                <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-200/70">
                   <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Effectif Rattaché</span>
-                  <span className="text-base font-black text-blue-600 block mt-0.5">{selectedSite?.activeCount} collaborateurs</span>
+                  <span className="text-sm font-black text-blue-600 block mt-0.5">{selectedSite?.activeCount} collaborateurs</span>
                   <span className="text-[10px] text-slate-500 block mt-0.5">Pointages autorisés ici</span>
                 </div>
               </div>
 
-              {/* Barre d'action : Bouton Toggle Radar & Lien Maps */}
-              <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowRadarVisualizer(!showRadarVisualizer)}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer border ${
-                    showRadarVisualizer
-                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
-                      : 'bg-blue-50 hover:bg-blue-100/80 text-blue-700 border-blue-200 shadow-2xs'
-                  }`}
-                >
-                  <Radar className={`w-3.5 h-3.5 ${showRadarVisualizer ? 'text-slate-600 animate-spin' : 'text-blue-600'}`} style={{ animationDuration: '6s' }} />
-                  <span>{showRadarVisualizer ? 'Masquer le Radar & Simulateur' : 'Afficher le Radar Satellite & Simulateur'}</span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showRadarVisualizer ? 'rotate-180' : ''}`} />
-                </button>
+              {/* Pied de carte avec lien Google Maps externe */}
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                <span className="text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
+                  <Navigation className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Cartographie OpenStreetMap & Carto Voyager (Plan & Vue Aérienne Gratuits)</span>
+                </span>
 
                 <a
                   href={`https://www.google.com/maps?q=${selectedSite?.lat},${selectedSite?.lon}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[11px] font-bold text-slate-500 hover:text-blue-600 flex items-center gap-1.5 transition py-1 px-2 rounded-lg hover:bg-slate-100"
+                  className="text-[11px] font-bold text-slate-600 hover:text-blue-600 flex items-center gap-1 transition"
                 >
-                  <span>Voir sur Google Maps</span>
+                  <span>Ouvrir dans Google Maps</span>
                   <ExternalLink className="w-3 h-3 text-slate-400" />
                 </a>
               </div>
             </div>
-
-            {/* Radar Canvas & Simulateur (Affichés UNIQUEMENT à la demande) */}
-            {showRadarVisualizer && (
-              <div className="border-t border-slate-200 animate-fadeIn">
-                {/* Radar Canvas */}
-                <div className="relative w-full h-72 bg-slate-950 overflow-hidden flex items-center justify-center select-none">
-                  <div 
-                    className="absolute inset-0 opacity-20 pointer-events-none"
-                    style={{
-                      backgroundImage: 'linear-gradient(to right, #38bdf8 1px, transparent 1px), linear-gradient(to bottom, #38bdf8 1px, transparent 1px)',
-                      backgroundSize: '36px 36px'
-                    }}
-                  />
-                  <div className="absolute w-[80%] aspect-square rounded-full border border-sky-500/20 pointer-events-none" />
-                  <div className="absolute w-[60%] aspect-square rounded-full border border-sky-500/30 pointer-events-none" />
-                  <div className="absolute w-[40%] aspect-square rounded-full border border-sky-500/40 pointer-events-none" />
-                  <div className="absolute w-[20%] aspect-square rounded-full border border-sky-500/50 pointer-events-none" />
-                  <div className="absolute w-full h-[1px] bg-sky-500/20 pointer-events-none" />
-                  <div className="absolute h-full w-[1px] bg-sky-500/20 pointer-events-none" />
-
-                  {/* Faisceau rotatif de balayage */}
-                  <div 
-                    className="absolute w-[80%] aspect-square rounded-full pointer-events-none"
-                    style={{
-                      background: 'conic-gradient(from 0deg, rgba(56, 189, 248, 0.22) 0deg, transparent 60deg, transparent 360deg)',
-                      animation: 'spin 4s linear infinite'
-                    }}
-                  />
-
-                  {/* Bulle de Géofencing autorisée */}
-                  <div 
-                    className="absolute rounded-full border-2 border-emerald-400 bg-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.3)] flex items-center justify-center pointer-events-none transition-all duration-500"
-                    style={{
-                      width: `${Math.min(75, Math.max(30, (selectedSite?.radiusMeters || 80) * 0.45))}%`,
-                      aspectRatio: '1/1'
-                    }}
-                  >
-                    <div className="text-[10px] font-mono font-extrabold text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/50">
-                      {selectedSite?.radiusMeters}m
-                    </div>
-                  </div>
-
-                  {/* Centoïde GPS (Pin vert central) */}
-                  <div className="absolute z-20 flex flex-col items-center pointer-events-none">
-                    <div className="w-5 h-5 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center shadow-lg">
-                      <div className="w-1.5 h-1.5 rounded-full bg-white" />
-                    </div>
-                    <div className="mt-1 bg-slate-900/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-md border border-slate-700 whitespace-nowrap shadow-md">
-                      📍 {selectedSite?.name}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Banc de test simulateur */}
-                <div className="p-4 sm:p-5 bg-slate-50/90 border-t border-slate-200 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
-                      <Crosshair className="w-4 h-4 text-blue-600" />
-                      Test de Coordonnées WGS84
-                    </span>
-
-                    <div className="flex items-center gap-1.5 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSimLat((selectedSite.lat + 0.000100).toFixed(6));
-                          setSimLon((selectedSite.lon + 0.000100).toFixed(6));
-                        }}
-                        className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded-lg border border-emerald-200 transition cursor-pointer text-[11px]"
-                      >
-                        Tester dans zone (14m)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSimLat((selectedSite.lat + 0.002200).toFixed(6));
-                          setSimLon((selectedSite.lon + 0.002200).toFixed(6));
-                        }}
-                        className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold rounded-lg border border-rose-200 transition cursor-pointer text-[11px]"
-                      >
-                        Tester hors zone (250m)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleDetectCurrentLocation}
-                        disabled={detectingLocation}
-                        className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg border border-blue-200 transition cursor-pointer text-[11px] flex items-center gap-1"
-                      >
-                        <LocateFixed className={`w-3 h-3 ${detectingLocation ? 'animate-spin' : ''}`} />
-                        <span>Mon GPS</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Latitude Test</label>
-                      <input
-                        type="text"
-                        value={simLat}
-                        onChange={(e) => setSimLat(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 font-mono text-slate-800"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Longitude Test</label>
-                      <input
-                        type="text"
-                        value={simLon}
-                        onChange={(e) => setSimLon(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 font-mono text-slate-800"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1">Verdict Système</label>
-                      <div className={`px-3 py-1.5 rounded-xl border font-bold flex items-center justify-between ${
-                        simResult?.inside
-                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                          : 'bg-rose-50 border-rose-200 text-rose-800'
-                      }`}>
-                        <span>{simResult?.inside ? 'AUTORISÉ' : 'REJETÉ'}</span>
-                        <span className="text-[11px] font-mono">{simResult?.distance}m / {selectedSite.radiusMeters}m</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Liste des Sites (5 colonnes sur desktop/laptop) */}
