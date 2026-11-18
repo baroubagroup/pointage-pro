@@ -60,7 +60,8 @@ import {
   Upload,
   Image as ImageIcon,
   KeyRound,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Navigation
 } from 'lucide-react';
 
 // ==================== INTERFACES ====================
@@ -245,21 +246,9 @@ const FALLBACK_SITES: SimpleSite[] = [
     lat: 11.247000,
     lon: -4.291800,
     radiusMeters: 120,
-    wifiSsid: 'PointagePro_Siege',
-    wifiBssid: 'PointagePro_Siege (b4:ee:b4:91:a2:10)',
-    activeCount: 14,
-    isActive: true
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000011',
-    name: 'Agence Cocody Riviera 2',
-    city: 'Abidjan',
-    lat: 5.358200,
-    lon: -3.974100,
-    radiusMeters: 80,
-    wifiSsid: 'Orange_Pro_ZoneNord',
-    wifiBssid: 'Orange_Pro_ZoneNord (7c:26:34:11:ff:80)',
-    activeCount: 8,
+    wifiSsid: 'FAMILLE SAKO',
+    wifiBssid: 'FAMILLE SAKO (68:9e:29:3b:43:08)',
+    activeCount: 11,
     isActive: true
   }
 ];
@@ -368,13 +357,16 @@ function ParametresContent() {
   const [selectedSiteId, setSelectedSiteId] = useState<string>(FALLBACK_SITES[0].id);
   const [showAddSiteModal, setShowAddSiteModal] = useState(false);
   const [newSiteName, setNewSiteName] = useState('');
-  const [newSiteCity, setNewSiteCity] = useState('Cocody');
-  const [newSiteLat, setNewSiteLat] = useState('5.358200');
-  const [newSiteLon, setNewSiteLon] = useState('-3.974100');
+  const [newSiteCity, setNewSiteCity] = useState('');
+  const [newSiteLat, setNewSiteLat] = useState('');
+  const [newSiteLon, setNewSiteLon] = useState('');
   const [newSiteRadius, setNewSiteRadius] = useState('80');
   const [newSiteWifiSsid, setNewSiteWifiSsid] = useState('');
   const [newSiteWifiBssid, setNewSiteWifiBssid] = useState('');
-  const [hasWifiBox, setHasWifiBox] = useState(true);
+  const [hasWifiBox, setHasWifiBox] = useState(false);
+  const [detectingModalGps, setDetectingModalGps] = useState(false);
+  const [modalGpsSuccess, setModalGpsSuccess] = useState<string | null>(null);
+  const [modalGpsError, setModalGpsError] = useState<string | null>(null);
   const [detectingWifi, setDetectingWifi] = useState(false);
   const [detectingLocation, setDetectingLocation] = useState(false);
 
@@ -464,17 +456,28 @@ function ParametresContent() {
           .eq('is_active', true)
           .order('name');
 
+        const { data: empEstabs } = await supabase
+          .from('pointage_employees')
+          .select('default_establishment_id');
+
+        const estabCountMap: Record<string, number> = {};
+        empEstabs?.forEach((emp: any) => {
+          if (emp.default_establishment_id) {
+            estabCountMap[emp.default_establishment_id] = (estabCountMap[emp.default_establishment_id] || 0) + 1;
+          }
+        });
+
         if (sitesData && sitesData.length > 0) {
-          const mapped: SimpleSite[] = sitesData.map((d: any, idx: number) => ({
+          const mapped: SimpleSite[] = sitesData.map((d: any) => ({
             id: d.id,
             name: d.name,
-            city: d.city || 'Abidjan',
+            city: d.city || 'Siège Social',
             lat: Number(d.latitude) || 11.247,
             lon: Number(d.longitude) || -4.2918,
             radiusMeters: Number(d.radius_meters) || 80,
             wifiSsid: d.wifi_ssid || undefined,
             wifiBssid: d.wifi_ssid ? `${d.wifi_ssid} (${(d.wifi_bssids && d.wifi_bssids[0]) || 'Certifié'})` : 'Box Wi-Fi Non Déclarée',
-            activeCount: (idx + 1) * 4,
+            activeCount: estabCountMap[d.id] || 0,
             isActive: d.is_active ?? true
           }));
           setSites(mapped);
@@ -781,26 +784,91 @@ function ParametresContent() {
     }
   };
 
-  // Création de site
+  // Ouverture du modal de création de périmètre avec réinitialisation complète
+  const handleOpenAddSiteModal = () => {
+    setNewSiteName('');
+    setNewSiteCity(companyAddress ? companyAddress.split(',')[0].trim() : (sites[0]?.city || ''));
+    setNewSiteLat('');
+    setNewSiteLon('');
+    setNewSiteRadius('80');
+    setNewSiteWifiSsid('');
+    setNewSiteWifiBssid('');
+    setHasWifiBox(false);
+    setModalGpsSuccess(null);
+    setModalGpsError(null);
+    setShowAddSiteModal(true);
+  };
+
+  // Détection de position GPS pour le modal
+  const handleDetectModalGps = () => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setModalGpsError("La géolocalisation n'est pas supportée par ce terminal.");
+      return;
+    }
+    setDetectingModalGps(true);
+    setModalGpsSuccess(null);
+    setModalGpsError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude.toFixed(6);
+        const lon = pos.coords.longitude.toFixed(6);
+        const acc = Math.round(pos.coords.accuracy);
+        setNewSiteLat(lat);
+        setNewSiteLon(lon);
+        setModalGpsSuccess(`Position GPS captée avec précision (±${acc}m)`);
+        setDetectingModalGps(false);
+      },
+      (err) => {
+        setDetectingModalGps(false);
+        setModalGpsError(`Signal GPS indisponible (${err.message}). Saisie manuelle possible.`);
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+  };
+
+  // Copier les coordonnées du site principal comme base
+  const handleUseHqCoords = () => {
+    const hq = sites[0] || FALLBACK_SITES[0];
+    if (hq) {
+      setNewSiteLat(hq.lat.toFixed(6));
+      setNewSiteLon(hq.lon.toFixed(6));
+      if (!newSiteCity.trim()) setNewSiteCity(hq.city);
+      setModalGpsSuccess(`Coordonnées du site de référence (${hq.name}) appliquées`);
+      setModalGpsError(null);
+    }
+  };
+
+  // Création de site avec validation et conversion des virgules
   const handleCreateSite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSiteName.trim()) return;
 
-    const parsedLat = parseFloat(newSiteLat) || 11.247;
-    const parsedLon = parseFloat(newSiteLon) || -4.2918;
+    // Normalisation virgule -> point décimal WGS84
+    const cleanLatStr = newSiteLat.toString().replace(',', '.').trim();
+    const cleanLonStr = newSiteLon.toString().replace(',', '.').trim();
+    const parsedLat = parseFloat(cleanLatStr);
+    const parsedLon = parseFloat(cleanLonStr);
+
+    if (isNaN(parsedLat) || isNaN(parsedLon)) {
+      setModalGpsError("Veuillez renseigner des coordonnées GPS décimales valides (ex: 11.247000).");
+      return;
+    }
+
     const parsedRadius = parseInt(newSiteRadius, 10) || 80;
-    const cleanBssid = newSiteWifiBssid.trim().toLowerCase();
+    const cleanBssid = hasWifiBox ? newSiteWifiBssid.trim().toLowerCase() : '';
+    const cleanSsid = hasWifiBox ? newSiteWifiSsid.trim() : '';
 
     const tempId = 'site-' + Date.now();
     const newSite: SimpleSite = {
       id: tempId,
       name: newSiteName.trim(),
-      city: newSiteCity.trim() ? newSiteCity.trim() : 'Abidjan',
+      city: newSiteCity.trim() || 'Principal',
       lat: parsedLat,
       lon: parsedLon,
       radiusMeters: parsedRadius,
-      wifiSsid: newSiteWifiSsid.trim() || undefined,
-      wifiBssid: newSiteWifiSsid.trim() ? `${newSiteWifiSsid.trim()} (${cleanBssid || 'Certifié'})` : 'Box Wi-Fi Non Déclarée',
+      wifiSsid: cleanSsid || undefined,
+      wifiBssid: cleanSsid ? `${cleanSsid} (${cleanBssid || 'Certifié'})` : 'Box Wi-Fi Non Déclarée',
       activeCount: 0,
       isActive: true
     };
@@ -816,17 +884,17 @@ function ParametresContent() {
       await supabase.from('pointage_establishments').insert({
         org_id: '00000000-0000-0000-0000-000000000001',
         name: newSiteName.trim(),
-        city: newSiteCity.trim() || 'Abidjan',
+        city: newSiteCity.trim() || 'Principal',
         latitude: parsedLat,
         longitude: parsedLon,
         radius_meters: parsedRadius,
         elastic_radius_meters: Math.max(150, Math.round(parsedRadius * 1.5)),
-        wifi_ssid: newSiteWifiSsid.trim() || null,
+        wifi_ssid: cleanSsid || null,
         wifi_bssids: cleanBssid ? [cleanBssid] : [],
         is_active: true
       });
     } catch (e) {
-      console.error(e);
+      console.error('Erreur insertion établissement:', e);
     }
   };
 
@@ -1597,8 +1665,8 @@ function ParametresContent() {
               </div>
               <button
                 type="button"
-                onClick={() => setShowAddSiteModal(true)}
-                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-xs cursor-pointer"
+                onClick={handleOpenAddSiteModal}
+                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-xs cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Nouveau Périmètre</span>
@@ -2247,98 +2315,231 @@ function ParametresContent() {
         </div>
       )}
 
-      {/* ==================== MODAL CRÉATION DE PÉRIMÈTRE ==================== */}
+      {/* ==================== MODAL CRÉATION DE PÉRIMÈTRE (BENTO ENTERPRISE) ==================== */}
       {showAddSiteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 sm:p-7 space-y-5 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-black text-base text-slate-900">Nouveau Périmètre de Pointage</h3>
-              <button onClick={() => setShowAddSiteModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 sm:p-7 space-y-5 max-h-[92vh] overflow-y-auto border border-slate-100">
+            {/* Header du modal */}
+            <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base text-slate-900">Nouveau Périmètre de Pointage</h3>
+                  <p className="text-xs text-slate-500">Définissez une zone géographique autorisée pour les pointages de vos équipes</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowAddSiteModal(false)} 
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-xl hover:bg-slate-100 transition cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleCreateSite} className="space-y-4 text-xs">
+              {/* Nom du site */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Nom du Site / Établissement *</label>
+                <label className="block font-bold text-slate-800 mb-1">
+                  Nom du Site / Établissement <span className="text-rose-500">*</span>
+                </label>
                 <input
                   type="text"
                   required
-                  placeholder="Ex: Campus Principal, Boutique Angré..."
+                  placeholder="Ex: Siège Social, Campus Principal, Boutique Angré..."
                   value={newSiteName}
                   onChange={(e) => setNewSiteName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800"
+                  className="w-full bg-slate-50 hover:bg-slate-100/60 focus:bg-white border border-slate-200 focus:border-blue-600 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold transition focus:outline-none focus:ring-4 focus:ring-blue-500/10"
                 />
               </div>
 
+              {/* Commune / Ville */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Commune / Ville *</label>
+                <label className="block font-bold text-slate-800 mb-1">
+                  Commune / Ville d'Implantation <span className="text-rose-500">*</span>
+                </label>
                 <input
                   type="text"
                   required
-                  placeholder="Ex: Cocody, Plateau, Ouagadougou..."
+                  placeholder="Ex: Ouagadougou, Abidjan, Bobo-Dioulasso, Dakar..."
                   value={newSiteCity}
                   onChange={(e) => setNewSiteCity(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800"
+                  className="w-full bg-slate-50 hover:bg-slate-100/60 focus:bg-white border border-slate-200 focus:border-blue-600 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold transition focus:outline-none focus:ring-4 focus:ring-blue-500/10"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-500 mb-1">Latitude (WGS84)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    required
-                    value={newSiteLat}
-                    onChange={(e) => setNewSiteLat(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono"
-                  />
+              {/* Bloc Coordonnées GPS avec Détection 1-clic */}
+              <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
+                    <Navigation className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Coordonnées Satellites WGS84 <span className="text-rose-500">*</span></span>
+                  </span>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleDetectModalGps}
+                      disabled={detectingModalGps}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-lg transition text-[11px] flex items-center gap-1 shadow-xs cursor-pointer disabled:opacity-50"
+                    >
+                      <LocateFixed className={`w-3 h-3 ${detectingModalGps ? 'animate-spin' : ''}`} />
+                      <span>{detectingModalGps ? 'Recherche GPS...' : '📍 Détecter ma position'}</span>
+                    </button>
+                    {sites.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleUseHqCoords}
+                        title="Copier les coordonnées du site principal"
+                        className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-200 transition text-[11px] cursor-pointer"
+                      >
+                        🏢 Siège
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-semibold text-slate-500 mb-1">Longitude (WGS84)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    required
-                    value={newSiteLon}
-                    onChange={(e) => setNewSiteLon(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono"
-                  />
+
+                {modalGpsSuccess && (
+                  <div className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 animate-fadeIn">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>{modalGpsSuccess}</span>
+                  </div>
+                )}
+
+                {modalGpsError && (
+                  <div className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 animate-fadeIn">
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                    <span>{modalGpsError}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Latitude (WGS84)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      required
+                      placeholder="Ex: 11.247000"
+                      value={newSiteLat}
+                      onChange={(e) => setNewSiteLat(e.target.value.replace(',', '.'))}
+                      className="w-full bg-white border border-slate-200 focus:border-blue-600 rounded-xl px-3 py-2 font-mono text-xs text-slate-900 transition focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Longitude (WGS84)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      required
+                      placeholder="Ex: -4.291800"
+                      value={newSiteLon}
+                      onChange={(e) => setNewSiteLon(e.target.value.replace(',', '.'))}
+                      className="w-full bg-white border border-slate-200 focus:border-blue-600 rounded-xl px-3 py-2 font-mono text-xs text-slate-900 transition focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
                 </div>
               </div>
 
+              {/* Rayon Satellite */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Rayon Satellite Autorisé</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {['50', '80', '120', '150'].map(r => (
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block font-bold text-slate-800 text-xs">Rayon Satellite Autorisé</label>
+                  <span className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
+                    Tolérance : {newSiteRadius} mètres
+                  </span>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[
+                    { val: '50', label: '50m', sub: 'Strict' },
+                    { val: '80', label: '80m', sub: 'Standard' },
+                    { val: '120', label: '120m', sub: 'Large' },
+                    { val: '150', label: '150m', sub: 'Campus' },
+                    { val: '200', label: '200m', sub: 'Vaste' },
+                  ].map((r) => (
                     <button
-                      key={r}
+                      key={r.val}
                       type="button"
-                      onClick={() => setNewSiteRadius(r)}
-                      className={`py-1.5 rounded-xl font-bold border transition cursor-pointer ${
-                        newSiteRadius === r ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-700'
+                      onClick={() => setNewSiteRadius(r.val)}
+                      className={`py-2 px-1 rounded-xl text-center border transition cursor-pointer ${
+                        newSiteRadius === r.val
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
                       }`}
                     >
-                      {r}m
+                      <div className="font-extrabold text-xs">{r.label}</div>
+                      <div className={`text-[9px] ${newSiteRadius === r.val ? 'text-blue-100' : 'text-slate-400'}`}>
+                        {r.sub}
+                      </div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+              {/* Box Wi-Fi / Borne Réseau Optionnelle */}
+              <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={hasWifiBox}
+                    onChange={(e) => setHasWifiBox(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <Wifi className="w-3.5 h-3.5 text-blue-600" />
+                      Associer une Box Wi-Fi d'établissement (Optionnel)
+                    </span>
+                    <span className="text-[10px] text-slate-500 block">
+                      Permet la validation sous dalle béton et renforce la sécurité anti-fraude GPS
+                    </span>
+                  </div>
+                </label>
+
+                {hasWifiBox && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200/60 animate-fadeIn">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Nom du Réseau Wi-Fi (SSID)</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Orange_Pro_Siege, BAROUBA_WIFI..."
+                        value={newSiteWifiSsid}
+                        onChange={(e) => setNewSiteWifiSsid(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Adresse MAC Routeur / BSSID</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 68:9e:29:3b:43:08"
+                        value={newSiteWifiBssid}
+                        onChange={(e) => setNewSiteWifiBssid(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Boutons d'action */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setShowAddSiteModal(false)}
-                  className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-bold cursor-pointer"
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition cursor-pointer"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold shadow-md shadow-blue-500/20 cursor-pointer"
+                  disabled={!newSiteName.trim() || !newSiteCity.trim() || !newSiteLat || !newSiteLon}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-md shadow-blue-500/20 transition cursor-pointer flex items-center gap-1.5"
                 >
-                  Créer le Périmètre
+                  <Plus className="w-4 h-4" />
+                  <span>Créer le Périmètre</span>
                 </button>
               </div>
             </form>
