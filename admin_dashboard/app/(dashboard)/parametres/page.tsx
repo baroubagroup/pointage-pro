@@ -371,8 +371,8 @@ function ParametresContent() {
   const [detectingWifi, setDetectingWifi] = useState(false);
   const [detectingLocation, setDetectingLocation] = useState(false);
 
-  // Simulateur GPS (replié par défaut pour alléger l'interface)
-  const [showSimulator, setShowSimulator] = useState(false);
+  // Radar satellite & Simulateur WGS84 (replié / masqué par défaut pour alléger l'interface)
+  const [showRadarVisualizer, setShowRadarVisualizer] = useState(false);
   const [simLat, setSimLat] = useState<string>('11.247100');
   const [simLon, setSimLon] = useState<string>('-4.291750');
   const [simResult, setSimResult] = useState<{ inside: boolean; distance: number } | null>(null);
@@ -1651,106 +1651,148 @@ function ParametresContent() {
       {activeTab === 'sites' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-16 animate-fadeIn">
           
-          {/* Radar Visuel & Simulateur (7 colonnes sur desktop/laptop) */}
+          {/* Fiche Synthétique du Site Sélectionné & Radar à la Demande (7 colonnes sur desktop/laptop) */}
           <div className="lg:col-span-7 bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
+            {/* Header de la carte */}
             <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
-                  <Radar className="w-5 h-5 animate-spin" style={{ animationDuration: '8s' }} />
+                <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                  <MapPin className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
-                  <h4 className="font-extrabold text-sm text-slate-900">{selectedSite?.name}</h4>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-extrabold text-sm text-slate-900">{selectedSite?.name}</h4>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      {selectedSite?.isActive ? 'Actif' : 'Inactif'}
+                    </span>
+                  </div>
                   <p className="text-[11px] text-slate-500 font-mono">
-                    {selectedSite?.lat.toFixed(6)}° N, {selectedSite?.lon.toFixed(6)}° W • Rayon: {selectedSite?.radiusMeters}m
+                    {selectedSite?.city} • {selectedSite?.lat.toFixed(6)}° N, {selectedSite?.lon.toFixed(6)}° W
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={handleOpenAddSiteModal}
-                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-xs cursor-pointer"
+                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-xs cursor-pointer shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Nouveau Périmètre</span>
               </button>
             </div>
 
-            {/* Radar Canvas (Hauteur calibrée h-72 pour affichage immédiat sans scroll) */}
-            <div className="relative w-full h-72 bg-slate-950 overflow-hidden flex items-center justify-center select-none">
-              <div 
-                className="absolute inset-0 opacity-20 pointer-events-none"
-                style={{
-                  backgroundImage: 'linear-gradient(to right, #38bdf8 1px, transparent 1px), linear-gradient(to bottom, #38bdf8 1px, transparent 1px)',
-                  backgroundSize: '36px 36px'
-                }}
-              />
-              <div className="absolute w-[80%] aspect-square rounded-full border border-sky-500/20 pointer-events-none" />
-              <div className="absolute w-[60%] aspect-square rounded-full border border-sky-500/30 pointer-events-none" />
-              <div className="absolute w-[40%] aspect-square rounded-full border border-sky-500/40 pointer-events-none" />
-              <div className="absolute w-[20%] aspect-square rounded-full border border-sky-500/50 pointer-events-none" />
-              <div className="absolute w-full h-[1px] bg-sky-500/20 pointer-events-none" />
-              <div className="absolute h-full w-[1px] bg-sky-500/20 pointer-events-none" />
+            {/* Synthèse Métier Épurée (Light Bento UI) */}
+            <div className="p-4 sm:p-5 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/70">
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Rayon Satellite</span>
+                  <span className="text-base font-black text-slate-900 block mt-0.5">{selectedSite?.radiusMeters} mètres</span>
+                  <span className="text-[10px] text-emerald-600 font-semibold block mt-0.5">Tolérance WGS84 certifiée</span>
+                </div>
 
-              {/* Faisceau rotatif de balayage */}
-              <div 
-                className="absolute w-[80%] aspect-square rounded-full pointer-events-none"
-                style={{
-                  background: 'conic-gradient(from 0deg, rgba(56, 189, 248, 0.22) 0deg, transparent 60deg, transparent 360deg)',
-                  animation: 'spin 4s linear infinite'
-                }}
-              />
+                <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/70">
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Box Wi-Fi Réseau</span>
+                  <span className="text-xs font-bold text-slate-900 truncate block mt-1" title={selectedSite?.wifiSsid || 'Sans Wi-Fi'}>
+                    {selectedSite?.wifiSsid || 'Non déclarée'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 block truncate mt-0.5">
+                    {selectedSite?.wifiBssid || 'Anti-fraude satellite seul'}
+                  </span>
+                </div>
 
-              {/* Bulle de Géofencing autorisée (Parfaitement centrée sur le centroïde) */}
-              <div 
-                className="absolute rounded-full border-2 border-emerald-400 bg-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.3)] flex items-center justify-center pointer-events-none transition-all duration-500"
-                style={{
-                  width: `${Math.min(75, Math.max(30, (selectedSite?.radiusMeters || 80) * 0.45))}%`,
-                  aspectRatio: '1/1'
-                }}
-              >
-                <div className="text-[10px] font-mono font-extrabold text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/50">
-                  {selectedSite?.radiusMeters}m
+                <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/70">
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Effectif Rattaché</span>
+                  <span className="text-base font-black text-blue-600 block mt-0.5">{selectedSite?.activeCount} collaborateurs</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">Pointages autorisés ici</span>
                 </div>
               </div>
 
-              {/* Centoïde GPS (Pin vert central) */}
-              <div className="absolute z-20 flex flex-col items-center pointer-events-none">
-                <div className="w-5 h-5 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center shadow-lg">
-                  <div className="w-1.5 h-1.5 rounded-full bg-white" />
-                </div>
-                <div className="mt-1 bg-slate-900/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-md border border-slate-700 whitespace-nowrap shadow-md">
-                  📍 {selectedSite?.name}
-                </div>
+              {/* Barre d'action : Bouton Toggle Radar & Lien Maps */}
+              <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRadarVisualizer(!showRadarVisualizer)}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                    showRadarVisualizer
+                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                      : 'bg-blue-50 hover:bg-blue-100/80 text-blue-700 border-blue-200 shadow-2xs'
+                  }`}
+                >
+                  <Radar className={`w-3.5 h-3.5 ${showRadarVisualizer ? 'text-slate-600 animate-spin' : 'text-blue-600'}`} style={{ animationDuration: '6s' }} />
+                  <span>{showRadarVisualizer ? 'Masquer le Radar & Simulateur' : 'Afficher le Radar Satellite & Simulateur'}</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showRadarVisualizer ? 'rotate-180' : ''}`} />
+                </button>
+
+                <a
+                  href={`https://www.google.com/maps?q=${selectedSite?.lat},${selectedSite?.lon}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] font-bold text-slate-500 hover:text-blue-600 flex items-center gap-1.5 transition py-1 px-2 rounded-lg hover:bg-slate-100"
+                >
+                  <span>Voir sur Google Maps</span>
+                  <ExternalLink className="w-3 h-3 text-slate-400" />
+                </a>
               </div>
             </div>
 
-            {/* Testeur de simulation GPS & Actions Rapides - Replié par défaut */}
-            <div className="border-t border-slate-100 bg-slate-50/70">
-              {/* Barre de toggle à la demande */}
-              <button
-                type="button"
-                onClick={() => setShowSimulator(!showSimulator)}
-                className="w-full p-3.5 sm:px-5 flex items-center justify-between text-xs font-bold text-slate-700 hover:text-blue-600 hover:bg-slate-100/60 transition cursor-pointer select-none"
-              >
-                <div className="flex items-center gap-2">
-                  <Crosshair className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span>Simulateur de Position WGS84 & Test Satellite</span>
-                  <span className="text-[10px] font-semibold text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full ml-1">
-                    Optionnel
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 text-slate-500 font-semibold text-[11px]">
-                  <span>{showSimulator ? 'Replier' : 'Tester des coordonnées'}</span>
-                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${showSimulator ? 'rotate-180' : ''}`} />
-                </div>
-              </button>
+            {/* Radar Canvas & Simulateur (Affichés UNIQUEMENT à la demande) */}
+            {showRadarVisualizer && (
+              <div className="border-t border-slate-200 animate-fadeIn">
+                {/* Radar Canvas */}
+                <div className="relative w-full h-72 bg-slate-950 overflow-hidden flex items-center justify-center select-none">
+                  <div 
+                    className="absolute inset-0 opacity-20 pointer-events-none"
+                    style={{
+                      backgroundImage: 'linear-gradient(to right, #38bdf8 1px, transparent 1px), linear-gradient(to bottom, #38bdf8 1px, transparent 1px)',
+                      backgroundSize: '36px 36px'
+                    }}
+                  />
+                  <div className="absolute w-[80%] aspect-square rounded-full border border-sky-500/20 pointer-events-none" />
+                  <div className="absolute w-[60%] aspect-square rounded-full border border-sky-500/30 pointer-events-none" />
+                  <div className="absolute w-[40%] aspect-square rounded-full border border-sky-500/40 pointer-events-none" />
+                  <div className="absolute w-[20%] aspect-square rounded-full border border-sky-500/50 pointer-events-none" />
+                  <div className="absolute w-full h-[1px] bg-sky-500/20 pointer-events-none" />
+                  <div className="absolute h-full w-[1px] bg-sky-500/20 pointer-events-none" />
 
-              {/* Contenu affiché uniquement à la demande */}
-              {showSimulator && (
-                <div className="p-4 sm:p-5 pt-2 space-y-3 border-t border-slate-200/60 animate-fadeIn">
+                  {/* Faisceau rotatif de balayage */}
+                  <div 
+                    className="absolute w-[80%] aspect-square rounded-full pointer-events-none"
+                    style={{
+                      background: 'conic-gradient(from 0deg, rgba(56, 189, 248, 0.22) 0deg, transparent 60deg, transparent 360deg)',
+                      animation: 'spin 4s linear infinite'
+                    }}
+                  />
+
+                  {/* Bulle de Géofencing autorisée */}
+                  <div 
+                    className="absolute rounded-full border-2 border-emerald-400 bg-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.3)] flex items-center justify-center pointer-events-none transition-all duration-500"
+                    style={{
+                      width: `${Math.min(75, Math.max(30, (selectedSite?.radiusMeters || 80) * 0.45))}%`,
+                      aspectRatio: '1/1'
+                    }}
+                  >
+                    <div className="text-[10px] font-mono font-extrabold text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/50">
+                      {selectedSite?.radiusMeters}m
+                    </div>
+                  </div>
+
+                  {/* Centoïde GPS (Pin vert central) */}
+                  <div className="absolute z-20 flex flex-col items-center pointer-events-none">
+                    <div className="w-5 h-5 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center shadow-lg">
+                      <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                    </div>
+                    <div className="mt-1 bg-slate-900/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-md border border-slate-700 whitespace-nowrap shadow-md">
+                      📍 {selectedSite?.name}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Banc de test simulateur */}
+                <div className="p-4 sm:p-5 bg-slate-50/90 border-t border-slate-200 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-[11px] font-medium text-slate-500">
-                      Injectez des coordonnées virtuelles pour simuler un pointage mobile
+                    <span className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
+                      <Crosshair className="w-4 h-4 text-blue-600" />
+                      Test de Coordonnées WGS84
                     </span>
 
                     <div className="flex items-center gap-1.5 text-xs">
@@ -1818,8 +1860,8 @@ function ParametresContent() {
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Liste des Sites (5 colonnes sur desktop/laptop) */}
