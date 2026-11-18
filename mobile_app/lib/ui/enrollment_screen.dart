@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:app_links/app_links.dart';
 import '../models/employee_session.dart';
 import '../services/offline_sync_service.dart';
 import '../services/security_service.dart';
@@ -38,10 +39,78 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   Timer? _reverseEnrollPollingTimer;
   bool _isCheckingReverse = false;
 
+  // Deep Linking AppLinks
+  late final AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
+
   @override
   void initState() {
     super.initState();
     _loadDeviceMetadata();
+    _initDeepLinks();
+  }
+
+  Future<void> _initDeepLinks() async {
+    _appLinks = AppLinks();
+
+    // 1. Initial Link (Cold Start)
+    try {
+      final initialUri = await _appLinks.getInitialLink();
+      if (initialUri != null) {
+        _handleIncomingUri(initialUri);
+      }
+    } catch (e) {
+      debugPrint("DeepLink initial error: $e");
+    }
+
+    // 2. Stream de liens (Warm Start)
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      _handleIncomingUri(uri);
+    }, onError: (err) {
+      debugPrint("DeepLink stream error: $err");
+    });
+  }
+
+  void _handleIncomingUri(Uri uri) {
+    debugPrint("Incoming Deep Link captured: $uri");
+    final token = uri.queryParameters['token'];
+    final org = uri.queryParameters['org'];
+    final mat = uri.queryParameters['mat'];
+
+    if (token != null && token.isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _tokenInputController.text = token;
+          if (org != null && org.isNotEmpty) _orgCodeController.text = org;
+          if (mat != null && mat.isNotEmpty) _matriculeController.text = mat;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.auto_awesome, color: Colors.amber),
+                const SizedBox(width: 8),
+                Expanded(child: Text("Lien Magique détecté : $token")),
+              ],
+            ),
+            backgroundColor: const Color(0xFF1E293B),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+
+        // Lancement immédiat de la vérification et de l'enrôlement
+        _verifyAndEnroll(token);
+      }
+    } else if (org != null && mat != null) {
+      if (mounted) {
+        setState(() {
+          _selectedModeIndex = 1;
+          _orgCodeController.text = org;
+          _matriculeController.text = mat;
+        });
+      }
+    }
   }
 
   Future<void> _loadDeviceMetadata() async {
@@ -73,6 +142,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
 
   @override
   void dispose() {
+    _linkSubscription?.cancel();
     _reverseEnrollPollingTimer?.cancel();
     _tokenInputController.dispose();
     _orgCodeController.dispose();
