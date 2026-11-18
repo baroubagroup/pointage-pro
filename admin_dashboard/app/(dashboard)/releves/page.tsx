@@ -138,6 +138,9 @@ export default function RelevesPage() {
   const [selectedDept, setSelectedDept] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'OVERTIME' | 'LATE' | 'PERFECT'>('ALL');
   const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(null);
+  const [orgLogo, setOrgLogo] = useState<string | null>(null);
+  const [orgName, setOrgName] = useState('BAROUBA PRO');
+  const [holidays, setHolidays] = useState<any[]>([]);
 
   // Tri interactif
   const [sortField, setSortField] = useState<SortField>('name');
@@ -194,6 +197,19 @@ export default function RelevesPage() {
 
   useEffect(() => {
     fetchRecords();
+    if (typeof window !== 'undefined') {
+      const localLogo = localStorage.getItem('pointage_org_logo');
+      if (localLogo) setOrgLogo(localLogo);
+      const localName = localStorage.getItem('pointage_org_name');
+      if (localName) setOrgName(localName);
+      const localHolidays = localStorage.getItem('pointage_holidays');
+      if (localHolidays) {
+        try {
+          const parsed = JSON.parse(localHolidays);
+          if (Array.isArray(parsed)) setHolidays(parsed);
+        } catch {}
+      }
+    }
   }, []);
 
   const departments = useMemo(() => {
@@ -855,10 +871,23 @@ export default function RelevesPage() {
 
             {/* En-tête officiel imprimable */}
             <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">République de Côte d'Ivoire</span>
-                <h2 className="text-lg font-black text-slate-900">RELEVÉ MENSUEL DU TEMPS DE PRÉSENCE</h2>
-                <span className="text-xs text-slate-500 font-mono">Certificat d'Inviolabilité Satellite WGS84</span>
+              <div className="flex items-center gap-3">
+                {orgLogo ? (
+                  <img
+                    src={orgLogo}
+                    alt={orgName}
+                    className="w-12 h-12 rounded-2xl object-cover border border-slate-200 shadow-xs bg-white shrink-0"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white font-black text-lg flex items-center justify-center shadow-xs shrink-0">
+                    {orgName.slice(0, 1) || 'P'}
+                  </div>
+                )}
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{orgName}</span>
+                  <h2 className="text-lg font-black text-slate-900">RELEVÉ MENSUEL DU TEMPS DE PRÉSENCE</h2>
+                  <span className="text-xs text-slate-500 font-mono">Certificat d'Inviolabilité Satellite WGS84</span>
+                </div>
               </div>
               <div className="text-right">
                 <div className="flex items-center gap-1.5 text-emerald-600 text-xs font-bold justify-end">
@@ -938,6 +967,23 @@ export default function RelevesPage() {
                   <span className="font-mono text-slate-700">17:45</span>
                   <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full">Justifié</span>
                 </div>
+                {/* Jours fériés ou fermetures déclarées neutralisées */}
+                {holidays.map((h: any) => (
+                  <div key={h.id} className="p-3 flex items-center justify-between bg-emerald-50/50 hover:bg-emerald-50">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      <div>
+                        <span className="font-semibold text-slate-900 block">{h.name}</span>
+                        <span className="text-[10px] text-slate-500 font-mono">{h.date}</span>
+                      </div>
+                    </div>
+                    <span className="font-mono text-emerald-700 text-xs font-bold">Journée Non Travaillée</span>
+                    <span className="font-mono text-slate-400 text-xs">-</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
+                      Férié / Chômé Payé
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
 

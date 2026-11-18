@@ -28,6 +28,17 @@ function RejoindreContent() {
   const [copiedMat, setCopiedMat] = useState(false);
   const [deepLinkTriggered, setDeepLinkTriggered] = useState(false);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const [orgLogo, setOrgLogo] = useState<string | null>(null);
+  const [orgName, setOrgName] = useState<string>('PointagePro');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const localLogo = localStorage.getItem('pointage_org_logo');
+      if (localLogo) setOrgLogo(localLogo);
+      const localName = localStorage.getItem('pointage_org_name');
+      if (localName) setOrgName(localName);
+    }
+  }, []);
 
   // 1. Android Intent URI (Standard officiel Chrome Android)
   const androidIntentUrl = `intent://join?token=${token}&org=${org}&mat=${encodeURIComponent(mat)}#Intent;scheme=pointagepro;package=com.example.pointage_mobile;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;end`;
@@ -70,11 +81,19 @@ function RejoindreContent() {
       {/* En-tête officiel */}
       <header className="w-full max-w-md flex items-center justify-between py-4">
         <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center font-black text-white text-lg shadow-md shadow-blue-500/20">
-            P
-          </div>
+          {orgLogo ? (
+            <img
+              src={orgLogo}
+              alt={orgName}
+              className="w-10 h-10 rounded-2xl object-cover shadow-md border border-slate-200 bg-white"
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center font-black text-white text-lg shadow-md shadow-blue-500/20">
+              {orgName.slice(0, 1) || 'P'}
+            </div>
+          )}
           <div>
-            <h1 className="text-base font-extrabold text-slate-900 leading-tight">PointagePro</h1>
+            <h1 className="text-base font-extrabold text-slate-900 leading-tight">{orgName}</h1>
             <p className="text-[11px] text-slate-500">Portail d'Activation Mobile</p>
           </div>
         </div>
@@ -90,14 +109,22 @@ function RejoindreContent() {
           
           {/* Badge & Titre d'Accueil */}
           <div className="text-center space-y-2">
-            <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center mx-auto shadow-inner">
-              <Sparkles className="w-7 h-7" />
-            </div>
+            {orgLogo ? (
+              <img
+                src={orgLogo}
+                alt={orgName}
+                className="w-16 h-16 rounded-2xl object-cover mx-auto shadow-md border border-slate-200 bg-white"
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center mx-auto shadow-inner">
+                <Sparkles className="w-7 h-7" />
+              </div>
+            )}
             <h2 className="text-xl font-black text-slate-900 tracking-tight">
               Activation de votre Compte
             </h2>
             <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
-              Votre accès au système de pointage de présence a été préparé par votre établissement.
+              Votre accès au système de pointage officiel de <strong>{orgName}</strong> a été préparé par votre établissement.
             </p>
           </div>
 
