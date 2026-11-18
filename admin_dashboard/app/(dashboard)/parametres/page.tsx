@@ -787,7 +787,7 @@ function ParametresContent() {
   // Ouverture du modal de création de périmètre avec réinitialisation complète
   const handleOpenAddSiteModal = () => {
     setNewSiteName('');
-    setNewSiteCity(companyAddress ? companyAddress.split(',')[0].trim() : (sites[0]?.city || ''));
+    setNewSiteCity('');
     setNewSiteLat('');
     setNewSiteLon('');
     setNewSiteRadius('80');
