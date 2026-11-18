@@ -1649,10 +1649,10 @@ function ParametresContent() {
 
       {/* ==================== ONGLET 2 : SITES & RADAR GÉOFENCING ==================== */}
       {activeTab === 'sites' && (
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start animate-fadeIn">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-16 animate-fadeIn">
           
-          {/* Radar Visuel & Simulateur (7 colonnes) */}
-          <div className="xl:col-span-7 bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
+          {/* Radar Visuel & Simulateur (7 colonnes sur desktop/laptop) */}
+          <div className="lg:col-span-7 bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
             <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
@@ -1822,8 +1822,8 @@ function ParametresContent() {
             </div>
           </div>
 
-          {/* Liste des Sites (5 colonnes) */}
-          <div className="xl:col-span-5 space-y-3">
+          {/* Liste des Sites (5 colonnes sur desktop/laptop) */}
+          <div className="lg:col-span-5 space-y-3">
             <h4 className="font-extrabold text-xs text-slate-700 uppercase tracking-wider">
               Périmètres de Présence Déclarés ({sites.length})
             </h4>
