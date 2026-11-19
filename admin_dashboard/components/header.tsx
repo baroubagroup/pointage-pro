@@ -172,7 +172,7 @@ export function Header({ title, subtitle, actionButton }: HeaderProps) {
         { id: 'p-2', title: 'Journal des Pointages', subtitle: 'Registre d\'audit WGS84 et historique complet', type: 'page', href: '/pointages' },
         { id: 'p-3', title: 'Personnel & Effectif', subtitle: 'Gestion de l\'effectif et imports en masse', type: 'page', href: '/employes' },
         { id: 'p-4', title: 'Relevé d\'Assiduité & Paie', subtitle: 'Export Excel et calcul des heures supp', type: 'page', href: '/releves' },
-        { id: 'p-5', title: 'Sites & Radar Géofencing', subtitle: 'Périmètres satellite et box Wi-Fi', type: 'page', href: '/parametres?tab=sites' },
+        { id: 'p-5', title: 'Sites & Périmètres Géofencing', subtitle: 'Périmètres satellite WGS84 et box Wi-Fi', type: 'page', href: '/parametres?tab=sites' },
         { id: 'p-6', title: 'Paramètres & Hub Système', subtitle: `Code établissement (${currentOrgCode}) et règles`, type: 'page', href: '/parametres' }
       ]);
       return;

@@ -390,13 +390,6 @@ function ParametresContent() {
   const [modalWifiSuccess, setModalWifiSuccess] = useState<string | null>(null);
   const [modalWifiError, setModalWifiError] = useState<string | null>(null);
   const [detectingSiteCardWifi, setDetectingSiteCardWifi] = useState(false);
-  const [detectingLocation, setDetectingLocation] = useState(false);
-
-  // Radar satellite & Simulateur WGS84 (replié / masqué par défaut pour alléger l'interface)
-  const [showRadarVisualizer, setShowRadarVisualizer] = useState(false);
-  const [simLat, setSimLat] = useState<string>('11.247100');
-  const [simLon, setSimLon] = useState<string>('-4.291750');
-  const [simResult, setSimResult] = useState<{ inside: boolean; distance: number } | null>(null);
 
   // State Plannings
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -546,51 +539,6 @@ function ParametresContent() {
   const selectedSite = useMemo(() => {
     return sites.find(s => s.id === selectedSiteId) || sites[0] || FALLBACK_SITES[0];
   }, [sites, selectedSiteId]);
-
-  // Synchroniser le simulateur GPS dès que le site sélectionné change
-  // On initialise à ~14 mètres du centroïde du site pour qu'il soit immédiatement "AUTORISÉ"
-  useEffect(() => {
-    if (selectedSite) {
-      setSimLat((selectedSite.lat + 0.000100).toFixed(6));
-      setSimLon((selectedSite.lon + 0.000100).toFixed(6));
-    }
-  }, [selectedSite?.id]);
-
-  // Calcul du verdict simulateur GPS
-  useEffect(() => {
-    if (selectedSite && simLat && simLon) {
-      const sLat = parseFloat(simLat);
-      const sLon = parseFloat(simLon);
-      if (!isNaN(sLat) && !isNaN(sLon)) {
-        const dist = calculateDistanceMeters(selectedSite.lat, selectedSite.lon, sLat, sLon);
-        setSimResult({
-          distance: dist,
-          inside: dist <= selectedSite.radiusMeters
-        });
-      }
-    }
-  }, [selectedSite, simLat, simLon]);
-
-  // Détection GPS du navigateur
-  const handleDetectCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      alert("La géolocalisation n'est pas supportée par votre navigateur.");
-      return;
-    }
-    setDetectingLocation(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setSimLat(pos.coords.latitude.toFixed(6));
-        setSimLon(pos.coords.longitude.toFixed(6));
-        setDetectingLocation(false);
-      },
-      (err) => {
-        setDetectingLocation(false);
-        alert(`Erreur GPS: ${err.message}`);
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-  };
 
   // Handlers pour Code Canonique Haute Entropie
   const handleGenerateSecureCode = () => {
@@ -1152,7 +1100,7 @@ function ParametresContent() {
             }`}
           >
             <MapPin className="w-4 h-4" />
-            <span>Sites & Radar Géofencing</span>
+            <span>Sites & Géofencing Satellite</span>
           </button>
 
           <button
@@ -1778,7 +1726,7 @@ function ParametresContent() {
         </form>
       )}
 
-      {/* ==================== ONGLET 2 : SITES & RADAR GÉOFENCING ==================== */}
+      {/* ==================== ONGLET 2 : SITES & GÉOFENCING SATELLITE ==================== */}
       {activeTab === 'sites' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-16 animate-fadeIn">
           
