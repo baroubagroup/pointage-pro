@@ -40,6 +40,7 @@ const SETTINGS_SUB_ITEMS = [
   { tab: 'sites', label: 'Sites & Géofencing', icon: MapPin },
   { tab: 'plannings', label: 'Plannings & Horaires', icon: CalendarDays },
   { tab: 'securite', label: 'Sécurité Anti-Triche', icon: Shield },
+  { tab: 'editeur', label: 'Éditeur & Conception', icon: Sparkles },
 ];
 
 function SettingsNavSection({ 
@@ -455,7 +456,28 @@ export function Sidebar() {
         <div className={`p-4 border-t border-slate-800 ${isCollapsed ? 'flex flex-col items-center gap-3' : 'space-y-3'}`}>
           {!isCollapsed ? (
             <>
-              <div className="flex items-center justify-between text-[11px] text-slate-400 px-2">
+              {/* Badge Éditeur & Conception BAROUBA GROUP */}
+              <Link
+                href="/parametres?tab=editeur"
+                className="flex items-center gap-2.5 p-2 rounded-2xl bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/20 hover:border-amber-400/50 hover:bg-slate-800/80 transition group shadow-xs cursor-pointer"
+                title="BAROUBA GROUP • Éditeur & Concepteur de la solution"
+              >
+                <img
+                  src="/barouba-group-logo.png"
+                  alt="BAROUBA GROUP"
+                  className="w-7 h-7 rounded-full object-cover shrink-0 ring-2 ring-amber-500/30 group-hover:scale-105 transition duration-300"
+                />
+                <div className="flex flex-col text-[10px] leading-tight overflow-hidden">
+                  <span className="font-extrabold text-amber-300 group-hover:text-amber-200 transition truncate">
+                    BAROUBA GROUP
+                  </span>
+                  <span className="text-[9px] text-slate-400 truncate">
+                    Édité au Burkina Faso 🇧🇫
+                  </span>
+                </div>
+              </Link>
+
+              <div className="flex items-center justify-between text-[11px] text-slate-400 px-1 pt-0.5">
                 <span className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                   Supabase Live
@@ -472,6 +494,13 @@ export function Sidebar() {
             </>
           ) : (
             <>
+              <Link
+                href="/parametres?tab=editeur"
+                title="Édité par BAROUBA GROUP (Burkina Faso)"
+                className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-amber-500/30 hover:ring-amber-400 transition cursor-pointer flex items-center justify-center shrink-0"
+              >
+                <img src="/barouba-group-logo.png" alt="BAROUBA GROUP" className="w-full h-full object-cover" />
+              </Link>
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" title="Supabase Live Connecté"></span>
               <button
                 onClick={handleLogout}
