@@ -504,7 +504,7 @@ export function Sidebar() {
                     BAROUBA GROUP
                   </span>
                   <span className="text-[9px] text-slate-400 truncate">
-                    Édité au Burkina Faso 🇧🇫
+                    Édité au Burkina Faso
                   </span>
                 </div>
               </Link>
