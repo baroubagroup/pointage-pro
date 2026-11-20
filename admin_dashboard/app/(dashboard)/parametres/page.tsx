@@ -68,7 +68,7 @@ import {
 } from 'lucide-react';
 
 // ==================== INTERFACES ====================
-type SettingsTab = 'general' | 'sites' | 'plannings' | 'securite' | 'editeur';
+type SettingsTab = 'general' | 'sites' | 'plannings' | 'securite';
 
 interface HolidayExemption {
   id: string;
@@ -304,7 +304,7 @@ function ParametresContent() {
 
   // Synchronisation automatique et immédiate quand l'utilisateur clique dans la sidebar
   useEffect(() => {
-    if (tabFromUrl && ['general', 'sites', 'plannings', 'securite', 'editeur'].includes(tabFromUrl)) {
+    if (tabFromUrl && ['general', 'sites', 'plannings', 'securite'].includes(tabFromUrl)) {
       setActiveTab(tabFromUrl);
     }
   }, [tabFromUrl]);
@@ -408,7 +408,6 @@ function ParametresContent() {
   const [submittingSchedule, setSubmittingSchedule] = useState(false);
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
-  const [copiedContactEmail, setCopiedContactEmail] = useState(false);
 
   // Charger les données initiales
   useEffect(() => {
@@ -1127,18 +1126,6 @@ function ParametresContent() {
           >
             <Shield className="w-4 h-4" />
             <span>Sécurité & Anti-Triche</span>
-          </button>
-
-          <button
-            onClick={() => handleTabChange('editeur')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex-1 sm:flex-none justify-center cursor-pointer ${
-              activeTab === 'editeur'
-                ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white shadow-sm shadow-amber-600/30 ring-2 ring-amber-500/20'
-                : 'text-slate-600 hover:text-amber-800 hover:bg-amber-50/60'
-            }`}
-          >
-            <img src="/barouba-group-logo.png" alt="BAROUBA GROUP" className="w-4 h-4 rounded-full object-cover shrink-0" />
-            <span>Éditeur & Conception</span>
           </button>
         </div>
 
@@ -2360,181 +2347,6 @@ function ParametresContent() {
                 </p>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ==================== ONGLET 5 : ÉDITEUR & CONCEPTION (BAROUBA GROUP) ==================== */}
-      {activeTab === 'editeur' && (
-        <div className="space-y-6 animate-fadeIn pb-16">
-          {/* Carte Maîtresse : Hero Prestance BAROUBA GROUP */}
-          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-slate-950 via-slate-900 to-black border border-amber-500/30 p-8 sm:p-12 text-white shadow-2xl shadow-amber-950/20">
-            {/* Halos lumineux d'ambiance or & obsidian */}
-            <div className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-96 bg-amber-500/15 rounded-full blur-3xl" />
-            <div className="pointer-events-none absolute -bottom-24 right-0 w-80 h-80 bg-amber-600/10 rounded-full blur-3xl" />
-            <div className="pointer-events-none absolute top-1/2 left-0 w-64 h-64 bg-amber-400/5 rounded-full blur-3xl" />
-
-            <div className="relative z-10 flex flex-col items-center text-center max-w-3xl mx-auto space-y-7">
-              {/* Badge pays & savoir-faire */}
-              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold backdrop-blur-md shadow-xs">
-                <span>🇧🇫</span>
-                <span>Conçu & Édité au Burkina Faso • Architecture & Ingénierie Logicielle</span>
-              </div>
-
-              {/* Logo BAROUBA GROUP officiel en haute résolution avec couronne dorée */}
-              <div className="relative group">
-                <div className="absolute -inset-1.5 rounded-full bg-gradient-to-r from-amber-400 via-amber-600 to-amber-500 opacity-70 blur-md group-hover:opacity-100 transition duration-500" />
-                <div className="relative w-32 h-32 sm:w-36 sm:h-36 rounded-full overflow-hidden p-1.5 bg-gradient-to-br from-amber-300 via-amber-600 to-slate-950 shadow-2xl ring-4 ring-amber-500/30">
-                  <img
-                    src="/barouba-group-logo.png"
-                    alt="BAROUBA GROUP Logo"
-                    className="w-full h-full object-cover rounded-full bg-black"
-                  />
-                </div>
-              </div>
-
-              {/* Titre & Signature de marque */}
-              <div className="space-y-2">
-                <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white flex items-center justify-center gap-3">
-                  BAROUBA GROUP
-                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400 animate-pulse" />
-                </h2>
-                <p className="text-xs sm:text-sm font-bold text-amber-300 tracking-widest uppercase">
-                  Éditeur Officiel & Architecte Numérique
-                </p>
-              </div>
-
-              {/* Déclaration officielle de l'éditeur (Texte officiel verbatim) */}
-              <div className="w-full p-6 sm:p-8 rounded-3xl bg-white/5 border border-amber-500/20 backdrop-blur-md shadow-inner text-slate-100 text-sm sm:text-base leading-relaxed text-center font-normal">
-                <p className="leading-relaxed">
-                  « Cette solution est fièrement conçue et éditée au Burkina Faso par <strong className="text-amber-300 font-extrabold">BAROUBA GROUP</strong>. Au service de la performance des entreprises, nous bâtissons des architectures numériques robustes, conformes aux standards internationaux de sécurité et de scalabilité. »
-                </p>
-              </div>
-
-              {/* Actions & Coordonnées directes */}
-              <div className="w-full pt-1 flex flex-col sm:flex-row items-center justify-center gap-3.5">
-                <a
-                  href="mailto:contact@baroubagroup.com?subject=Demande%20d'information%20-%20PointagePro%20Enterprise"
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/25 transition duration-200 cursor-pointer active:scale-95"
-                >
-                  <Mail className="w-4 h-4 text-slate-950" />
-                  <span>📩 Service client & Contact : contact@baroubagroup.com</span>
-                </a>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText('contact@baroubagroup.com');
-                    setCopiedContactEmail(true);
-                    setToastMsg("Adresse contact@baroubagroup.com copiée dans le presse-papiers !");
-                    setTimeout(() => setCopiedContactEmail(false), 3000);
-                  }}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-slate-200 hover:text-white border border-amber-500/30 text-xs font-semibold transition duration-200 cursor-pointer active:scale-95 shadow-sm"
-                >
-                  {copiedContactEmail ? (
-                    <>
-                      <Check className="w-4 h-4 text-emerald-400" />
-                      <span className="text-emerald-300">Email copié !</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-4 h-4 text-amber-400" />
-                      <span>Copier l'adresse</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Ligne Copyright officielle verbatim */}
-              <div className="pt-6 border-t border-white/10 w-full flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-200 font-bold">© BAROUBA GROUP. Tous droits réservés.</span>
-                </div>
-                <div className="flex items-center gap-3 text-[11px] text-amber-300/80 font-medium">
-                  <span>Propriété Intellectuelle Déposée</span>
-                  <span>•</span>
-                  <span>Normes WGS84 & Sécurité Inviolable</span>
-                  <span>•</span>
-                  <span>Version Enterprise 2026.11</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Bento Grid : 3 Piliers d'Excellence & Vision Technique */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Pilier 1 */}
-            <div className="p-7 rounded-3xl bg-white border border-slate-200/80 shadow-xs hover:border-amber-400/50 hover:shadow-lg transition-all duration-300 flex flex-col justify-between">
-              <div className="space-y-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200/60 flex items-center justify-center text-amber-600">
-                  <Building2 className="w-6 h-6" />
-                </div>
-                <h3 className="font-black text-slate-900 text-base">Architectures Numériques Robustes</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Conception sur-mesure d'écosystèmes applicatifs distribués et résilients. Mode offline-first intelligent avec synchronisation incrémentale sécurisée dès le retour réseau.
-                </p>
-              </div>
-              <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-medium">
-                <span>Haute Disponibilité</span>
-                <span className="text-amber-600 font-bold">SLA 99.9%</span>
-              </div>
-            </div>
-
-            {/* Pilier 2 */}
-            <div className="p-7 rounded-3xl bg-white border border-slate-200/80 shadow-xs hover:border-blue-400/50 hover:shadow-lg transition-all duration-300 flex flex-col justify-between">
-              <div className="space-y-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200/60 flex items-center justify-center text-blue-600">
-                  <ShieldCheck className="w-6 h-6" />
-                </div>
-                <h3 className="font-black text-slate-900 text-base">Standards Internationaux de Sécurité</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Géofencing géodésique WGS84 avec calcul d'éloignement haversine invariant, validation sous dalle béton par BSSID Wi-Fi et scellement d'horodatage serveur inviolable.
-                </p>
-              </div>
-              <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-medium">
-                <span>Anti-Spoofing GPS</span>
-                <span className="text-blue-600 font-bold">Chiffrement AES-256</span>
-              </div>
-            </div>
-
-            {/* Pilier 3 */}
-            <div className="p-7 rounded-3xl bg-white border border-slate-200/80 shadow-xs hover:border-emerald-400/50 hover:shadow-lg transition-all duration-300 flex flex-col justify-between">
-              <div className="space-y-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200/60 flex items-center justify-center text-emerald-600">
-                  <Sparkles className="w-6 h-6" />
-                </div>
-                <h3 className="font-black text-slate-900 text-base">Scalabilité & Performance Entreprise</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Moteur de calcul capable de traiter des flux massifs de pointages en simultané pour les groupes multisites, universités, usines et grandes institutions publiques.
-                </p>
-              </div>
-              <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-medium">
-                <span>Multi-Tenancy</span>
-                <span className="text-emerald-600 font-bold">500 à 10 000+ usagers</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Bannière de contact institutionnel */}
-          <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-amber-950 border border-amber-500/20 text-white flex flex-col sm:flex-row items-center justify-between gap-6 shadow-xl">
-            <div className="space-y-1.5 text-center sm:text-left">
-              <div className="flex items-center justify-center sm:justify-start gap-2 text-amber-400 text-xs font-bold uppercase tracking-wider">
-                <Sparkles className="w-4 h-4" />
-                <span>Accompagnement & Déploiement Entreprise</span>
-              </div>
-              <h4 className="text-lg font-bold text-white">Besoin d'un module sur-mesure ou d'une intégration ERP / RH ?</h4>
-              <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-                Les équipes d'ingénieurs de BAROUBA GROUP vous accompagnent dans le déploiement sur site, la liaison API avec vos logiciels de paie et la configuration réseau avancée.
-              </p>
-            </div>
-
-            <a
-              href="mailto:contact@baroubagroup.com?subject=Projet%20Entreprise%20-%20BAROUBA%20GROUP"
-              className="shrink-0 inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-white hover:bg-amber-50 text-slate-950 font-bold text-xs transition duration-200 shadow-md cursor-pointer active:scale-95"
-            >
-              <Mail className="w-4 h-4 text-amber-600" />
-              <span>Prendre contact avec l'éditeur</span>
-            </a>
           </div>
         </div>
       )}

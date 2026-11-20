@@ -22,6 +22,7 @@ import {
   Shield,
   Clock,
   Sparkles,
+  Info,
   PanelLeftClose,
   PanelLeftOpen
 } from 'lucide-react';
@@ -40,7 +41,6 @@ const SETTINGS_SUB_ITEMS = [
   { tab: 'sites', label: 'Sites & Géofencing', icon: MapPin },
   { tab: 'plannings', label: 'Plannings & Horaires', icon: CalendarDays },
   { tab: 'securite', label: 'Sécurité Anti-Triche', icon: Shield },
-  { tab: 'editeur', label: 'Éditeur & Conception', icon: Sparkles },
 ];
 
 function SettingsNavSection({ 
@@ -449,6 +449,38 @@ export function Sidebar() {
                 isCollapsed={isCollapsed} 
               />
             </Suspense>
+
+            {/* Onglet Indépendant : À propos */}
+            <div className={`mt-2 ${isCollapsed ? 'px-0' : 'px-1'}`}>
+              <Link
+                href="/a-propos"
+                className={`w-full flex items-center ${isCollapsed ? 'justify-center p-3' : 'justify-between px-3 py-2.5'} rounded-2xl transition text-xs font-bold group relative cursor-pointer select-none ${
+                  pathname === '/a-propos'
+                    ? 'bg-amber-600 text-white shadow-sm shadow-amber-600/30 ring-1 ring-amber-400/40'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+                title="À propos • BAROUBA GROUP"
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="w-5 h-5 rounded-full overflow-hidden shrink-0 ring-1 ring-amber-400/50">
+                    <img src="/barouba-group-logo.png" alt="À propos" className="w-full h-full object-cover" />
+                  </div>
+                  {!isCollapsed && <span>À propos</span>}
+                </div>
+                {!isCollapsed && (
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                    pathname === '/a-propos' ? 'bg-amber-700 text-white' : 'bg-slate-800 text-amber-300 border border-amber-500/20'
+                  }`}>
+                    Éditeur
+                  </span>
+                )}
+                {isCollapsed && (
+                  <span className="absolute left-full ml-3 px-2.5 py-1 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition whitespace-nowrap z-50 border border-slate-700">
+                    À propos
+                  </span>
+                )}
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -458,7 +490,7 @@ export function Sidebar() {
             <>
               {/* Badge Éditeur & Conception BAROUBA GROUP */}
               <Link
-                href="/parametres?tab=editeur"
+                href="/a-propos"
                 className="flex items-center gap-2.5 p-2 rounded-2xl bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/20 hover:border-amber-400/50 hover:bg-slate-800/80 transition group shadow-xs cursor-pointer"
                 title="BAROUBA GROUP • Éditeur & Concepteur de la solution"
               >
@@ -495,7 +527,7 @@ export function Sidebar() {
           ) : (
             <>
               <Link
-                href="/parametres?tab=editeur"
+                href="/a-propos"
                 title="Édité par BAROUBA GROUP (Burkina Faso)"
                 className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-amber-500/30 hover:ring-amber-400 transition cursor-pointer flex items-center justify-center shrink-0"
               >
@@ -560,6 +592,14 @@ export function Sidebar() {
             }`}
           >
             Paramètres
+          </Link>
+          <Link
+            href="/a-propos"
+            className={`whitespace-nowrap px-3 py-1.5 rounded-xl font-bold transition ${
+              pathname === '/a-propos' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-300'
+            }`}
+          >
+            À propos
           </Link>
         </div>
       </div>
