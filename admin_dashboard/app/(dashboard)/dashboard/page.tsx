@@ -26,7 +26,8 @@ import {
   X,
   Building2,
   FileSpreadsheet,
-  AlertCircle
+  AlertCircle,
+  Smartphone
 } from 'lucide-react';
 
 interface Punch {
@@ -174,6 +175,24 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState<PeriodOption>('TODAY');
   const [selectedPunch, setSelectedPunch] = useState<Punch | null>(null);
+
+  // Bannière d'onboarding réussie pour les nouvelles entreprises
+  const [showOnboardingSuccess, setShowOnboardingSuccess] = useState(false);
+  const [onboardingOrgName, setOnboardingOrgName] = useState<string>('');
+  const [onboardingOrgCode, setOnboardingOrgCode] = useState<string>('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('onboarding') === 'success') {
+        setShowOnboardingSuccess(true);
+        const name = localStorage.getItem('pointage_org_name') || 'Votre Entreprise';
+        const code = localStorage.getItem('pointage_org_code') || 'ORG-2026';
+        setOnboardingOrgName(name);
+        setOnboardingOrgCode(code);
+      }
+    }
+  }, []);
 
   const fetchPunches = async () => {
     setLoading(true);
@@ -369,6 +388,67 @@ export default function DashboardPage() {
           </div>
         }
       />
+
+      {/* ==================== BANNIÈRE D'ONBOARDING ET BIENVENUE NOUVELLE ENTREPRISE ==================== */}
+      {showOnboardingSuccess && (
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 p-6 text-slate-950 shadow-xl shadow-amber-500/20 animate-fadeIn">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-black/10 flex items-center justify-center shrink-0">
+                <Sparkles className="w-6 h-6 text-slate-950" />
+              </div>
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-slate-950 text-amber-300 text-[11px] font-black uppercase tracking-wider">
+                  🎉 Entreprise Enregistrée • Essai 14 Jours Actif
+                </div>
+                <h2 className="text-xl font-black text-slate-950">
+                  Félicitations et bienvenue sur PointagePro{onboardingOrgName ? `, ${onboardingOrgName}` : ''} !
+                </h2>
+                <p className="text-xs text-slate-900 font-medium max-w-2xl leading-relaxed">
+                  Votre espace gérant multi-entreprises est prêt avec votre code organisation officiel :{' '}
+                  <strong className="font-mono font-black bg-slate-950 text-amber-300 px-2.5 py-0.5 rounded-lg text-xs tracking-wider">
+                    {onboardingOrgCode || 'ORG-ENT-2026-XXXX'}
+                  </strong>
+                  . Vos employés saisiront ce code sur l'application Android pour pointer par satellite.
+                </p>
+                
+                {/* 3 étapes guidées */}
+                <div className="flex flex-wrap items-center gap-2.5 pt-3">
+                  <Link
+                    href="/parametres"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-950 hover:bg-slate-900 text-white text-xs font-bold transition shadow-sm"
+                  >
+                    <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                    <span>1. Calibrer mon 1er site satellite</span>
+                  </Link>
+                  <Link
+                    href="/employes"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/70 hover:bg-white text-slate-950 text-xs font-bold transition border border-black/10"
+                  >
+                    <Users className="w-3.5 h-3.5 text-slate-950" />
+                    <span>2. Déclarer mes collaborateurs</span>
+                  </Link>
+                  <Link
+                    href="/apk"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/70 hover:bg-white text-slate-950 text-xs font-bold transition border border-black/10"
+                  >
+                    <Smartphone className="w-3.5 h-3.5 text-slate-950" />
+                    <span>3. Télécharger l'App Employé (APK)</span>
+                  </Link>
+                </div>
+              </div>
+            </div>
+            
+            <button
+              onClick={() => setShowOnboardingSuccess(false)}
+              className="p-1.5 rounded-xl hover:bg-black/10 text-slate-950 cursor-pointer transition"
+              title="Fermer ce message"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ==================== SÉLECTEUR TEMPOREL MULTI-PÉRIODES ==================== */}
       <div className="bg-white p-3.5 rounded-3xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">

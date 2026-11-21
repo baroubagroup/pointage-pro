@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Lock, Mail, ShieldCheck, ArrowRight, Building } from 'lucide-react';
@@ -151,8 +152,18 @@ export default function LoginPage() {
           </button>
         </form>
 
+        {/* Lien Inscription Nouvelle Entreprise */}
+        <div className="mt-5 text-center pt-4 border-t border-slate-700/60">
+          <p className="text-xs text-slate-400">
+            Votre entreprise n'a pas encore de compte ?{' '}
+            <Link href="/register" className="text-amber-400 hover:text-amber-300 font-bold transition">
+              Créer mon entreprise (Essai 14j gratuit) →
+            </Link>
+          </p>
+        </div>
+
         {/* Accès Démo Rapide */}
-        <div className="mt-6 pt-6 border-t border-slate-700/60 text-center">
+        <div className="mt-4 pt-4 border-t border-slate-700/60 text-center">
           <p className="text-xs text-slate-400 mb-3">Session administrateur prête pour démonstration</p>
           <button
             type="button"

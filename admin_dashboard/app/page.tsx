@@ -103,7 +103,7 @@ export default function LandingPage() {
               Espace Gérant
             </Link>
             <Link
-              href="/dashboard"
+              href="/register"
               className="hidden sm:inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 hover:shadow-lg hover:shadow-amber-500/25 transition active:scale-95"
             >
               <span>Essai Gratuit 14 Jours</span>
@@ -145,7 +145,7 @@ export default function LandingPage() {
           {/* Boutons d'Action Principaux */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
             <Link
-              href="/dashboard"
+              href="/register"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/25 transition duration-200 active:scale-95 cursor-pointer"
             >
               <span>Démarrer l'essai gratuit de 14 jours</span>
@@ -475,7 +475,7 @@ export default function LandingPage() {
             {/* CTA dans le simulateur */}
             <div className="pt-2 text-center">
               <Link
-                href="/dashboard"
+                href="/register"
                 className="inline-flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/25 transition active:scale-95"
               >
                 <span>Démarrer sans payer avec {employeeCount} employés</span>
@@ -539,7 +539,7 @@ export default function LandingPage() {
               </div>
 
               <Link
-                href="/dashboard"
+                href="/register?plan=starter"
                 className="w-full py-3.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs text-center transition"
               >
                 Choisir Starter
@@ -589,7 +589,7 @@ export default function LandingPage() {
               </div>
 
               <Link
-                href="/dashboard"
+                href="/register?plan=croissance"
                 className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-xs text-center shadow-lg shadow-amber-500/25 transition active:scale-95"
               >
                 Démarrer 14 Jours Gratuits
@@ -634,7 +634,7 @@ export default function LandingPage() {
               </div>
 
               <Link
-                href="/dashboard"
+                href="/register?plan=illimite"
                 className="w-full py-3.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs text-center transition"
               >
                 Choisir Illimité
@@ -763,7 +763,7 @@ export default function LandingPage() {
 
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
-                href="/dashboard"
+                href="/register"
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/25 transition active:scale-95"
               >
                 <span>Démarrer mon essai gratuit</span>
