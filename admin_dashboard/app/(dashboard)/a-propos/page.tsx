@@ -114,8 +114,6 @@ export default function AProposPage() {
               <span className="text-slate-200 font-bold">© BAROUBA GROUP. Tous droits réservés.</span>
             </div>
             <div className="flex items-center gap-2 text-[10px] text-amber-300/80 font-medium">
-              <span>Propriété Intellectuelle Déposée</span>
-              <span>•</span>
               <span>Version Enterprise 2026.11</span>
             </div>
           </div>
