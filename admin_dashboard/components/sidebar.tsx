@@ -28,7 +28,8 @@ import {
   Sparkles,
   Info,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Smartphone
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -38,6 +39,7 @@ const OP_ITEMS = [
   { href: '/employes', label: 'Personnel & Effectif', icon: Users },
   { href: '/releves', label: 'Relevés & Heures RH', icon: FileSpreadsheet },
   { href: '/justifications', label: 'Justifications', icon: ClipboardCheck },
+  { href: '/maquette-gerant', label: 'App Gérant Mobile', icon: Smartphone },
 ];
 
 const SETTINGS_SUB_ITEMS = [
