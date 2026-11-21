@@ -59,9 +59,9 @@ export default function EmployeesPage() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // Organization & Magic Link States
-  const [currentOrgId, setCurrentOrgId] = useState<string>(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') || '00000000-0000-0000-0000-000000000001' : '00000000-0000-0000-0000-000000000001'));
-  const [orgCode, setOrgCode] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') || 'ORG-8492' : 'ORG-8492'));
-  const [orgName, setOrgName] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_name') || 'BAROUBA PRO' : 'BAROUBA PRO'));
+  const [currentOrgId, setCurrentOrgId] = useState<string>(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') || '' : ''));
+  const [orgCode, setOrgCode] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') || '' : ''));
+  const [orgName, setOrgName] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_name') || '' : ''));
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
 
@@ -465,8 +465,8 @@ export default function EmployeesPage() {
     setMassImportProgress(0);
 
     const supabase = createClient();
-    const siteId = massSiteId || selectedSiteId || (establishments[0]?.id ?? '00000000-0000-0000-0000-000000000010');
-    const scheduleId = massScheduleId || selectedScheduleId || (schedules[0]?.id ?? '00000000-0000-0000-0000-000000000001');
+    const siteId = massSiteId || selectedSiteId || (establishments[0]?.id ?? null);
+    const scheduleId = massScheduleId || selectedScheduleId || (schedules[0]?.id ?? null);
 
     const newlyCreated: any[] = [];
     const total = massValidRows.length;

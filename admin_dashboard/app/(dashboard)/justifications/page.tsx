@@ -17,31 +17,6 @@ interface Justification {
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
 }
 
-const FALLBACK_JUSTIFICATIONS: Justification[] = [
-  {
-    id: 'justif-1',
-    name: 'Traoré Fatou',
-    role: 'Responsable Magasin',
-    date: 'Aujourd\'hui (15/11)',
-    type: 'Retard de 16 min (Arrivée à 07h46)',
-    delayMinutes: 16,
-    category: 'Transport / Embouteillage',
-    reason: 'Ralentissement majeur sur le boulevard principal suite à des travaux de voirie.',
-    status: 'PENDING'
-  },
-  {
-    id: 'justif-2',
-    name: 'Kouassi Jean-Marc',
-    role: 'Chef d\'équipe Logistique',
-    date: '12/11/2026',
-    type: 'Dépassement Pause Déjeuner (22 min)',
-    delayMinutes: 22,
-    category: 'Rendez-vous Fournisseur',
-    reason: 'Réception imprévue d\'une livraison de matériel sur le quai extérieur.',
-    status: 'APPROVED'
-  }
-];
-
 export default function JustificationsPage() {
   const [items, setItems] = useState<Justification[]>([]);
   const [loading, setLoading] = useState(false);

@@ -6,10 +6,10 @@ const execAsync = promisify(exec);
 
 export async function GET() {
   try {
-    // 1. Sur environnement Windows (machine du gérant/serveur local)
+    // 1. Détection sur environnement Windows
     if (process.platform === 'win32') {
       try {
-        const { stdout } = await execAsync('netsh wlan show interfaces', { encoding: 'utf8', timeout: 3000 });
+        const { stdout } = await execAsync('netsh wlan show interfaces', { encoding: 'utf8', timeout: 4000 });
         
         let ssid = '';
         let bssid = '';
@@ -17,18 +17,18 @@ export async function GET() {
         const lines = stdout.split('\n');
         for (const line of lines) {
           const trimmed = line.trim();
-          // Détection SSID
-          if ((trimmed.startsWith('SSID') || trimmed.includes('SSID')) && !trimmed.includes('BSSID') && !trimmed.includes('identificateur')) {
-            const parts = trimmed.split(':');
-            if (parts.length >= 2) {
-              const val = parts.slice(1).join(':').trim();
-              if (val && !ssid) ssid = val;
-            }
+
+          // Détection du SSID principal (ex: "SSID                   : ABDEL")
+          const ssidMatch = trimmed.match(/^\s*SSID\s*:\s*(.+)$/i);
+          if (ssidMatch && !ssid && !trimmed.toLowerCase().includes('bssid') && !trimmed.toLowerCase().includes('point')) {
+            ssid = ssidMatch[1].trim();
           }
-          // Détection BSSID / Point d'accès
-          if (trimmed.includes('BSSID') || trimmed.includes("Point d'accès")) {
-            const macMatch = trimmed.match(/([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}/);
-            if (macMatch && !bssid) {
+
+          // Détection du BSSID / Adresse MAC du point d'accès (tolérance apostrophe Unicode et ASCII)
+          const macMatch = trimmed.match(/([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}/);
+          if (macMatch && !bssid) {
+            const lower = trimmed.toLowerCase();
+            if (lower.includes('bssid') || lower.includes('point') || lower.includes('accès') || lower.includes('acces') || lower.includes('identificateur')) {
               bssid = macMatch[0].toLowerCase();
             }
           }
@@ -37,11 +37,11 @@ export async function GET() {
         if (ssid || bssid) {
           return NextResponse.json({
             success: true,
-            ssid: ssid || 'Wi-Fi_Entreprise',
-            bssid: bssid || '68:9e:29:3b:43:08',
+            ssid: ssid || 'Wi-Fi_Connecte',
+            bssid: bssid || null,
             verified: true,
             source: 'hardware_interface',
-            message: 'Interface Wi-Fi détectée avec succès sur le système'
+            message: `Réseau Wi-Fi réel détecté : ${ssid || 'Connecté'}`
           });
         }
       } catch (err) {
@@ -49,21 +49,33 @@ export async function GET() {
       }
     }
 
-    // 2. Fallback dynamique (Vercel Cloud ou interface sans netsh)
+    // 2. Sur environnement Linux / Android
+    if (process.platform === 'linux') {
+      try {
+        const { stdout } = await execAsync('iwgetid -r', { encoding: 'utf8', timeout: 2000 });
+        const ssid = stdout.trim();
+        if (ssid) {
+          return NextResponse.json({
+            success: true,
+            ssid,
+            bssid: null,
+            verified: true,
+            source: 'linux_wireless',
+            message: `Réseau Wi-Fi réel détecté : ${ssid}`
+          });
+        }
+      } catch {}
+    }
+
+    // 3. Si aucun Wi-Fi matériel n'est connecté : réponse HONNÊTE sans AUCUNE donnée fictive
     return NextResponse.json({
-      success: true,
-      ssid: 'FAMILLE SAKO',
-      bssid: '68:9e:29:3b:43:08',
-      verified: true,
-      source: 'enterprise_gateway',
-      message: 'Empreinte Wi-Fi Box certifiée pour cet établissement'
+      success: false,
+      error: "Aucun réseau Wi-Fi connecté n'a pu être scanné sur cette machine. Vous pouvez renseigner manuellement le nom de votre Box (SSID)."
     });
   } catch (e: any) {
     return NextResponse.json({
       success: false,
-      ssid: 'FAMILLE SAKO',
-      bssid: '68:9e:29:3b:43:08',
-      error: e.message
+      error: e.message || "Erreur lors de la détection Wi-Fi"
     });
   }
 }

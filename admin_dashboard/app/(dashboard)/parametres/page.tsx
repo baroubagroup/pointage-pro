@@ -241,21 +241,6 @@ const DAY_LABELS = [
   { day: 7, label: 'Dim', full: 'Dimanche' },
 ];
 
-const FALLBACK_SITES: SimpleSite[] = [
-  {
-    id: '00000000-0000-0000-0000-000000000010',
-    name: 'Siège Principal Ouagadougou',
-    city: 'Ouagadougou',
-    lat: 11.247000,
-    lon: -4.291800,
-    radiusMeters: 120,
-    wifiSsid: 'FAMILLE SAKO',
-    wifiBssid: 'FAMILLE SAKO (68:9e:29:3b:43:08)',
-    activeCount: 11,
-    isActive: true
-  }
-];
-
 // Calcul Haversine en mètres
 function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371e3;
@@ -315,9 +300,9 @@ function ParametresContent() {
   };
 
   // State Général & Isolation Multi-Entreprises
-  const [currentOrgId, setCurrentOrgId] = useState<string>(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') || '00000000-0000-0000-0000-000000000001' : '00000000-0000-0000-0000-000000000001'));
-  const [orgName, setOrgName] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_name') || 'BAROUBA PRO' : 'BAROUBA PRO'));
-  const [orgCode, setOrgCode] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') || 'ORG-8492' : 'ORG-8492'));
+  const [currentOrgId, setCurrentOrgId] = useState<string>(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') || '' : ''));
+  const [orgName, setOrgName] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_name') || '' : ''));
+  const [orgCode, setOrgCode] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') || '' : ''));
   const [orgLogo, setOrgLogo] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -828,8 +813,8 @@ function ParametresContent() {
       const res = await fetch('/api/wifi/current');
       const data = await res.json();
       if (data && data.success && (data.ssid || data.bssid)) {
-        const ssid = data.ssid || 'Wi-Fi_Entreprise';
-        const bssid = data.bssid || '68:9e:29:3b:43:08';
+        const ssid = data.ssid || 'Wi-Fi_Bureau';
+        const bssid = data.bssid || '';
         setSites(prev => prev.map(s => {
           if (s.id === selectedSiteId) {
             return {
@@ -934,12 +919,18 @@ function ParametresContent() {
 
   // Copier les coordonnées du site principal comme base
   const handleUseHqCoords = () => {
-    const hq = sites[0] || FALLBACK_SITES[0];
+    const hq = sites[0];
     if (hq) {
       setNewSiteLat(hq.lat.toFixed(6));
       setNewSiteLon(hq.lon.toFixed(6));
       if (!newSiteCity.trim()) setNewSiteCity(hq.city);
       setModalGpsSuccess(`Coordonnées du site de référence (${hq.name}) appliquées`);
+      setModalGpsError(null);
+    } else {
+      setNewSiteLat('11.180600');
+      setNewSiteLon('-4.294900');
+      if (!newSiteCity.trim()) setNewSiteCity('Bobo-Dioulasso');
+      setModalGpsSuccess('Coordonnées initiales (Bobo-Dioulasso) appliquées');
       setModalGpsError(null);
     }
   };
@@ -1049,7 +1040,7 @@ function ParametresContent() {
       const actualAfternoonStart = newSchedCategory === 'Continu' ? morningStart : lunchEnd;
 
       const { data, error } = await supabase.from('pointage_schedules').insert({
-        org_id: '00000000-0000-0000-0000-000000000001',
+        org_id: currentOrgId,
         name: newSchedName.trim(),
         category: newSchedCategory,
         working_days: selectedDays,
@@ -1284,7 +1275,7 @@ function ParametresContent() {
                 type="text"
                 value={orgName}
                 onChange={(e) => setOrgName(e.target.value)}
-                placeholder="Ex: GROUPE SCOLAIRE LES LAURÉATS ou BAROUBA PRO"
+                placeholder="Ex: GROUPE SCOLAIRE LES LAURÉATS ou SAHEL BTP"
                 className="w-full text-sm bg-slate-50/80 hover:bg-white focus:bg-white border border-slate-200 focus:border-blue-500 rounded-2xl px-4 py-3 text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-500/10 font-bold transition shadow-2xs"
               />
             </div>
@@ -2539,8 +2530,8 @@ function ParametresContent() {
                       <DynamicSiteGeofenceMap
                         name={newSiteName || 'Nouveau Site'}
                         city={newSiteCity || 'Établissement'}
-                        lat={parseFloat(newSiteLat) || (sites[0]?.lat ?? 11.247)}
-                        lon={parseFloat(newSiteLon) || (sites[0]?.lon ?? -4.2918)}
+                        lat={parseFloat(newSiteLat) || (sites[0]?.lat ?? 11.1806)}
+                        lon={parseFloat(newSiteLon) || (sites[0]?.lon ?? -4.2949)}
                         radiusMeters={parseInt(newSiteRadius, 10) || 80}
                         mode="picker"
                         defaultStyle="satellite"
@@ -2672,7 +2663,7 @@ function ParametresContent() {
                         </div>
                         <input
                           type="text"
-                          placeholder="Ex: 68:9e:29:3b:43:08"
+                          placeholder="Ex: 6a:9e:29:2b:43:08"
                           value={newSiteWifiBssid}
                           onChange={(e) => setNewSiteWifiBssid(e.target.value)}
                           className="w-full bg-white border border-slate-200 focus:border-blue-600 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-800 font-bold transition"

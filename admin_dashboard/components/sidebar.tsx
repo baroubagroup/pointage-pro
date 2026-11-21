@@ -244,9 +244,15 @@ export function Sidebar() {
       const localCode = localStorage.getItem('pointage_org_code');
       if (localCode) setOrgCode(localCode);
       const localName = localStorage.getItem('pointage_org_name');
-      if (localName) setOrgName(localName);
       const localId = localStorage.getItem('pointage_org_id');
-      if (localId) setCurrentOrgId(localId);
+      if (localName === 'BAROUBA PRO' || localId === '00000000-0000-0000-0000-000000000001') {
+        localStorage.removeItem('pointage_org_name');
+        localStorage.removeItem('pointage_org_id');
+        localStorage.removeItem('pointage_org_code');
+      } else {
+        if (localName) setOrgName(localName);
+        if (localId) setCurrentOrgId(localId);
+      }
     }
   }, []);
 

@@ -18,8 +18,8 @@ export function getLocalActiveOrgInfo(): { id: string | null; name: string; code
     return { id: null, name: 'Entreprise', code: 'ORG-PRO' };
   }
   const id = localStorage.getItem('pointage_org_id') || getCookie('pointage_active_org_id');
-  const name = localStorage.getItem('pointage_org_name') || 'BAROUBA PRO';
-  const code = localStorage.getItem('pointage_org_code') || getCookie('pointage_active_org_code') || 'ORG-8492';
+  const name = localStorage.getItem('pointage_org_name') || 'PointagePro';
+  const code = localStorage.getItem('pointage_org_code') || getCookie('pointage_active_org_code') || '';
   return { id, name, code };
 }
 
