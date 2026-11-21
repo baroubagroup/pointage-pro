@@ -59,8 +59,9 @@ export default function EmployeesPage() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // Organization & Magic Link States
-  const [orgCode, setOrgCode] = useState('ORG-8492');
-  const [orgName, setOrgName] = useState('BAROUBA POINTAGE PRO');
+  const [currentOrgId, setCurrentOrgId] = useState<string>(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') || '00000000-0000-0000-0000-000000000001' : '00000000-0000-0000-0000-000000000001'));
+  const [orgCode, setOrgCode] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') || 'ORG-8492' : 'ORG-8492'));
+  const [orgName, setOrgName] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_name') || 'BAROUBA PRO' : 'BAROUBA PRO'));
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
 
@@ -129,26 +130,44 @@ export default function EmployeesPage() {
     setLoading(true);
     try {
       const supabase = createClient();
+      const activeOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
+      const activeOrgCode = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') : null;
 
       // 0. Charger l'organisation & code multi-tenant
-      const { data: orgData } = await supabase
+      let orgQuery = supabase
         .from('pointage_organizations')
-        .select('name, org_code')
-        .limit(1)
-        .single();
+        .select('id, name, org_code');
+      if (activeOrgId) {
+        orgQuery = orgQuery.eq('id', activeOrgId);
+      } else if (activeOrgCode && activeOrgCode !== 'ORG-8492') {
+        orgQuery = orgQuery.eq('org_code', activeOrgCode);
+      } else {
+        orgQuery = orgQuery.order('created_at', { ascending: false }).limit(1);
+      }
+      const { data: orgData } = await orgQuery.single();
+
+      let resolvedOrgId = activeOrgId || currentOrgId;
       if (orgData) {
+        resolvedOrgId = orgData.id;
+        setCurrentOrgId(orgData.id);
         if (orgData.org_code) setOrgCode(orgData.org_code);
         if (orgData.name) setOrgName(orgData.name);
       }
 
-      // 1. Charger les sites
-      const { data: estData } = await supabase
+      // 1. Charger les sites de cette entreprise
+      let estQuery = supabase
         .from('pointage_establishments')
         .select('id, name, city')
         .eq('is_active', true);
+      if (resolvedOrgId) {
+        estQuery = estQuery.eq('org_id', resolvedOrgId);
+      }
+      const { data: estData } = await estQuery;
       if (estData && estData.length > 0) {
         setEstablishments(estData);
         if (!selectedSiteId) setSelectedSiteId(estData[0].id);
+      } else {
+        setEstablishments([]);
       }
 
       // 2. Charger les plannings
@@ -161,11 +180,15 @@ export default function EmployeesPage() {
         if (!selectedScheduleId) setSelectedScheduleId(schedData[0].id);
       }
 
-      // 3. Charger les employés
-      const { data: empData, error } = await supabase
+      // 3. Charger les employés de cette entreprise uniquement
+      let empQuery = supabase
         .from('pointage_employees')
         .select('*, pointage_establishments(id, name), pointage_schedules(id, name, morning_start, afternoon_end)')
         .order('created_at', { ascending: false });
+      if (resolvedOrgId) {
+        empQuery = empQuery.eq('org_id', resolvedOrgId);
+      }
+      const { data: empData, error } = await empQuery;
 
       if (empData && empData.length > 0) {
         const mapped: Employee[] = empData.map((d: any) => {
@@ -189,6 +212,8 @@ export default function EmployeesPage() {
           };
         });
         setEmployees(mapped);
+      } else {
+        setEmployees([]);
       }
     } catch (err) {
       console.warn('Erreur fetch employees:', err);
@@ -246,9 +271,9 @@ export default function EmployeesPage() {
     try {
       const supabase = createClient();
       await supabase.from('pointage_employees').insert({
-        org_id: '00000000-0000-0000-0000-000000000001',
-        default_establishment_id: selectedSiteId || '00000000-0000-0000-0000-000000000010',
-        schedule_id: selectedScheduleId || '00000000-0000-0000-0000-000000000001',
+        org_id: currentOrgId,
+        default_establishment_id: selectedSiteId || (establishments[0]?.id || null),
+        schedule_id: selectedScheduleId || (schedules[0]?.id || null),
         full_name: newName.trim(),
         employee_matricule: matricule,
         email: `${newName.toLowerCase().replace(/[^a-z0-9]/g, '')}@pointagepro.bf`,
@@ -465,7 +490,7 @@ export default function EmployeesPage() {
           });
 
           return {
-            org_id: '00000000-0000-0000-0000-000000000001',
+            org_id: currentOrgId,
             default_establishment_id: siteId,
             schedule_id: scheduleId,
             full_name: r.fullName,

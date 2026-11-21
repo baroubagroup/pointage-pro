@@ -113,38 +113,67 @@ export default function RegisterPage() {
       const finalCode = activeOrgCode;
       const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-      // 1. Tenter la création dans Supabase
+      // 1. Création de l'entreprise dans Supabase avec les colonnes vérifiées
+      let orgId: string | null = null;
       try {
-        await supabase.from('pointage_organizations').insert([
-          {
-            name: companyName.trim(),
-            org_code: finalCode,
-            timezone: 'Africa/Ouagadougou',
-            created_at: new Date().toISOString(),
-            security_config: {
-              manager_name: managerName.trim(),
-              manager_email: email.trim(),
-              manager_phone: phone.trim(),
-              sector_profile: sector,
-              city: city.trim(),
-              country: country,
-              employee_range: employeeRange,
-              trial_active: true,
-              trial_ends_at: trialEndsAt,
-              require_biometrics: true,
-              require_selfie: false,
-              allow_offline: true,
-              hard_block_mock_gps: true,
-              support_contact: phone.trim() || 'contact@baroubagroup.com'
+        const { data: insertedOrg, error: orgErr } = await supabase
+          .from('pointage_organizations')
+          .insert([
+            {
+              name: companyName.trim(),
+              org_code: finalCode,
+              city: city.trim() || 'Ouagadougou',
+              country: country || 'Burkina Faso',
+              latitude: 11.247051,
+              longitude: -4.291915,
+              created_at: new Date().toISOString(),
+              security_config: {
+                manager_name: managerName.trim(),
+                manager_email: email.trim(),
+                manager_phone: phone.trim(),
+                sector_profile: sector,
+                city: city.trim(),
+                country: country,
+                employee_range: employeeRange,
+                trial_active: true,
+                trial_ends_at: trialEndsAt,
+                require_biometrics: true,
+                require_selfie: false,
+                allow_offline: true,
+                hard_block_mock_gps: true,
+                support_contact: phone.trim() || 'contact@baroubagroup.com'
+              }
             }
-          }
-        ]);
+          ])
+          .select()
+          .single();
+
+        if (orgErr) {
+          console.warn("Erreur insertion organisation:", orgErr);
+        } else if (insertedOrg?.id) {
+          orgId = insertedOrg.id;
+          
+          // 2. Création automatique du premier site géofencé pour cette nouvelle entreprise
+          await supabase.from('pointage_establishments').insert([
+            {
+              org_id: orgId,
+              name: `Siège Principal - ${companyName.trim()}`,
+              city: city.trim() || 'Ouagadougou',
+              latitude: 11.247051,
+              longitude: -4.291915,
+              radius_meters: 80,
+              elastic_radius_meters: 150,
+              is_active: true
+            }
+          ]);
+        }
       } catch (dbErr) {
         console.warn("Notice: insertion directe Supabase (mode offline/fallback actif):", dbErr);
       }
 
-      // 2. Mémorisation locale pour mise à jour immédiate de l'interface
+      // 3. Mémorisation locale et cookies d'isolation multi-entreprises
       if (typeof window !== 'undefined') {
+        if (orgId) localStorage.setItem('pointage_org_id', orgId);
         localStorage.setItem('pointage_org_name', companyName.trim());
         localStorage.setItem('pointage_org_code', finalCode);
         localStorage.setItem('pointage_manager_name', managerName.trim());
@@ -153,10 +182,14 @@ export default function RegisterPage() {
         localStorage.setItem('pointage_trial_ends_at', trialEndsAt);
       }
 
-      // 3. Poser le cookie de session gérant authentifié
+      // 4. Poser les cookies de session et d'organisation active
+      if (orgId) {
+        document.cookie = `pointage_active_org_id=${orgId}; path=/; max-age=86400; SameSite=Lax`;
+      }
+      document.cookie = `pointage_active_org_code=${finalCode}; path=/; max-age=86400; SameSite=Lax`;
       document.cookie = 'pointage_manager_session=manager_authenticated; path=/; max-age=86400; SameSite=Lax';
 
-      // 4. Redirection vers le tableau de bord avec notification d'onboarding
+      // 5. Redirection vers le tableau de bord avec notification d'onboarding
       router.push('/dashboard?onboarding=success');
     } catch (err: any) {
       console.error(err);

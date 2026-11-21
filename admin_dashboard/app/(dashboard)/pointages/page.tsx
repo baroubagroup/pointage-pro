@@ -195,7 +195,7 @@ type FilterType = 'ALL' | 'CHECK_IN' | 'CHECK_OUT' | 'BREAK' | 'VALIDATED' | 'LA
 type TimeFilter = 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'ALL_TIME';
 
 export default function PointagesPage() {
-  const [punches, setPunches] = useState<Punch[]>(FALLBACK_PUNCHES);
+  const [punches, setPunches] = useState<Punch[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<FilterType>('ALL');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('TODAY');
@@ -207,7 +207,9 @@ export default function PointagesPage() {
     setLoading(true);
     try {
       const supabase = createClient();
-      const { data, error } = await supabase
+      const activeOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
+
+      let logsQuery = supabase
         .from('pointage_logs')
         .select(`
           *,
@@ -223,6 +225,11 @@ export default function PointagesPage() {
         `)
         .order('recorded_at_utc', { ascending: false })
         .limit(200);
+
+      if (activeOrgId) {
+        logsQuery = logsQuery.eq('org_id', activeOrgId);
+      }
+      const { data, error } = await logsQuery;
 
       if (data && data.length > 0) {
         const mapped: Punch[] = data.map((d: any) => {
@@ -284,6 +291,8 @@ export default function PointagesPage() {
         });
 
         setPunches(mapped);
+      } else {
+        setPunches([]);
       }
     } catch (err) {
       console.warn('Fallback pointages punches error:', err);

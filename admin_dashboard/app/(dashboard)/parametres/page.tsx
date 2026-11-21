@@ -314,9 +314,10 @@ function ParametresContent() {
     router.push(`/parametres?tab=${tab}`, { scroll: false });
   };
 
-  // State Général
-  const [orgName, setOrgName] = useState('BAROUBA POINTAGE PRO');
-  const [orgCode, setOrgCode] = useState('ORG-8492');
+  // State Général & Isolation Multi-Entreprises
+  const [currentOrgId, setCurrentOrgId] = useState<string>(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') || '00000000-0000-0000-0000-000000000001' : '00000000-0000-0000-0000-000000000001'));
+  const [orgName, setOrgName] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_name') || 'BAROUBA PRO' : 'BAROUBA PRO'));
+  const [orgCode, setOrgCode] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') || 'ORG-8492' : 'ORG-8492'));
   const [orgLogo, setOrgLogo] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -372,8 +373,8 @@ function ParametresContent() {
   };
 
   // State Sites & Radar
-  const [sites, setSites] = useState<SimpleSite[]>(FALLBACK_SITES);
-  const [selectedSiteId, setSelectedSiteId] = useState<string>(FALLBACK_SITES[0].id);
+  const [sites, setSites] = useState<SimpleSite[]>([]);
+  const [selectedSiteId, setSelectedSiteId] = useState<string>('');
   const [showAddSiteModal, setShowAddSiteModal] = useState(false);
   const [newSiteName, setNewSiteName] = useState('');
   const [newSiteCity, setNewSiteCity] = useState('');
@@ -414,18 +415,32 @@ function ParametresContent() {
     const fetchData = async () => {
       try {
         const supabase = createClient();
-        
-        // 1. Org settings
-        const { data: orgData } = await supabase
-          .from('pointage_organizations')
-          .select('*')
-          .limit(1)
-          .single();
+        const activeOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
+        const activeOrgCode = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') : null;
 
+        // 1. Org settings isolés pour cette entreprise
+        let orgQuery = supabase.from('pointage_organizations').select('*');
+        if (activeOrgId) {
+          orgQuery = orgQuery.eq('id', activeOrgId);
+        } else if (activeOrgCode && activeOrgCode !== 'ORG-8492') {
+          orgQuery = orgQuery.eq('org_code', activeOrgCode);
+        } else {
+          orgQuery = orgQuery.order('created_at', { ascending: false }).limit(1);
+        }
+
+        const { data: orgData } = await orgQuery.single();
+
+        let resolvedOrgId = activeOrgId || currentOrgId;
         if (orgData) {
+          resolvedOrgId = orgData.id;
+          setCurrentOrgId(orgData.id);
           if (orgData.name) setOrgName(orgData.name);
           if (orgData.org_code) setOrgCode(orgData.org_code);
-          if (orgData.timezone) setTimezone(orgData.timezone);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('pointage_org_id', orgData.id);
+            localStorage.setItem('pointage_org_name', orgData.name);
+            localStorage.setItem('pointage_org_code', orgData.org_code);
+          }
           if (orgData.security_config) {
             setSecurityConfig(prev => ({ ...prev, ...orgData.security_config }));
             if (orgData.security_config.sector_profile) {
@@ -466,16 +481,23 @@ function ParametresContent() {
           }
         }
 
-        // 2. Sites
-        const { data: sitesData } = await supabase
+        // 2. Sites géofencés de CETTE organisation uniquement
+        let sitesQuery = supabase
           .from('pointage_establishments')
           .select('*')
-          .eq('is_active', true)
-          .order('name');
+          .eq('is_active', true);
+        if (resolvedOrgId) {
+          sitesQuery = sitesQuery.eq('org_id', resolvedOrgId);
+        }
+        const { data: sitesData } = await sitesQuery.order('name');
 
-        const { data: empEstabs } = await supabase
+        let empEstabsQuery = supabase
           .from('pointage_employees')
           .select('default_establishment_id');
+        if (resolvedOrgId) {
+          empEstabsQuery = empEstabsQuery.eq('org_id', resolvedOrgId);
+        }
+        const { data: empEstabs } = await empEstabsQuery;
 
         const estabCountMap: Record<string, number> = {};
         empEstabs?.forEach((emp: any) => {
@@ -499,6 +521,8 @@ function ParametresContent() {
           }));
           setSites(mapped);
           setSelectedSiteId(mapped[0].id);
+        } else {
+          setSites([]);
         }
 
         // 3. Schedules
@@ -538,7 +562,7 @@ function ParametresContent() {
   }, []);
 
   const selectedSite = useMemo(() => {
-    return sites.find(s => s.id === selectedSiteId) || sites[0] || FALLBACK_SITES[0];
+    return sites.find(s => s.id === selectedSiteId) || sites[0] || null;
   }, [sites, selectedSiteId]);
 
   // Handlers pour Code Canonique Haute Entropie
@@ -627,7 +651,7 @@ function ParametresContent() {
       const supabase = createClient();
       supabase.from('pointage_organizations').update({
         security_config: { ...securityConfig, holidays: updated, org_logo: orgLogo || undefined }
-      }).eq('id', '00000000-0000-0000-0000-000000000001').then();
+      }).eq('id', currentOrgId).then();
     } catch {}
 
     setShowAddHolidayModal(false);
@@ -648,7 +672,7 @@ function ParametresContent() {
       const supabase = createClient();
       supabase.from('pointage_organizations').update({
         security_config: { ...securityConfig, holidays: updated, org_logo: orgLogo || undefined }
-      }).eq('id', '00000000-0000-0000-0000-000000000001').then();
+      }).eq('id', currentOrgId).then();
     } catch {}
     setToastMsg('Exemption supprimée.');
     setTimeout(() => setToastMsg(null), 2500);
@@ -673,7 +697,7 @@ function ParametresContent() {
       const supabase = createClient();
       supabase.from('pointage_organizations').update({
         security_config: { ...securityConfig, holidays: merged, org_logo: orgLogo || undefined }
-      }).eq('id', '00000000-0000-0000-0000-000000000001').then();
+      }).eq('id', currentOrgId).then();
     } catch {}
     setToastMsg(`${DEFAULT_HOLIDAY_PRESETS.length} jours fériés officiels importés !`);
     setTimeout(() => setToastMsg(null), 3000);
@@ -713,10 +737,9 @@ function ParametresContent() {
         .update({
           name: orgName,
           org_code: orgCode.toUpperCase().trim(),
-          timezone: timezone,
           security_config: mergedConfig
         })
-        .eq('id', '00000000-0000-0000-0000-000000000001');
+        .eq('id', currentOrgId);
 
       setSaved(true);
       setToastMsg('Paramètres d\'organisation, logo et clé multi-tenant enregistrés avec succès !');
@@ -748,7 +771,7 @@ function ParametresContent() {
       await supabase
         .from('pointage_organizations')
         .update({ security_config: updated })
-        .eq('id', '00000000-0000-0000-0000-000000000001');
+        .eq('id', currentOrgId);
       setToastMsg(`Règle mise à jour avec succès`);
       setTimeout(() => setToastMsg(null), 3000);
     } catch (e) {
@@ -964,7 +987,7 @@ function ParametresContent() {
     try {
       const supabase = createClient();
       await supabase.from('pointage_establishments').insert({
-        org_id: '00000000-0000-0000-0000-000000000001',
+        org_id: currentOrgId,
         name: newSiteName.trim(),
         city: newSiteCity.trim() || 'Principal',
         latitude: parsedLat,
@@ -1840,7 +1863,23 @@ function ParametresContent() {
             </h4>
 
             <div className="space-y-3 max-h-[580px] overflow-y-auto pr-1">
-              {sites.map((site) => {
+              {sites.length === 0 ? (
+                <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-slate-300">
+                  <MapPin className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                  <p className="text-xs font-bold text-slate-800">Aucun périmètre configuré</p>
+                  <p className="text-[11px] text-slate-400 mt-1 max-w-xs mx-auto">
+                    Définissez les coordonnées GPS et le rayon de détection satellite pour cette entreprise.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleOpenAddSiteModal}
+                    className="mt-4 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition"
+                  >
+                    + Configurer mon 1er site
+                  </button>
+                </div>
+              ) : (
+                sites.map((site) => {
                 const isSelected = site.id === selectedSiteId;
                 return (
                   <div
@@ -1891,7 +1930,7 @@ function ParametresContent() {
                     </div>
                   </div>
                 );
-              })}
+              }))}
             </div>
           </div>
         </div>

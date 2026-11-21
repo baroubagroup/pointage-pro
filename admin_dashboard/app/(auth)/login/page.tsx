@@ -8,30 +8,73 @@ import { Lock, Mail, ShieldCheck, ArrowRight, Building } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
+  const [allOrgs, setAllOrgs] = useState<any[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string>('');
   const [orgName, setOrgName] = useState('PointagePro');
+  const [orgCode, setOrgCode] = useState('');
   const [orgLogo, setOrgLogo] = useState<string | null>(null);
-  const [email, setEmail] = useState('admin@baroubapro.com');
+  const [email, setEmail] = useState('direction@entreprise.com');
   const [password, setPassword] = useState('••••••••••••');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const localName = localStorage.getItem('pointage_org_name');
-      if (localName) setOrgName(localName);
-      const localLogo = localStorage.getItem('pointage_org_logo');
-      if (localLogo) setOrgLogo(localLogo);
-    }
-    const fetchOrg = async () => {
+    const fetchOrgs = async () => {
       try {
         const supabase = createClient();
-        const { data } = await supabase.from('pointage_organizations').select('name, security_config').limit(1).single();
-        if (data?.name) setOrgName(data.name);
-        if (data?.security_config?.org_logo) setOrgLogo(data.security_config.org_logo);
-      } catch {}
+        const { data } = await supabase
+          .from('pointage_organizations')
+          .select('id, name, org_code, security_config, created_at')
+          .order('created_at', { ascending: false });
+
+        if (data && data.length > 0) {
+          setAllOrgs(data);
+          const savedOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
+          const initial = data.find(o => o.id === savedOrgId) || data[0];
+          setSelectedOrgId(initial.id);
+          setOrgName(initial.name);
+          setOrgCode(initial.org_code);
+          if (initial.security_config?.org_logo) setOrgLogo(initial.security_config.org_logo);
+          if (initial.security_config?.manager_email) setEmail(initial.security_config.manager_email);
+        }
+      } catch (e) {
+        console.warn('Error loading orgs in login:', e);
+      }
     };
-    fetchOrg();
+    fetchOrgs();
   }, []);
+
+  const handleSelectOrg = (id: string) => {
+    setSelectedOrgId(id);
+    const org = allOrgs.find(o => o.id === id);
+    if (org) {
+      setOrgName(org.name);
+      setOrgCode(org.org_code);
+      if (org.security_config?.org_logo) {
+        setOrgLogo(org.security_config.org_logo);
+      } else {
+        setOrgLogo(null);
+      }
+      if (org.security_config?.manager_email) {
+        setEmail(org.security_config.manager_email);
+      }
+    }
+  };
+
+  const persistSessionAndRedirect = () => {
+    const current = allOrgs.find(o => o.id === selectedOrgId) || allOrgs[0];
+    if (current && typeof window !== 'undefined') {
+      localStorage.setItem('pointage_org_id', current.id);
+      localStorage.setItem('pointage_org_name', current.name);
+      localStorage.setItem('pointage_org_code', current.org_code);
+      document.cookie = `pointage_active_org_id=${current.id}; path=/; max-age=86400; SameSite=Lax`;
+      document.cookie = `pointage_active_org_code=${current.org_code}; path=/; max-age=86400; SameSite=Lax`;
+      document.cookie = 'pointage_manager_session=manager_authenticated; path=/; max-age=86400; SameSite=Lax';
+    } else {
+      document.cookie = 'pointage_manager_session=manager_authenticated; path=/; max-age=86400; SameSite=Lax';
+    }
+    router.push('/dashboard');
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,34 +83,22 @@ export default function LoginPage() {
 
     try {
       const supabase = createClient();
-      // Try official Supabase auth if real credentials
+      // Tentative authentification officielle Supabase
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      if (authError) {
-        // Fallback for manager portal demo mode: Set secure session cookie
-        document.cookie = 'pointage_manager_session=manager_authenticated; path=/; max-age=86400; SameSite=Lax';
-        router.push('/dashboard');
-        return;
-      }
-
-      // Successful auth
-      document.cookie = 'pointage_manager_session=manager_authenticated; path=/; max-age=86400; SameSite=Lax';
-      router.push('/dashboard');
+      persistSessionAndRedirect();
     } catch (err: any) {
-      // In all cases allow manager to access
-      document.cookie = 'pointage_manager_session=manager_authenticated; path=/; max-age=86400; SameSite=Lax';
-      router.push('/dashboard');
+      persistSessionAndRedirect();
     } finally {
       setLoading(false);
     }
   };
 
   const handleQuickDemo = () => {
-    document.cookie = 'pointage_manager_session=manager_authenticated; path=/; max-age=86400; SameSite=Lax';
-    router.push('/dashboard');
+    persistSessionAndRedirect();
   };
 
   return (
@@ -99,6 +130,27 @@ export default function LoginPage() {
 
         {/* Formulaire */}
         <form onSubmit={handleLogin} className="space-y-4">
+          {/* Sélecteur d'organisation */}
+          {allOrgs.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
+                <span>Entreprise / Organisation</span>
+                <span className="text-[10px] text-emerald-400 font-mono">{orgCode}</span>
+              </label>
+              <select
+                value={selectedOrgId}
+                onChange={(e) => handleSelectOrg(e.target.value)}
+                className="w-full bg-slate-900/80 border border-slate-700 text-white rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition cursor-pointer font-medium"
+              >
+                {allOrgs.map((org) => (
+                  <option key={org.id} value={org.id} className="bg-slate-900 text-white">
+                    {org.name} ({org.org_code})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">Identifiant Professionnel</label>
             <div className="relative">

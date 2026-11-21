@@ -131,7 +131,7 @@ type SortField = 'name' | 'actualHours' | 'overtimeHours' | 'totalLateMinutes' |
 type SortOrder = 'asc' | 'desc';
 
 export default function RelevesPage() {
-  const [records, setRecords] = useState<AttendanceRecord[]>(FALLBACK_RECORDS);
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState('Novembre 2026');
   const [searchQuery, setSearchQuery] = useState('');
@@ -139,7 +139,7 @@ export default function RelevesPage() {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'OVERTIME' | 'LATE' | 'PERFECT'>('ALL');
   const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(null);
   const [orgLogo, setOrgLogo] = useState<string | null>(null);
-  const [orgName, setOrgName] = useState('BAROUBA PRO');
+  const [orgName, setOrgName] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_name') || 'Votre Entreprise' : 'Votre Entreprise'));
   const [holidays, setHolidays] = useState<any[]>([]);
 
   // Tri interactif
@@ -157,15 +157,27 @@ export default function RelevesPage() {
     setLoading(true);
     try {
       const supabase = createClient();
-      const { data: emps, error } = await supabase
+      const activeOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
+
+      let empQuery = supabase
         .from('pointage_employees')
         .select('*, pointage_establishments(name)')
         .order('full_name');
 
+      if (activeOrgId) {
+        empQuery = empQuery.eq('org_id', activeOrgId);
+      }
+      const { data: emps, error } = await empQuery;
+
       // Récupérer les pointages réels pour calculer les heures réelles et retards
-      const { data: logs } = await supabase
+      let logsQuery = supabase
         .from('pointage_logs')
         .select('employee_id, punch_type, status, flag_reasons, recorded_at_utc');
+
+      if (activeOrgId) {
+        logsQuery = logsQuery.eq('org_id', activeOrgId);
+      }
+      const { data: logs } = await logsQuery;
 
       if (emps && emps.length > 0) {
         const mapped: AttendanceRecord[] = emps.map((e: any, idx: number) => {
@@ -201,9 +213,12 @@ export default function RelevesPage() {
           };
         });
         setRecords(mapped);
+      } else {
+        setRecords([]);
       }
     } catch (err) {
       console.warn('Fallback releves error:', err);
+      setRecords([]);
     } finally {
       setLoading(false);
     }

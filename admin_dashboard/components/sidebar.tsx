@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { 
@@ -19,6 +19,10 @@ import {
   ClipboardList,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
+  ChevronsUpDown,
+  PlusCircle,
+  CheckCircle2,
   Shield,
   Clock,
   Sparkles,
@@ -170,22 +174,46 @@ function SettingsNavSection({
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const [orgName, setOrgName] = useState('BAROUBA PRO');
-  const [orgCode, setOrgCode] = useState('ORG-8492');
+  const [orgName, setOrgName] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_name') || 'PointagePro' : 'PointagePro'));
+  const [orgCode, setOrgCode] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') || 'ORG-PRO' : 'ORG-PRO'));
+  const [currentOrgId, setCurrentOrgId] = useState<string | null>(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null));
   const [orgLogo, setOrgLogo] = useState<string | null>(null);
+  const [allOrgs, setAllOrgs] = useState<any[]>([]);
+  const [showOrgDropdown, setShowOrgDropdown] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [pendingJustifCount, setPendingJustifCount] = useState<number>(0);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fermer le menu déroulant en cliquant à l'extérieur
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowOrgDropdown(false);
+      }
+    };
+    if (showOrgDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showOrgDropdown]);
 
   // Charger les justifications réelles en attente depuis Supabase
   useEffect(() => {
     const fetchPendingJustifs = async () => {
       try {
         const supabase = createClient();
-        const { count } = await supabase
+        const activeId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
+        let query = supabase
           .from('pointage_justifications')
           .select('id', { count: 'exact', head: true })
           .eq('status', 'PENDING');
+        if (activeId) {
+          query = query.eq('org_id', activeId);
+        }
+        const { count } = await query;
         setPendingJustifCount(count || 0);
       } catch {}
     };
@@ -202,7 +230,7 @@ export function Sidebar() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [currentOrgId]);
 
   // Charger la préférence de pliage depuis localStorage au montage
   useEffect(() => {
@@ -215,6 +243,10 @@ export function Sidebar() {
       if (localLogo) setOrgLogo(localLogo);
       const localCode = localStorage.getItem('pointage_org_code');
       if (localCode) setOrgCode(localCode);
+      const localName = localStorage.getItem('pointage_org_name');
+      if (localName) setOrgName(localName);
+      const localId = localStorage.getItem('pointage_org_id');
+      if (localId) setCurrentOrgId(localId);
     }
   }, []);
 
@@ -232,18 +264,56 @@ export function Sidebar() {
     const fetchOrg = async () => {
       try {
         const supabase = createClient();
-        const { data } = await supabase
+        const activeId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
+        const activeCode = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') : null;
+        const localName = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_name') : null;
+
+        // Récupérer toutes les entreprises enregistrées
+        const { data: orgsList } = await supabase
           .from('pointage_organizations')
-          .select('name, org_code, security_config')
-          .limit(1)
-          .single();
-        if (data) {
-          if (data.name) setOrgName(data.name);
-          if (data.org_code) setOrgCode(data.org_code);
-          if (data.security_config?.org_logo) {
-            setOrgLogo(data.security_config.org_logo);
+          .select('id, name, org_code, security_config, created_at')
+          .order('created_at', { ascending: false });
+
+        if (orgsList && orgsList.length > 0) {
+          setAllOrgs(orgsList);
+
+          const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+          const isOnboardingSuccess = urlParams?.get('onboarding') === 'success';
+
+          let current: any = null;
+
+          // Si on vient de créer une entreprise, prendre la toute dernière créée
+          if (isOnboardingSuccess) {
+            current = orgsList[0];
+          } else if (activeId) {
+            current = orgsList.find(o => o.id === activeId);
+          } else if (activeCode && activeCode !== 'ORG-8492' && activeCode !== 'ORG-PRO') {
+            current = orgsList.find(o => o.org_code === activeCode);
+          }
+
+          if (!current && localName && localName !== 'PointagePro') {
+            current = orgsList.find(o => o.name?.toLowerCase() === localName.toLowerCase());
+          }
+
+          if (!current) {
+            current = orgsList[0];
+          }
+
+          if (current) {
+            setOrgName(current.name);
+            setOrgCode(current.org_code);
+            setCurrentOrgId(current.id);
+            if (current.security_config?.org_logo) {
+              setOrgLogo(current.security_config.org_logo);
+            } else {
+              setOrgLogo(null);
+            }
             if (typeof window !== 'undefined') {
-              localStorage.setItem('pointage_org_logo', data.security_config.org_logo);
+              localStorage.setItem('pointage_org_id', current.id);
+              localStorage.setItem('pointage_org_name', current.name);
+              localStorage.setItem('pointage_org_code', current.org_code);
+              document.cookie = `pointage_active_org_id=${current.id}; path=/; max-age=86400; SameSite=Lax`;
+              document.cookie = `pointage_active_org_code=${current.org_code}; path=/; max-age=86400; SameSite=Lax`;
             }
           }
         }
@@ -254,7 +324,7 @@ export function Sidebar() {
     fetchOrg();
 
     // Écouteur de mise à jour instantanée du logo/nom/code depuis les Paramètres
-    const handleOrgUpdate = (e: any) => {
+    const handleOrgUpdate = () => {
       if (typeof window !== 'undefined') {
         const localLogo = localStorage.getItem('pointage_org_logo');
         if (localLogo !== null) setOrgLogo(localLogo);
@@ -262,11 +332,34 @@ export function Sidebar() {
         if (localName) setOrgName(localName);
         const localCode = localStorage.getItem('pointage_org_code');
         if (localCode) setOrgCode(localCode);
+        const localId = localStorage.getItem('pointage_org_id');
+        if (localId) setCurrentOrgId(localId);
       }
     };
     window.addEventListener('pointage_org_updated', handleOrgUpdate);
     return () => window.removeEventListener('pointage_org_updated', handleOrgUpdate);
   }, []);
+
+  const handleSwitchOrg = (targetOrg: any) => {
+    setOrgName(targetOrg.name);
+    setOrgCode(targetOrg.org_code);
+    setCurrentOrgId(targetOrg.id);
+    if (targetOrg.security_config?.org_logo) {
+      setOrgLogo(targetOrg.security_config.org_logo);
+    } else {
+      setOrgLogo(null);
+    }
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pointage_org_id', targetOrg.id);
+      localStorage.setItem('pointage_org_name', targetOrg.name);
+      localStorage.setItem('pointage_org_code', targetOrg.org_code);
+      document.cookie = `pointage_active_org_id=${targetOrg.id}; path=/; max-age=86400; SameSite=Lax`;
+      document.cookie = `pointage_active_org_code=${targetOrg.org_code}; path=/; max-age=86400; SameSite=Lax`;
+      window.dispatchEvent(new Event('pointage_org_updated'));
+    }
+    setShowOrgDropdown(false);
+    window.location.reload();
+  };
 
   const handleCopyCode = (e?: React.MouseEvent) => {
     if (e) {
@@ -280,6 +373,8 @@ export function Sidebar() {
 
   const handleLogout = async () => {
     document.cookie = 'pointage_manager_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = 'pointage_active_org_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = 'pointage_active_org_code=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     try {
       const supabase = createClient();
       await supabase.auth.signOut();
@@ -310,9 +405,12 @@ export function Sidebar() {
           <div className={`p-4 border-b border-slate-800 ${isCollapsed ? 'flex flex-col items-center gap-3' : ''}`}>
             
             {/* Ligne En-tête : Logo, Nom, et Bouton Replier/Déplier */}
-            <div className="flex items-center justify-between w-full">
-              <div className={`flex items-center ${isCollapsed ? 'justify-center w-full' : 'space-x-3 overflow-hidden min-w-0'}`}>
-                
+            <div className="flex items-center justify-between w-full relative" ref={dropdownRef}>
+              <div 
+                onClick={() => !isCollapsed && setShowOrgDropdown(prev => !prev)}
+                className={`flex items-center ${isCollapsed ? 'justify-center w-full' : 'space-x-3 overflow-hidden min-w-0 cursor-pointer group hover:opacity-90 transition'}`}
+                title={isCollapsed ? orgName : "Changer d'organisation"}
+              >
                 {/* Logo personnalisé ou Avatar Monogramme */}
                 {orgLogo ? (
                   <img
@@ -327,13 +425,16 @@ export function Sidebar() {
                 )}
 
                 {!isCollapsed && (
-                  <div className="overflow-hidden min-w-0">
-                    <h1 className="font-extrabold text-sm leading-tight tracking-wide text-white truncate" title={orgName}>
-                      {orgName}
-                    </h1>
+                  <div className="overflow-hidden min-w-0 flex-1">
+                    <div className="flex items-center gap-1">
+                      <h1 className="font-extrabold text-sm leading-tight tracking-wide text-white truncate" title={orgName}>
+                        {orgName}
+                      </h1>
+                      <ChevronsUpDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-white transition shrink-0" />
+                    </div>
                     <p className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5 mt-0.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                      Gouvernance WGS84
+                      Multi-Tenant Actif
                     </p>
                   </div>
                 )}
@@ -349,6 +450,59 @@ export function Sidebar() {
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
+              )}
+
+              {/* Dropdown Sélecteur Multi-Entreprises Desktop */}
+              {showOrgDropdown && !isCollapsed && (
+                <div className="absolute top-full left-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-2 z-50 animate-fadeIn text-left">
+                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-700/60 flex items-center justify-between">
+                    <span>Vos Entreprises</span>
+                    <span className="text-emerald-400 font-semibold">{allOrgs.length} active{allOrgs.length > 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto space-y-1 my-1.5 pr-0.5">
+                    {allOrgs.map((org) => {
+                      const isCurrent = org.id === currentOrgId || org.org_code === orgCode;
+                      const initial = org.name ? org.name.substring(0, 2).toUpperCase() : 'OR';
+                      return (
+                        <button
+                          key={org.id}
+                          type="button"
+                          onClick={() => handleSwitchOrg(org)}
+                          className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition cursor-pointer ${
+                            isCurrent
+                              ? 'bg-blue-600/30 text-white border border-blue-500/50 font-bold'
+                              : 'text-slate-300 hover:bg-slate-700/60 hover:text-white'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {org.security_config?.org_logo ? (
+                              <img src={org.security_config.org_logo} alt={org.name} className="w-6 h-6 rounded-lg object-cover bg-white shrink-0" />
+                            ) : (
+                              <div className="w-6 h-6 rounded-lg bg-blue-600 text-white font-bold text-[10px] flex items-center justify-center shrink-0">
+                                {initial}
+                              </div>
+                            )}
+                            <div className="text-left truncate">
+                              <span className="font-bold block truncate">{org.name}</span>
+                              <span className="text-[10px] font-mono text-slate-400 block truncate">{org.org_code}</span>
+                            </div>
+                          </div>
+                          {isCurrent && (
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-xs shrink-0 ml-1"></span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <Link
+                    href="/register"
+                    onClick={() => setShowOrgDropdown(false)}
+                    className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-400 hover:text-amber-300 hover:bg-slate-700/50 rounded-xl transition border-t border-slate-700/60"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    <span>+ Nouvelle Entreprise</span>
+                  </Link>
+                </div>
               )}
             </div>
 
@@ -549,7 +703,11 @@ export function Sidebar() {
       {/* 2. BARRE DE NAVIGATION MOBILE */}
       <div className="md:hidden w-full bg-slate-900 text-white border-b border-slate-800 px-4 py-2.5 flex flex-col gap-2 shrink-0">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2.5">
+          <div 
+            onClick={() => setShowOrgDropdown(prev => !prev)}
+            className="flex items-center space-x-2.5 cursor-pointer group"
+            title="Changer d'organisation"
+          >
             {orgLogo ? (
               <img
                 src={orgLogo}
@@ -561,15 +719,59 @@ export function Sidebar() {
                 {orgInitials}
               </div>
             )}
-            <span className="font-bold text-xs text-white truncate max-w-[180px]">{orgName}</span>
+            <div className="flex items-center gap-1">
+              <span className="font-bold text-xs text-white truncate max-w-[160px]">{orgName}</span>
+              <ChevronsUpDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-white shrink-0" />
+            </div>
           </div>
           <button
             onClick={handleLogout}
-            className="text-[11px] text-red-400 font-bold px-2 py-1 bg-slate-800 rounded-lg"
+            className="text-[11px] text-red-400 font-bold px-2 py-1 bg-slate-800 rounded-lg hover:bg-slate-700 transition cursor-pointer"
           >
             Déconnexion
           </button>
         </div>
+
+        {/* Dropdown Mobile de sélection de l'organisation */}
+        {showOrgDropdown && (
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-2.5 my-1.5 space-y-2 animate-fadeIn">
+            <div className="px-2 py-1 text-[10px] font-bold uppercase text-slate-400 flex items-center justify-between border-b border-slate-700/60 pb-1.5">
+              <span>Changer d'organisation ({allOrgs.length})</span>
+              <button 
+                type="button" 
+                onClick={() => setShowOrgDropdown(false)}
+                className="text-slate-400 hover:text-white text-xs px-1"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="max-h-48 overflow-y-auto space-y-1">
+              {allOrgs.map((org) => {
+                const isCurrent = org.id === currentOrgId || org.org_code === orgCode;
+                return (
+                  <button
+                    key={org.id}
+                    type="button"
+                    onClick={() => handleSwitchOrg(org)}
+                    className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition cursor-pointer ${
+                      isCurrent ? 'bg-blue-600 text-white font-bold' : 'text-slate-300 hover:bg-slate-700/60'
+                    }`}
+                  >
+                    <span className="truncate">{org.name}</span>
+                    <span className="text-[10px] font-mono text-slate-300 ml-2 shrink-0">{org.org_code}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <Link
+              href="/register"
+              onClick={() => setShowOrgDropdown(false)}
+              className="block text-center text-xs font-bold text-amber-400 py-1.5 border-t border-slate-700/60 mt-1"
+            >
+              + Enregistrer une nouvelle entreprise
+            </Link>
+          </div>
+        )}
         <div className="flex space-x-1.5 overflow-x-auto pb-1 text-xs">
           {OP_ITEMS.map((item) => {
             const isActive = pathname === item.href;

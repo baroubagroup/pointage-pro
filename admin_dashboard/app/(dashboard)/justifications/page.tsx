@@ -43,17 +43,24 @@ const FALLBACK_JUSTIFICATIONS: Justification[] = [
 ];
 
 export default function JustificationsPage() {
-  const [items, setItems] = useState<Justification[]>(FALLBACK_JUSTIFICATIONS);
+  const [items, setItems] = useState<Justification[]>([]);
   const [loading, setLoading] = useState(false);
 
   const fetchJustifications = async () => {
     setLoading(true);
     try {
       const supabase = createClient();
-      const { data, error } = await supabase
+      const activeOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
+
+      let query = supabase
         .from('pointage_justifications')
         .select('*, pointage_employees(full_name, role)')
         .order('created_at', { ascending: false });
+
+      if (activeOrgId) {
+        query = query.eq('org_id', activeOrgId);
+      }
+      const { data, error } = await query;
 
       if (data && data.length > 0) {
         const mapped: Justification[] = data.map((d: any) => ({
@@ -68,9 +75,12 @@ export default function JustificationsPage() {
           status: d.status === 'APPROVED' ? 'APPROVED' : (d.status === 'REJECTED' ? 'REJECTED' : 'PENDING')
         }));
         setItems(mapped);
+      } else {
+        setItems([]);
       }
     } catch (err) {
-      console.warn('Using local justifications fallback:', err);
+      console.warn('Using local justifications error:', err);
+      setItems([]);
     } finally {
       setLoading(false);
     }
@@ -173,7 +183,14 @@ export default function JustificationsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {items.map((item) => (
+              {items.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                    Aucune demande de justification pour cette organisation. Les retards ou absences déclarés par les collaborateurs apparaîtront ici.
+                  </td>
+                </tr>
+              ) : (
+                items.map((item) => (
                 <tr key={item.id} className="hover:bg-slate-50/80 transition">
                   <td className="py-3.5 px-6 font-semibold text-slate-900">
                     <div>{item.name}</div>
@@ -236,7 +253,7 @@ export default function JustificationsPage() {
                     )}
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>

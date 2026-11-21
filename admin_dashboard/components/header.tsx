@@ -56,19 +56,31 @@ export function Header({ title, subtitle, actionButton }: HeaderProps) {
     const fetchRecentEvents = async () => {
       try {
         const supabase = createClient();
-        // 1. Justifications réelles
-        const { data: justifs } = await supabase
+        const activeOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
+
+        // 1. Justifications réelles filtrées par organisation
+        let justifsQuery = supabase
           .from('pointage_justifications')
           .select('*, pointage_employees(full_name)')
           .order('created_at', { ascending: false })
           .limit(2);
 
-        // 2. Derniers pointages réels
-        const { data: logs } = await supabase
+        if (activeOrgId) {
+          justifsQuery = justifsQuery.eq('org_id', activeOrgId);
+        }
+        const { data: justifs } = await justifsQuery;
+
+        // 2. Derniers pointages réels filtrés par organisation
+        let logsQuery = supabase
           .from('pointage_logs')
           .select('*, pointage_employees(full_name, role)')
           .order('recorded_at_utc', { ascending: false })
           .limit(3);
+
+        if (activeOrgId) {
+          logsQuery = logsQuery.eq('org_id', activeOrgId);
+        }
+        const { data: logs } = await logsQuery;
 
         const events: any[] = [];
         let unread = 0;
@@ -184,11 +196,17 @@ export function Header({ title, subtitle, actionButton }: HeaderProps) {
     const timer = setTimeout(async () => {
       try {
         const supabase = createClient();
-        const { data: emps } = await supabase
+        const activeOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
+        let empSearchQuery = supabase
           .from('pointage_employees')
           .select('id, full_name, employee_matricule, role, department')
           .or(`full_name.ilike.%${query}%,employee_matricule.ilike.%${query}%,department.ilike.%${query}%`)
           .limit(8);
+
+        if (activeOrgId) {
+          empSearchQuery = empSearchQuery.eq('org_id', activeOrgId);
+        }
+        const { data: emps } = await empSearchQuery;
 
         const results: SearchResult[] = [];
 

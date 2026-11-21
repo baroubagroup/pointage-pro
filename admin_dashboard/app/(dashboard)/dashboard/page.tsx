@@ -169,9 +169,9 @@ const RECENT_PUNCHES_FALLBACK: Punch[] = [
 type PeriodOption = 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH';
 
 export default function DashboardPage() {
-  const [punches, setPunches] = useState<Punch[]>(RECENT_PUNCHES_FALLBACK);
+  const [punches, setPunches] = useState<Punch[]>([]);
   const [allLogs, setAllLogs] = useState<any[]>([]);
-  const [totalEmployeesCount, setTotalEmployeesCount] = useState<number>(11);
+  const [totalEmployeesCount, setTotalEmployeesCount] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState<PeriodOption>('TODAY');
   const [selectedPunch, setSelectedPunch] = useState<Punch | null>(null);
@@ -198,19 +198,22 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const supabase = createClient();
+      const activeOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
 
-      // 1. Nombre total d'employés réels
-      const { count: empCount } = await supabase
+      // 1. Nombre total d'employés réels pour cette entreprise
+      let empQuery = supabase
         .from('pointage_employees')
         .select('id', { count: 'exact', head: true })
         .eq('is_active', true);
 
-      if (empCount && empCount > 0) {
-        setTotalEmployeesCount(empCount);
+      if (activeOrgId) {
+        empQuery = empQuery.eq('org_id', activeOrgId);
       }
+      const { count: empCount } = await empQuery;
+      setTotalEmployeesCount(empCount || 0);
 
-      // 2. Pointages réels enregistrés sur mobile (table officielle pointage_logs)
-      const { data, error } = await supabase
+      // 2. Pointages réels enregistrés sur mobile pour cette entreprise
+      let logsQuery = supabase
         .from('pointage_logs')
         .select(`
           *,
@@ -226,6 +229,11 @@ export default function DashboardPage() {
         `)
         .order('recorded_at_utc', { ascending: false })
         .limit(100);
+
+      if (activeOrgId) {
+        logsQuery = logsQuery.eq('org_id', activeOrgId);
+      }
+      const { data, error } = await logsQuery;
 
       if (data && data.length > 0) {
         setAllLogs(data);
@@ -289,6 +297,9 @@ export default function DashboardPage() {
         });
 
         setPunches(mapped);
+      } else {
+        setAllLogs([]);
+        setPunches([]);
       }
     } catch (err) {
       console.warn('Fallback dashboard punches error:', err);
@@ -315,7 +326,25 @@ export default function DashboardPage() {
 
   // Calcul dynamique et réel des statistiques selon les vraies données
   const periodStats = useMemo(() => {
-    const totalCount = Math.max(1, totalEmployeesCount);
+    const totalCount = Math.max(0, totalEmployeesCount);
+    if (totalCount === 0 || punches.length === 0) {
+      const labels: Record<PeriodOption, string> = {
+        TODAY: "Aujourd'hui",
+        YESTERDAY: "Hier",
+        WEEK: "7 Derniers Jours",
+        MONTH: "Ce Mois"
+      };
+      return {
+        label: labels[period],
+        presentCount: 0,
+        totalCount: totalCount,
+        presenceRate: 0,
+        onTimeRate: 100,
+        lateCount: 0,
+        totalHours: 0,
+        satelliteSecuredRate: 100
+      };
+    }
     
     // Si on a des logs en base, on filtre par période
     const now = new Date();
@@ -332,14 +361,14 @@ export default function DashboardPage() {
     // Employés uniques ayant pointé dans cette période
     const logsToConsider = filteredLogs.length > 0 ? filteredLogs : allLogs;
     const presentEmpSet = new Set(logsToConsider.map((l: any) => l.employee_id).filter(Boolean));
-    const presentCount = Math.min(totalCount, Math.max(presentEmpSet.size, logsToConsider.length > 0 ? Math.min(presentEmpSet.size || 1, totalCount) : 0));
+    const presentCount = Math.min(totalCount, presentEmpSet.size);
     
     const lateLogs = logsToConsider.filter((l: any) => {
       const reasons = l.flag_reasons || [];
       return l.status === 'LATE' || reasons.some((r: string) => r.includes('RETARD') || r.includes('LATE'));
     });
     const lateCount = Math.min(presentCount, lateLogs.length);
-    const presenceRate = Math.min(100, Math.round((presentCount / totalCount) * 1000) / 10);
+    const presenceRate = totalCount > 0 ? Math.min(100, Math.round((presentCount / totalCount) * 1000) / 10) : 0;
     const onTimeRate = presentCount > 0 ? Math.round(((presentCount - lateCount) / presentCount) * 1000) / 10 : 100;
     const totalHours = Math.round(presentCount * 7.5 * (period === 'WEEK' ? 5 : period === 'MONTH' ? 21 : 1) * 10) / 10;
 
@@ -360,9 +389,9 @@ export default function DashboardPage() {
       totalHours,
       satelliteSecuredRate: 100
     };
-  }, [allLogs, totalEmployeesCount, period]);
+  }, [allLogs, totalEmployeesCount, period, punches.length]);
 
-  const latestPunch = punches[0] || RECENT_PUNCHES_FALLBACK[0];
+  const latestPunch = punches.length > 0 ? punches[0] : null;
 
   return (
     <div className="space-y-6">
@@ -689,56 +718,74 @@ export default function DashboardPage() {
           </div>
 
           {/* Liste compacte des 5 derniers pointages */}
-          <div className="divide-y divide-slate-100">
-            {punches.slice(0, 5).map((punch) => (
-              <div 
-                key={punch.id} 
-                onClick={() => setSelectedPunch(punch)}
-                className="py-3 flex items-center justify-between hover:bg-slate-50/60 p-2 rounded-2xl transition cursor-pointer group"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs shrink-0 font-bold ${
-                    punch.punch_type === 'CHECK_IN' ? 'bg-emerald-100 text-emerald-700' :
-                    punch.punch_type === 'CHECK_OUT' ? 'bg-blue-100 text-blue-700' :
-                    'bg-amber-100 text-amber-700'
-                  }`}>
-                    {punch.punch_type === 'CHECK_IN' ? <LogIn className="w-4 h-4" /> :
-                     punch.punch_type === 'CHECK_OUT' ? <LogOut className="w-4 h-4" /> :
-                     <Coffee className="w-4 h-4" />}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-xs text-slate-900 truncate group-hover:text-blue-600 transition">
-                        {punch.name}
-                      </span>
-                      {punch.matricule && (
-                        <span className="font-mono text-[9px] text-slate-400 bg-slate-100 px-1 py-0.5 rounded">
-                          {punch.matricule}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[10px] text-slate-400 block truncate">
-                      {punch.site_name} • {punch.distance}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 shrink-0">
-                  <div className="text-right">
-                    <span className="font-mono font-bold text-xs text-slate-800 block">{punch.time}</span>
-                    <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full ${
-                      punch.status === 'VALIDATED' ? 'bg-emerald-100 text-emerald-800' :
-                      punch.status === 'LATE' ? 'bg-amber-100 text-amber-800' :
-                      'bg-rose-100 text-rose-800'
+          {punches.length > 0 ? (
+            <div className="divide-y divide-slate-100">
+              {punches.slice(0, 5).map((punch) => (
+                <div 
+                  key={punch.id} 
+                  onClick={() => setSelectedPunch(punch)}
+                  className="py-3 flex items-center justify-between hover:bg-slate-50/60 p-2 rounded-2xl transition cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs shrink-0 font-bold ${
+                      punch.punch_type === 'CHECK_IN' ? 'bg-emerald-100 text-emerald-700' :
+                      punch.punch_type === 'CHECK_OUT' ? 'bg-blue-100 text-blue-700' :
+                      'bg-amber-100 text-amber-700'
                     }`}>
-                      {punch.status === 'VALIDATED' ? 'Conforme' : punch.status === 'LATE' ? 'Retard' : 'Alerte'}
-                    </span>
+                      {punch.punch_type === 'CHECK_IN' ? <LogIn className="w-4 h-4" /> :
+                       punch.punch_type === 'CHECK_OUT' ? <LogOut className="w-4 h-4" /> :
+                       <Coffee className="w-4 h-4" />}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-xs text-slate-900 truncate group-hover:text-blue-600 transition">
+                          {punch.name}
+                        </span>
+                        {punch.matricule && (
+                          <span className="font-mono text-[9px] text-slate-400 bg-slate-100 px-1 py-0.5 rounded">
+                            {punch.matricule}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-400 block truncate">
+                        {punch.site_name} • {punch.distance}
+                      </span>
+                    </div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 group-hover:translate-x-0.5 transition" />
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="text-right">
+                      <span className="font-mono font-bold text-xs text-slate-800 block">{punch.time}</span>
+                      <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full ${
+                        punch.status === 'VALIDATED' ? 'bg-emerald-100 text-emerald-800' :
+                        punch.status === 'LATE' ? 'bg-amber-100 text-amber-800' :
+                        'bg-rose-100 text-rose-800'
+                      }`}>
+                        {punch.status === 'VALIDATED' ? 'Conforme' : punch.status === 'LATE' ? 'Retard' : 'Alerte'}
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 group-hover:translate-x-0.5 transition" />
+                  </div>
                 </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-10 px-4 text-center rounded-2xl bg-slate-50 border border-dashed border-slate-200 space-y-3">
+              <Clock className="w-9 h-9 text-slate-400 mx-auto" />
+              <div>
+                <p className="text-sm font-bold text-slate-700">Aucun pointage pour le moment</p>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  Les pointages de vos collaborateurs s'afficheront ici en direct dès qu'ils auront validé leur présence sur mobile.
+                </p>
               </div>
-            ))}
-          </div>
+              <Link
+                href="/employes"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition"
+              >
+                <span>Ajouter un collaborateur &rarr;</span>
+              </Link>
+            </div>
+          )}
 
           {/* Lien d'exploration du grand journal */}
           <div className="pt-2">
@@ -761,32 +808,46 @@ export default function DashboardPage() {
               <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                 Dernier Pointage Reçu
               </span>
-              <span className="font-mono text-xs text-slate-400">{latestPunch.time} UTC</span>
+              <span className="font-mono text-xs text-slate-400">
+                {latestPunch ? `${latestPunch.time} UTC` : 'En attente'}
+              </span>
             </div>
 
-            <div>
-              <h4 className="font-black text-lg text-white">{latestPunch.name}</h4>
-              <p className="text-xs text-slate-400">{latestPunch.role} • {latestPunch.site_name}</p>
-            </div>
+            {latestPunch ? (
+              <>
+                <div>
+                  <h4 className="font-black text-lg text-white">{latestPunch.name}</h4>
+                  <p className="text-xs text-slate-400">{latestPunch.role} • {latestPunch.site_name}</p>
+                </div>
 
-            <div className="grid grid-cols-2 gap-2 text-xs font-mono pt-2 border-t border-slate-800">
-              <div className="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700/50">
-                <span className="text-[10px] text-slate-400 block">Distance Centoïde</span>
-                <span className="text-emerald-400 font-bold">{latestPunch.distance}</span>
+                <div className="grid grid-cols-2 gap-2 text-xs font-mono pt-2 border-t border-slate-800">
+                  <div className="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700/50">
+                    <span className="text-[10px] text-slate-400 block">Distance Centoïde</span>
+                    <span className="text-emerald-400 font-bold">{latestPunch.distance}</span>
+                  </div>
+                  <div className="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700/50">
+                    <span className="text-[10px] text-slate-400 block">Smartphone Scellé</span>
+                    <span className="text-slate-200 font-bold truncate block">{latestPunch.device}</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setSelectedPunch(latestPunch)}
+                  className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs py-2 rounded-xl transition"
+                >
+                  <span>Inspecter le certificat WGS84</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </>
+            ) : (
+              <div className="py-4 text-center space-y-2">
+                <Clock className="w-8 h-8 text-slate-600 mx-auto" />
+                <p className="text-xs font-bold text-slate-300">Aucun pointage aujourd'hui</p>
+                <p className="text-[11px] text-slate-500">
+                  Dès qu'un collaborateur aura validé son arrivée via l'application mobile, sa position satellite apparaîtra ici en temps réel.
+                </p>
               </div>
-              <div className="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700/50">
-                <span className="text-[10px] text-slate-400 block">Smartphone Scellé</span>
-                <span className="text-slate-200 font-bold truncate block">{latestPunch.device}</span>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setSelectedPunch(latestPunch)}
-              className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs py-2 rounded-xl transition"
-            >
-              <span>Inspecter le certificat WGS84</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            )}
           </div>
 
           {/* Raccourcis Rapides vers les Modules Clés */}
