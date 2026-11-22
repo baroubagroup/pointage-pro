@@ -373,6 +373,7 @@ function ParametresContent() {
   const gpsWatchIdRef = useRef<number | null>(null);
   const [modalGpsSuccess, setModalGpsSuccess] = useState<string | null>(null);
   const [modalGpsError, setModalGpsError] = useState<string | null>(null);
+  const [showPhoneCalibModal, setShowPhoneCalibModal] = useState(false);
   const [detectingModalWifi, setDetectingModalWifi] = useState(false);
   const [modalWifiSuccess, setModalWifiSuccess] = useState<string | null>(null);
   const [modalWifiError, setModalWifiError] = useState<string | null>(null);
@@ -544,6 +545,26 @@ function ParametresContent() {
     };
 
     fetchData();
+  }, []);
+
+  // Écouteur de calibrage en direct depuis un smartphone sur le terrain
+  useEffect(() => {
+    const handleStorageCalib = (e: StorageEvent) => {
+      if (e.key === 'pointage_site_calibrated' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed && parsed.lat && parsed.lon) {
+            setNewSiteLat(String(parsed.lat));
+            setNewSiteLon(String(parsed.lon));
+            setModalGpsSuccess(`🎯 Coordonnées verrouillées en direct depuis votre smartphone (±${parsed.accuracy || 2}m) !`);
+            setModalGpsError(null);
+            setShowPhoneCalibModal(false);
+          }
+        } catch {}
+      }
+    };
+    window.addEventListener('storage', handleStorageCalib);
+    return () => window.removeEventListener('storage', handleStorageCalib);
   }, []);
 
   const selectedSite = useMemo(() => {
@@ -932,6 +953,56 @@ function ParametresContent() {
       if (!newSiteCity.trim()) setNewSiteCity('Bobo-Dioulasso');
       setModalGpsSuccess('Coordonnées initiales (Bobo-Dioulasso) appliquées');
       setModalGpsError(null);
+    }
+  };
+
+  // Coller des coordonnées WGS84 ou un lien Google Maps depuis le presse-papier
+  const handlePasteCoordinates = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) {
+        setModalGpsError("Presse-papier vide. Copiez d'abord des coordonnées ou un lien Google Maps.");
+        return;
+      }
+      const raw = text.trim();
+      const urlMatch = raw.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || raw.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+      if (urlMatch) {
+        setNewSiteLat(parseFloat(urlMatch[1]).toFixed(6));
+        setNewSiteLon(parseFloat(urlMatch[2]).toFixed(6));
+        setModalGpsSuccess("Coordonnées extraites du lien Google Maps avec succès !");
+        setModalGpsError(null);
+        return;
+      }
+      const coordMatch = raw.match(/^(-?\d+\.\d+)[,\s]+(-?\d+\.\d+)$/);
+      if (coordMatch) {
+        setNewSiteLat(parseFloat(coordMatch[1]).toFixed(6));
+        setNewSiteLon(parseFloat(coordMatch[2]).toFixed(6));
+        setModalGpsSuccess("Coordonnées WGS84 collées avec succès !");
+        setModalGpsError(null);
+        return;
+      }
+      setModalGpsError("Format non reconnu. Exemple attendu : 11.180612, -4.294910 ou lien Google Maps.");
+    } catch {
+      const manual = prompt("Collez ici vos coordonnées WGS84 ou le lien Google Maps :");
+      if (manual) {
+        const raw = manual.trim();
+        const urlMatch = raw.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || raw.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+        if (urlMatch) {
+          setNewSiteLat(parseFloat(urlMatch[1]).toFixed(6));
+          setNewSiteLon(parseFloat(urlMatch[2]).toFixed(6));
+          setModalGpsSuccess("Coordonnées extraites avec succès !");
+          setModalGpsError(null);
+          return;
+        }
+        const coordMatch = raw.match(/^(-?\d+\.\d+)[,\s]+(-?\d+\.\d+)$/);
+        if (coordMatch) {
+          setNewSiteLat(parseFloat(coordMatch[1]).toFixed(6));
+          setNewSiteLon(parseFloat(coordMatch[2]).toFixed(6));
+          setModalGpsSuccess("Coordonnées WGS84 appliquées !");
+          setModalGpsError(null);
+          return;
+        }
+      }
     }
   };
 
@@ -2449,22 +2520,40 @@ function ParametresContent() {
                       <span>Coordonnées Satellites WGS84 <span className="text-rose-500">*</span></span>
                     </span>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowPhoneCalibModal(true)}
+                        className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-lg transition text-[11px] flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
+                      >
+                        <Smartphone className="w-3.5 h-3.5" />
+                        <span>📱 Caler par Smartphone (±2m)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handlePasteCoordinates}
+                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold rounded-lg border border-slate-200 transition text-[11px] flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        title="Coller coordonnées WGS84 ou lien Google Maps"
+                      >
+                        <Copy className="w-3 h-3 text-slate-600" />
+                        <span>📋 Coller GPS</span>
+                      </button>
                       <button
                         type="button"
                         onClick={handleDetectModalGps}
                         disabled={detectingModalGps}
-                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-lg transition text-[11px] flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                        className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 active:scale-95 text-blue-700 font-bold rounded-lg border border-blue-200 transition text-[11px] flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                        title="Position approximative calculée par le réseau/navigateur PC"
                       >
                         <LocateFixed className={`w-3.5 h-3.5 ${detectingModalGps ? 'animate-spin' : ''}`} />
-                        <span>{detectingModalGps ? 'Recherche GPS...' : 'Détecter ma position'}</span>
+                        <span>{detectingModalGps ? 'Recherche...' : 'Position PC'}</span>
                       </button>
                       {sites.length > 0 && (
                         <button
                           type="button"
                           onClick={handleUseHqCoords}
                           title="Copier les coordonnées du site principal"
-                          className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-200 transition text-[11px] flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                          className="px-2 py-1.5 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-200 transition text-[11px] flex items-center gap-1 cursor-pointer whitespace-nowrap"
                         >
                           <Building2 className="w-3 h-3 text-slate-500" />
                           <span>Siège</span>
@@ -2709,6 +2798,104 @@ function ParametresContent() {
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Calage Satellite par Smartphone (±2m) */}
+      {showPhoneCalibModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 space-y-5 border border-slate-100">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">Calage Satellite par Smartphone</h3>
+                  <p className="text-xs text-slate-500">Précision GNSS pure au mètre près (±1 à 3m)</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowPhoneCalibModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div className="p-3.5 rounded-2xl bg-blue-50/80 border border-blue-200/60 text-blue-900 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <Compass className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Pourquoi utiliser votre smartphone ?</span>
+                </div>
+                <p className="text-[11px] text-blue-700 leading-relaxed">
+                  Contrairement aux ordinateurs qui estiment leur position via les box Wi-Fi et adresses IP (±150m), un smartphone dispose d&apos;une vraie puce <strong>GNSS multi-constellations</strong> (GPS, Galileo, Glonass) assurant une précision physique à ±2 mètres.
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3">
+                <div className="p-3 bg-white rounded-xl shadow-xs border border-slate-200">
+                  <QrCode className="w-32 h-32 text-slate-800" />
+                </div>
+                <div>
+                  <span className="font-bold text-slate-800 text-xs block">Ouvrez le Calibreur Satellite Mobile</span>
+                  <span className="text-[11px] text-slate-500 block">Scannez ce QR Code ou ouvrez le lien ci-dessous :</span>
+                </div>
+                <div className="w-full flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200 text-left">
+                  <span className="font-mono text-[11px] text-blue-600 truncate flex-1 select-all">
+                    {typeof window !== 'undefined' ? `${window.location.origin}/calibrer` : '/calibrer'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof window !== 'undefined') {
+                        navigator.clipboard.writeText(`${window.location.origin}/calibrer`);
+                        setToastMsg("Lien du calibreur copié dans le presse-papier !");
+                        setTimeout(() => setToastMsg(null), 3000);
+                      }
+                    }}
+                    className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-700 transition cursor-pointer"
+                    title="Copier le lien"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2 text-[11px] text-slate-600 bg-emerald-50/50 p-3 rounded-2xl border border-emerald-100">
+                <div className="font-bold text-emerald-800 flex items-center gap-1.5">
+                  <Radar className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Procédure sur le terrain (1 minute) :</span>
+                </div>
+                <ol className="list-decimal list-inside space-y-1 text-slate-700">
+                  <li>Placez-vous devant le portail ou l&apos;entrée du site.</li>
+                  <li>Ouvrez la page sur votre téléphone et activez le GPS.</li>
+                  <li>Dès que le voyant passe au vert (±1 à 3m), appuyez sur <strong>&quot;Verrouiller ce Site&quot;</strong>.</li>
+                  <li>Les coordonnées WGS84 se synchronisent automatiquement ici en temps réel.</li>
+                </ol>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                <a
+                  href="/calibrer"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition flex items-center gap-1.5 text-xs"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Tester dans un onglet</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setShowPhoneCalibModal(false)}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition text-xs cursor-pointer"
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

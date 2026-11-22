@@ -15,7 +15,11 @@ import {
   Loader2, 
   MapPin, 
   X,
-  Compass
+  Compass,
+  Target,
+  ClipboardPaste,
+  Building2,
+  ZoomIn
 } from 'lucide-react';
 
 interface SiteGeofenceMapProps {
@@ -38,6 +42,27 @@ interface SearchSuggestion {
   lat: string;
   lon: string;
 }
+
+// Repères et quartiers réels clés (Burkina Faso)
+const REGION_PRESETS = {
+  bobo: [
+    { name: 'Bobo Centre / Gare', lat: 11.1783, lon: -4.2965 },
+    { name: 'Kuinima (Secteur 5)', lat: 11.1620, lon: -4.2790 },
+    { name: 'Sarfalao (Secteur 17)', lat: 11.1550, lon: -4.2620 },
+    { name: 'Accart-Ville (Secteur 9)', lat: 11.1920, lon: -4.3050 },
+    { name: 'Bindougousso (Secteur 2)', lat: 11.1710, lon: -4.3180 },
+    { name: 'Zone Industrielle', lat: 11.1650, lon: -4.3250 },
+    { name: 'Belle-Ville', lat: 11.1420, lon: -4.2850 },
+  ],
+  ouaga: [
+    { name: 'Ouaga 2000', lat: 12.3080, lon: -1.5050 },
+    { name: 'Centre-Ville / Rood Woko', lat: 12.3685, lon: -1.5230 },
+    { name: 'Gounghin', lat: 12.3550, lon: -1.5520 },
+    { name: 'Karpala', lat: 12.3250, lon: -1.4850 },
+    { name: 'Pissy', lat: 12.3420, lon: -1.5750 },
+    { name: 'Somgandé', lat: 12.4050, lon: -1.4850 },
+  ]
+};
 
 export function SiteGeofenceMap({
   name,
@@ -62,6 +87,12 @@ export function SiteGeofenceMap({
   const initialStyle = defaultStyle === 'satellite' ? 'googleHybrid' : defaultStyle;
   const [mapStyle, setMapStyle] = useState<'streets' | 'googleHybrid' | 'esriSatellite'>(initialStyle as any);
   
+  // Viseur central de calage chirurgical
+  const [crosshairActive, setCrosshairActive] = useState(false);
+  const [centerCoords, setCenterCoords] = useState<{ lat: number; lon: number }>({ lat, lon });
+  const [showPresets, setShowPresets] = useState(false);
+  const [activePresetCity, setActivePresetCity] = useState<'bobo' | 'ouaga'>('bobo');
+
   const [testResult, setTestResult] = useState<{
     inside: boolean;
     distanceMeters: number;
@@ -79,7 +110,7 @@ export function SiteGeofenceMap({
 
   // Fournisseurs de tuiles cartographiques réelles
   const TILE_PROVIDERS: Record<string, { url: string; attribution: string; maxZoom: number; subdomains?: string[] }> = {
-    // 1. Google Maps Satellite Hybride (Imagerie satellite mondiale avec routes, boulevards, écoles, marchés et quartiers)
+    // 1. Google Maps Satellite Hybride (Zoom jusqu'à 20 : toitures, ruelles et portails nets)
     googleHybrid: {
       url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
       attribution: '&copy; Google Maps Hybride Réel',
@@ -110,20 +141,44 @@ export function SiteGeofenceMap({
       });
       const data = await res.json();
       if (data && data.display_name) {
-        // Formatter une adresse concise : quartier, ville, pays
         const parts = data.display_name.split(',').map((p: string) => p.trim());
         const shortAddr = parts.slice(0, 3).join(', ');
         setResolvedAddress(shortAddr || data.display_name);
       }
-    } catch {
-      // Silencieux si hors-ligne
-    }
+    } catch {}
   }, []);
 
-  // Déclencher la recherche de lieu quand l'utilisateur tape
+  // Analyseur intelligent de coordonnées ou de liens Google Maps collés
+  const parsePastedCoordinatesOrUrl = (text: string): { lat: number; lon: number } | null => {
+    const raw = text.trim();
+    
+    // Format 1 : URL Google Maps (ex: @11.180612,-4.294910 ou ?q=11.180612,-4.294910)
+    const urlMatch = raw.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || raw.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (urlMatch) {
+      return { lat: parseFloat(urlMatch[1]), lon: parseFloat(urlMatch[2]) };
+    }
+
+    // Format 2 : Décimal direct (ex: "11.180612, -4.294910" ou "11.180612 -4.294910")
+    const coordMatch = raw.match(/^(-?\d+\.\d+)[,\s]+(-?\d+\.\d+)$/);
+    if (coordMatch) {
+      return { lat: parseFloat(coordMatch[1]), lon: parseFloat(coordMatch[2]) };
+    }
+
+    return null;
+  };
+
+  // Déclencher la recherche de lieu quand l'utilisateur tape ou colle
   const handleSearchChange = (val: string) => {
     setSearchQuery(val);
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+
+    // Vérifier si l'utilisateur a collé des coordonnées directes ou un lien Google Maps
+    const parsed = parsePastedCoordinatesOrUrl(val);
+    if (parsed && mapInstanceRef.current) {
+      applyNewCoordinates(parsed.lat, parsed.lon, 19, 'Coordonnées collées appliquées');
+      setShowSuggestions(false);
+      return;
+    }
 
     if (!val.trim() || val.trim().length < 2) {
       setSuggestions([]);
@@ -135,7 +190,7 @@ export function SiteGeofenceMap({
     searchTimeoutRef.current = setTimeout(async () => {
       try {
         const q = encodeURIComponent(val.trim());
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&q=${q}`, {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=${q}`, {
           headers: { 'Accept-Language': 'fr' }
         });
         const data = await res.json();
@@ -151,25 +206,50 @@ export function SiteGeofenceMap({
     }, 350);
   };
 
-  // Sélectionner une suggestion de lieu : déplace la carte immédiatement
+  // Appliquer des coordonnées et déplacer la carte avec animation fluide
+  const applyNewCoordinates = (newLat: number, newLon: number, targetZoom = 18, customLabel?: string) => {
+    if (!mapInstanceRef.current) return;
+    const cleanLat = Number(newLat.toFixed(6));
+    const cleanLon = Number(newLon.toFixed(6));
+
+    mapInstanceRef.current.flyTo([cleanLat, cleanLon], targetZoom, { duration: 1.2 });
+
+    if (markerRef.current) {
+      markerRef.current.setLatLng([cleanLat, cleanLon]);
+    }
+    if (circleRef.current) {
+      circleRef.current.setLatLng([cleanLat, cleanLon]);
+    }
+
+    onCoordinatesChange?.(cleanLat, cleanLon);
+    fetchReverseAddress(cleanLat, cleanLon);
+    if (customLabel) {
+      setSearchQuery(customLabel);
+    }
+  };
+
+  // Sélectionner une suggestion de lieu
   const handleSelectSuggestion = (sugg: SearchSuggestion) => {
     const sLat = parseFloat(sugg.lat);
     const sLon = parseFloat(sugg.lon);
-    if (!isNaN(sLat) && !isNaN(sLon) && mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo([sLat, sLon], 18, { duration: 1.2 });
-      
-      if (markerRef.current) {
-        markerRef.current.setLatLng([sLat, sLon]);
-      }
-      if (circleRef.current) {
-        circleRef.current.setLatLng([sLat, sLon]);
-      }
-      
-      setSearchQuery(sugg.display_name.split(',').slice(0, 2).join(', '));
+    if (!isNaN(sLat) && !isNaN(sLon)) {
+      applyNewCoordinates(sLat, sLon, 18, sugg.display_name.split(',').slice(0, 2).join(', '));
       setResolvedAddress(sugg.display_name);
       setShowSuggestions(false);
-      onCoordinatesChange?.(Number(sLat.toFixed(6)), Number(sLon.toFixed(6)));
     }
+  };
+
+  // Calage chirurgical : Verrouiller les coordonnées du centre du viseur
+  const handleLockCrosshairCenter = () => {
+    if (!mapInstanceRef.current) return;
+    const center = mapInstanceRef.current.getCenter();
+    applyNewCoordinates(center.lat, center.lng, mapInstanceRef.current.getZoom(), 'Calamage sur toiture verrouillé');
+  };
+
+  // Préréglage de zoom
+  const handleSetZoomLevel = (zoomLvl: number) => {
+    if (!mapInstanceRef.current) return;
+    mapInstanceRef.current.setZoom(zoomLvl, { animate: true });
   };
 
   // Initialisation de la carte Leaflet
@@ -180,13 +260,14 @@ export function SiteGeofenceMap({
       const map = L.map(mapContainerRef.current, {
         center: [lat, lon],
         zoom: 17,
+        maxZoom: 20,
         zoomControl: false,
         attributionControl: false,
       });
 
       L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-      // Couche de tuiles initiale (Google Maps Hybride avec routes et noms réels par défaut)
+      // Couche de tuiles initiale (Google Maps Hybride maxZoom 20 par défaut)
       const provider = TILE_PROVIDERS[mapStyle] || TILE_PROVIDERS.googleHybrid;
       const tiles = L.tileLayer(provider.url, {
         attribution: provider.attribution,
@@ -239,6 +320,12 @@ export function SiteGeofenceMap({
           if (circleRef.current) circleRef.current.setLatLng(e.latlng);
           onCoordinatesChange?.(clickLat, clickLon);
           fetchReverseAddress(clickLat, clickLon);
+        });
+
+        // Suivi du centre de la carte pour le viseur
+        map.on('move', () => {
+          const center = map.getCenter();
+          setCenterCoords({ lat: Number(center.lat.toFixed(6)), lon: Number(center.lng.toFixed(6)) });
         });
       } else {
         const marker = L.marker([lat, lon], { icon }).addTo(map);
@@ -329,7 +416,7 @@ export function SiteGeofenceMap({
     setTestResult(null);
   }, [lat, lon, radiusMeters, name]);
 
-  // Changement de style de carte (Google Satellite Hybride vs Plan Rues vs Esri)
+  // Changement de style de carte
   const handleToggleStyle = (newStyle: 'streets' | 'googleHybrid' | 'esriSatellite') => {
     if (!mapInstanceRef.current || newStyle === mapStyle) return;
     setMapStyle(newStyle);
@@ -378,6 +465,34 @@ export function SiteGeofenceMap({
       {/* Conteneur DOM Leaflet */}
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
+      {/* VISEUR CHIRURGICAL CENTRAL AU MÈTRE PRÈS (Overlay) */}
+      {crosshairActive && mode === 'picker' && (
+        <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center">
+          {/* Réticule de visée */}
+          <div className="relative flex items-center justify-center">
+            {/* Cercle central */}
+            <div className="w-12 h-12 rounded-full border-2 border-emerald-400 bg-emerald-500/10 shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse flex items-center justify-center">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            </div>
+            {/* Lignes du réticule */}
+            <div className="absolute w-20 h-0.5 bg-emerald-400/80" />
+            <div className="absolute h-20 w-0.5 bg-emerald-400/80" />
+          </div>
+
+          {/* Bouton de Verrouillage Flottant en bas du viseur */}
+          <div className="absolute bottom-16 pointer-events-auto">
+            <button
+              type="button"
+              onClick={handleLockCrosshairCenter}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-extrabold text-xs rounded-full shadow-2xl flex items-center gap-2 border-2 border-white transition cursor-pointer animate-bounce"
+            >
+              <Target className="w-4 h-4" />
+              <span>🎯 Verrouiller le repère sous le viseur</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Barre de contrôles supérieure */}
       <div className="absolute top-3 left-3 right-3 z-10 flex flex-col gap-2 pointer-events-none">
         <div className="flex items-center justify-between gap-2">
@@ -395,7 +510,7 @@ export function SiteGeofenceMap({
             </div>
           </div>
 
-          {/* Sélecteur de Couche Cartographique + Bouton Google Maps */}
+          {/* Outils & Sélecteur de Couche Cartographique */}
           <div className="flex items-center gap-1.5 pointer-events-auto bg-slate-900/90 backdrop-blur-md p-1 rounded-xl border border-slate-700/80 shadow-lg text-white">
             <button
               type="button"
@@ -421,6 +536,35 @@ export function SiteGeofenceMap({
             >
               🗺️ Plan
             </button>
+
+            {/* Toggle Viseur Toiture (Mode Picker) */}
+            {mode === 'picker' && (
+              <button
+                type="button"
+                onClick={() => setCrosshairActive(prev => !prev)}
+                title={crosshairActive ? "Désactiver le viseur" : "Activer le viseur de toiture central"}
+                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                  crosshairActive ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                <Target className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Sélecteur de Préréglages de Quartiers */}
+            {mode === 'picker' && (
+              <button
+                type="button"
+                onClick={() => setShowPresets(prev => !prev)}
+                title="Quartiers populaires (Bobo / Ouaga)"
+                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                  showPresets ? 'bg-amber-600 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                <Compass className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleRecenter}
@@ -441,9 +585,9 @@ export function SiteGeofenceMap({
           </div>
         </div>
 
-        {/* Barre de Recherche de Lieu Intégrée (Nominatim Autocomplete) */}
+        {/* Barre de Recherche Intégrée (Coller lien Google Maps / Recherche Nominatim) */}
         {mode === 'picker' && (
-          <div className="pointer-events-auto relative max-w-sm">
+          <div className="pointer-events-auto relative max-w-md">
             <div className="bg-white/95 backdrop-blur-md rounded-xl shadow-lg border border-slate-200/80 flex items-center px-3 py-1.5 gap-2">
               {searching ? (
                 <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin shrink-0" />
@@ -455,7 +599,7 @@ export function SiteGeofenceMap({
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-                placeholder="Rechercher un quartier, avenue, ville (ex: Bobo, Sarfalao)..."
+                placeholder="Rechercher un quartier ou coller lien/coordonnées Google Maps..."
                 className="w-full bg-transparent text-xs text-slate-800 placeholder-slate-400 focus:outline-none font-medium"
               />
               {searchQuery && (
@@ -466,7 +610,7 @@ export function SiteGeofenceMap({
                     setSuggestions([]);
                     setShowSuggestions(false);
                   }}
-                  className="text-slate-400 hover:text-slate-600"
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -492,6 +636,58 @@ export function SiteGeofenceMap({
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Panneau Flottant des Quartiers Clés (Bobo-Dioulasso & Ouagadougou) */}
+        {showPresets && mode === 'picker' && (
+          <div className="pointer-events-auto bg-slate-900/95 text-white backdrop-blur-md p-2.5 rounded-2xl border border-slate-700/80 shadow-2xl max-w-lg animate-fadeIn">
+            <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+              <span className="text-[11px] font-black uppercase text-amber-400 flex items-center gap-1.5">
+                <Compass className="w-3.5 h-3.5" />
+                Saut Rapide vers votre Ville / Quartier
+              </span>
+              <div className="flex items-center gap-1 text-[10px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setActivePresetCity('bobo')}
+                  className={`px-2 py-0.5 rounded-md transition ${activePresetCity === 'bobo' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Bobo-Dioulasso
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActivePresetCity('ouaga')}
+                  className={`px-2 py-0.5 rounded-md transition ${activePresetCity === 'ouaga' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Ouagadougou
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPresets(false)}
+                  className="text-slate-400 hover:text-white ml-1 px-1"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+              {REGION_PRESETS[activePresetCity].map((preset) => (
+                <button
+                  key={preset.name}
+                  type="button"
+                  onClick={() => {
+                    applyNewCoordinates(preset.lat, preset.lon, 17, preset.name);
+                    setShowPresets(false);
+                  }}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-blue-600 hover:text-white rounded-lg text-[11px] font-semibold text-slate-200 transition flex items-center gap-1 cursor-pointer border border-slate-700/80"
+                >
+                  <MapPin className="w-2.5 h-2.5 text-blue-400" />
+                  <span>{preset.name}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -533,21 +729,53 @@ export function SiteGeofenceMap({
         </div>
       )}
 
-      {/* Barre d'état inférieure avec Adresse physique résolue en temps réel */}
+      {/* Barre d'état inférieure avec Adresse physique résolue & Zoom rapide */}
       {mode === 'picker' ? (
-        <div className="absolute bottom-3 left-3 right-3 z-10 bg-slate-900/90 text-white text-[11px] font-semibold px-3 py-2 rounded-xl backdrop-blur-md border border-slate-700/60 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 pointer-events-none">
+        <div className="absolute bottom-3 left-3 right-3 z-10 bg-slate-900/90 text-white text-[11px] font-semibold px-3 py-2 rounded-xl backdrop-blur-md border border-slate-700/60 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 pointer-events-auto">
           <div className="flex items-center gap-2 truncate min-w-0">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
             <span className="truncate text-slate-200">
               {resolvedAddress ? (
                 <span>📍 {resolvedAddress}</span>
               ) : (
-                <span>Glissez le repère sur votre bureau pour caler au mètre près</span>
+                <span>Glissez le repère sur votre toiture ou activez le viseur</span>
               )}
             </span>
           </div>
+
           <div className="flex items-center gap-2 font-mono text-[10px] text-emerald-300 shrink-0">
+            {crosshairActive && (
+              <span className="text-amber-300 font-bold hidden sm:inline">Viseur: {centerCoords.lat}°, {centerCoords.lon}°</span>
+            )}
             <span>WGS84 : {lat.toFixed(6)}°, {lon.toFixed(6)}°</span>
+            
+            {/* Raccourcis de Zoom Rapide */}
+            <div className="flex items-center gap-1 border-l border-slate-700 pl-2 ml-1">
+              <button
+                type="button"
+                onClick={() => handleSetZoomLevel(16)}
+                title="Zoom Quartier"
+                className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-[9px] font-bold text-slate-300 cursor-pointer"
+              >
+                16x
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetZoomLevel(18)}
+                title="Zoom Bâtiment"
+                className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-[9px] font-bold text-slate-300 cursor-pointer"
+              >
+                18x
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetZoomLevel(20)}
+                title="Zoom Toiture Extrême"
+                className="px-1.5 py-0.5 bg-blue-600 hover:bg-blue-500 rounded text-[9px] font-black text-white cursor-pointer"
+              >
+                20x Toit
+              </button>
+            </div>
           </div>
         </div>
       ) : (
