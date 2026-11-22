@@ -81,6 +81,17 @@ export default function MaquetteGerantPage() {
   const [showQrModal, setShowQrModal] = useState(false);
   const [showPhoneQrModal, setShowPhoneQrModal] = useState(false);
   const [localNetworkIp, setLocalNetworkIp] = useState<string>('192.168.11.106');
+
+  const getPublicUrl = (path: string) => {
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin;
+      if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+        return `${origin}${path}`;
+      }
+      return `http://${localNetworkIp || '192.168.11.106'}:3000${path}`;
+    }
+    return `http://192.168.11.106:3000${path}`;
+  };
   const [showDynamicIslandAlert, setShowDynamicIslandAlert] = useState(false);
   const [islandMessage, setIslandMessage] = useState('🟢 Tous les sites opérationnels');
 
@@ -1161,7 +1172,7 @@ export default function MaquetteGerantPage() {
 
             <div className="p-3 bg-white rounded-2xl inline-flex items-center justify-center shadow-lg mx-auto">
               <RealQrCode 
-                value={`http://${localNetworkIp || '192.168.11.106'}:3000/maquette-gerant`} 
+                value={getPublicUrl('/maquette-gerant')} 
                 size={180} 
               />
             </div>
@@ -1175,18 +1186,18 @@ export default function MaquetteGerantPage() {
 
             <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800 text-left">
               <span className="font-mono text-[11px] text-blue-400 truncate flex-1 select-all font-bold">
-                http://{localNetworkIp || '192.168.11.106'}:3000/maquette-gerant
+                {getPublicUrl('/maquette-gerant')}
               </span>
               <button
                 type="button"
                 onClick={() => {
                   if (typeof window !== 'undefined') {
-                    navigator.clipboard.writeText(`http://${localNetworkIp || '192.168.11.106'}:3000/maquette-gerant`);
-                    triggerToast("Lien Wi-Fi copié dans le presse-papier !");
+                    navigator.clipboard.writeText(getPublicUrl('/maquette-gerant'));
+                    triggerToast("Lien copié dans le presse-papier !");
                   }
                 }}
                 className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white transition cursor-pointer"
-                title="Copier l'URL Wi-Fi"
+                title="Copier l'URL"
               >
                 <Copy className="w-3.5 h-3.5" />
               </button>

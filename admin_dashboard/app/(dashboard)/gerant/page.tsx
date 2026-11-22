@@ -117,20 +117,16 @@ export default function GerantMobileAppPage() {
     try {
       const supabase = createClient();
 
-      // 1. Liste des entreprises enregistrées pour le sélecteur multi-entreprises
-      const { data: orgsData } = await supabase
-        .from('pointage_organizations')
-        .select('*')
-        .order('created_at', { ascending: false });
+      // 1. Récupération stricte et isolée de l'entreprise connectée
+      const activeId = targetOrgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+      let orgQuery = supabase.from('pointage_organizations').select('*');
+      if (activeId) {
+        orgQuery = orgQuery.eq('id', activeId);
+      }
+      const { data: orgsData } = await orgQuery.limit(1);
 
       if (orgsData && orgsData.length > 0) {
-        setAllOrgs(orgsData);
-
-        const currentActiveId = targetOrgId || 
-          (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null) || 
-          orgsData[0].id;
-
-        const currentOrg = orgsData.find(o => o.id === currentActiveId) || orgsData[0];
+        const currentOrg = orgsData[0];
         setOrgId(currentOrg.id);
         setOrgName(currentOrg.name);
         setOrgCode(currentOrg.org_code);
@@ -360,12 +356,15 @@ export default function GerantMobileAppPage() {
           <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center font-black text-xs text-white shadow-md">
             {orgName.substring(0, 2).toUpperCase()}
           </div>
-          <div className="cursor-pointer" onClick={() => setShowOrgPicker(true)}>
-            <div className="flex items-center gap-1">
+          <div className="cursor-pointer" onClick={() => {
+            navigator.clipboard.writeText(orgCode);
+            showToast(`Code ${orgCode} copié dans le presse-papiers`);
+          }}>
+            <div className="flex items-center gap-1.5">
               <span className="font-extrabold text-sm text-white">{orgName}</span>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
             </div>
-            <span className="text-[10px] font-mono text-blue-400">{orgCode}</span>
+            <span className="text-[10px] font-mono text-emerald-400">{orgCode}</span>
           </div>
         </div>
 
@@ -388,46 +387,7 @@ export default function GerantMobileAppPage() {
         </div>
       </header>
 
-      {/* Sélecteur Multi-Entreprises Bottom Sheet */}
-      {showOrgPicker && (
-        <div className="fixed inset-0 z-[150] bg-black/70 backdrop-blur-sm flex items-end justify-center p-3">
-          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-4 space-y-3 animate-fadeIn">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <h3 className="text-xs font-extrabold uppercase text-slate-400 tracking-wider">
-                Changer d'entreprise ({allOrgs.length})
-              </h3>
-              <button onClick={() => setShowOrgPicker(false)} className="text-slate-400 hover:text-white text-sm">✕</button>
-            </div>
-            <div className="max-h-60 overflow-y-auto space-y-1.5">
-              {allOrgs.map((org) => {
-                const isSelected = org.id === orgId;
-                return (
-                  <button
-                    key={org.id}
-                    onClick={() => handleSwitchOrg(org)}
-                    className={`w-full flex items-center justify-between p-3 rounded-2xl text-left transition ${
-                      isSelected ? 'bg-blue-600 text-white font-bold' : 'bg-slate-800/60 text-slate-300 hover:bg-slate-800'
-                    }`}
-                  >
-                    <div>
-                      <div className="text-xs font-bold">{org.name}</div>
-                      <div className="text-[10px] font-mono opacity-70">{org.org_code}</div>
-                    </div>
-                    {isSelected && <Check className="w-4 h-4 text-white" />}
-                  </button>
-                );
-              })}
-            </div>
-            <Link
-              href="/register"
-              onClick={() => setShowOrgPicker(false)}
-              className="block text-center text-xs font-bold text-amber-400 py-2 border-t border-slate-800"
-            >
-              + Créer un nouveau compte entreprise
-            </Link>
-          </div>
-        </div>
-      )}
+
 
       {/* Bannière PWA Installation si non installé */}
       {!pwaInstalled && deferredPrompt && (

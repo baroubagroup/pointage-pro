@@ -1,11 +1,17 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
+
+export const viewport: Viewport = {
+  themeColor: '#1D4ED8',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+};
 
 export const metadata: Metadata = {
   title: 'PointagePro Enterprise - Portail Gérant Multi-Entreprises',
   description: 'Plateforme cloud de gestion intelligente des pointages, géofencing et assiduité en temps réel.',
   manifest: '/manifest.json',
-  themeColor: '#1D4ED8',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

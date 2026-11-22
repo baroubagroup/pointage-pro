@@ -129,7 +129,8 @@ export default function RegisterPage() {
               created_at: new Date().toISOString(),
               security_config: {
                 manager_name: managerName.trim(),
-                manager_email: email.trim(),
+                manager_email: email.trim().toLowerCase(),
+                manager_password: password.trim(),
                 manager_phone: phone.trim(),
                 sector_profile: sector,
                 city: city.trim(),

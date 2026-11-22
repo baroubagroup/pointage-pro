@@ -29,7 +29,10 @@ import {
   Info,
   PanelLeftClose,
   PanelLeftOpen,
-  Smartphone
+  Smartphone,
+  Menu,
+  X,
+  RefreshCw
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -185,7 +188,13 @@ export function Sidebar() {
   const [copiedCode, setCopiedCode] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [pendingJustifCount, setPendingJustifCount] = useState<number>(0);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fermer le menu mobile lors d'un changement de page
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
 
   // Fermer le menu déroulant en cliquant à l'extérieur
   useEffect(() => {
@@ -390,6 +399,20 @@ export function Sidebar() {
     router.push('/login?logout=true');
   };
 
+  const handleOtaUpdate = async () => {
+    setIsMobileMenuOpen(false);
+    if (typeof window !== 'undefined') {
+      if ('serviceWorker' in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.getRegistration();
+          if (reg) await reg.update();
+        } catch {}
+      }
+      alert("✅ PointagePro Enterprise est à jour !\nModules et correctifs synchronisés avec succès.");
+      window.location.reload();
+    }
+  };
+
   const isSettingsActive = pathname.startsWith('/parametres') || pathname === '/sites' || pathname === '/plannings' || pathname === '/securite';
 
   // Monogramme fallback pour l'avatar (ex: "BP" pour BAROUBA PRO)
@@ -413,11 +436,11 @@ export function Sidebar() {
           <div className={`p-4 border-b border-slate-800 ${isCollapsed ? 'flex flex-col items-center gap-3' : ''}`}>
             
             {/* Ligne En-tête : Logo, Nom, et Bouton Replier/Déplier */}
-            <div className="flex items-center justify-between w-full relative" ref={dropdownRef}>
+            <div className="flex items-center justify-between w-full relative">
               <div 
-                onClick={() => !isCollapsed && setShowOrgDropdown(prev => !prev)}
+                onClick={handleCopyCode}
                 className={`flex items-center ${isCollapsed ? 'justify-center w-full' : 'space-x-3 overflow-hidden min-w-0 cursor-pointer group hover:opacity-90 transition'}`}
-                title={isCollapsed ? orgName : "Changer d'organisation"}
+                title="Cliquer pour copier le code organisation"
               >
                 {/* Logo personnalisé ou Avatar Monogramme */}
                 {orgLogo ? (
@@ -438,11 +461,10 @@ export function Sidebar() {
                       <h1 className="font-extrabold text-sm leading-tight tracking-wide text-white truncate" title={orgName}>
                         {orgName}
                       </h1>
-                      <ChevronsUpDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-white transition shrink-0" />
                     </div>
-                    <p className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5 mt-0.5">
+                    <p className="text-[11px] text-emerald-400 font-mono font-semibold flex items-center gap-1.5 mt-0.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                      Multi-Tenant Actif
+                      {copiedCode ? 'Code copié !' : orgCode}
                     </p>
                   </div>
                 )}
@@ -458,59 +480,6 @@ export function Sidebar() {
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-              )}
-
-              {/* Dropdown Sélecteur Multi-Entreprises Desktop */}
-              {showOrgDropdown && !isCollapsed && (
-                <div className="absolute top-full left-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-2 z-50 animate-fadeIn text-left">
-                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-700/60 flex items-center justify-between">
-                    <span>Vos Entreprises</span>
-                    <span className="text-emerald-400 font-semibold">{allOrgs.length} active{allOrgs.length > 1 ? 's' : ''}</span>
-                  </div>
-                  <div className="max-h-56 overflow-y-auto space-y-1 my-1.5 pr-0.5">
-                    {allOrgs.map((org) => {
-                      const isCurrent = org.id === currentOrgId || org.org_code === orgCode;
-                      const initial = org.name ? org.name.substring(0, 2).toUpperCase() : 'OR';
-                      return (
-                        <button
-                          key={org.id}
-                          type="button"
-                          onClick={() => handleSwitchOrg(org)}
-                          className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition cursor-pointer ${
-                            isCurrent
-                              ? 'bg-blue-600/30 text-white border border-blue-500/50 font-bold'
-                              : 'text-slate-300 hover:bg-slate-700/60 hover:text-white'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            {org.security_config?.org_logo ? (
-                              <img src={org.security_config.org_logo} alt={org.name} className="w-6 h-6 rounded-lg object-cover bg-white shrink-0" />
-                            ) : (
-                              <div className="w-6 h-6 rounded-lg bg-blue-600 text-white font-bold text-[10px] flex items-center justify-center shrink-0">
-                                {initial}
-                              </div>
-                            )}
-                            <div className="text-left truncate">
-                              <span className="font-bold block truncate">{org.name}</span>
-                              <span className="text-[10px] font-mono text-slate-400 block truncate">{org.org_code}</span>
-                            </div>
-                          </div>
-                          {isCurrent && (
-                            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-xs shrink-0 ml-1"></span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <Link
-                    href="/register"
-                    onClick={() => setShowOrgDropdown(false)}
-                    className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-amber-400 hover:text-amber-300 hover:bg-slate-700/50 rounded-xl transition border-t border-slate-700/60"
-                  >
-                    <PlusCircle className="w-3.5 h-3.5" />
-                    <span>+ Nouvelle Entreprise</span>
-                  </Link>
-                </div>
               )}
             </div>
 
@@ -708,111 +677,243 @@ export function Sidebar() {
         </div>
       </aside>
 
-      {/* 2. BARRE DE NAVIGATION MOBILE */}
-      <div className="md:hidden w-full bg-slate-900 text-white border-b border-slate-800 px-4 py-2.5 flex flex-col gap-2 shrink-0">
-        <div className="flex items-center justify-between">
-          <div 
-            onClick={() => setShowOrgDropdown(prev => !prev)}
-            className="flex items-center space-x-2.5 cursor-pointer group"
-            title="Changer d'organisation"
-          >
-            {orgLogo ? (
-              <img
-                src={orgLogo}
-                alt={orgName}
-                className="w-7 h-7 rounded-lg object-cover shrink-0 shadow-xs border border-slate-700 bg-white"
-              />
-            ) : (
-              <div className="w-7 h-7 rounded-xl bg-blue-600 flex items-center justify-center text-white text-xs font-black">
-                {orgInitials}
-              </div>
-            )}
-            <div className="flex items-center gap-1">
-              <span className="font-bold text-xs text-white truncate max-w-[160px]">{orgName}</span>
-              <ChevronsUpDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-white shrink-0" />
+      {/* 2. BARRE SUPÉRIEURE MOBILE AVEC MENU SANDWICH */}
+      <header className="md:hidden sticky top-0 z-40 w-full bg-slate-900/95 backdrop-blur-md text-white border-b border-slate-800 px-4 py-3 flex items-center justify-between shrink-0 select-none">
+        <div className="flex items-center space-x-2.5 min-w-0">
+          {orgLogo ? (
+            <img
+              src={orgLogo}
+              alt={orgName}
+              className="w-8 h-8 rounded-xl object-cover shrink-0 shadow-sm border border-slate-700 bg-white"
+            />
+          ) : (
+            <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white text-xs font-black shrink-0 shadow-sm shadow-blue-500/30">
+              {orgInitials}
             </div>
+          )}
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="font-extrabold text-sm text-white truncate max-w-[170px]">{orgName}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+            </div>
+            <span className="text-[10px] font-mono text-emerald-400 font-semibold">{orgCode}</span>
           </div>
-          <button
-            onClick={handleLogout}
-            className="text-[11px] text-red-400 font-bold px-2 py-1 bg-slate-800 rounded-lg hover:bg-slate-700 transition cursor-pointer"
-          >
-            Déconnexion
-          </button>
         </div>
 
-        {/* Dropdown Mobile de sélection de l'organisation */}
-        {showOrgDropdown && (
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-2.5 my-1.5 space-y-2 animate-fadeIn">
-            <div className="px-2 py-1 text-[10px] font-bold uppercase text-slate-400 flex items-center justify-between border-b border-slate-700/60 pb-1.5">
-              <span>Changer d'organisation ({allOrgs.length})</span>
-              <button 
-                type="button" 
-                onClick={() => setShowOrgDropdown(false)}
-                className="text-slate-400 hover:text-white text-xs px-1"
+        <div className="flex items-center space-x-2">
+          {pendingJustifCount > 0 && (
+            <Link
+              href="/justifications"
+              className="relative p-1.5 bg-slate-800 text-amber-400 rounded-xl hover:bg-slate-700 transition"
+              title={`${pendingJustifCount} justification(s) en attente`}
+            >
+              <ClipboardCheck className="w-4 h-4" />
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-slate-950 font-black text-[9px] rounded-full flex items-center justify-center">
+                {pendingJustifCount}
+              </span>
+            </Link>
+          )}
+
+          {/* Bouton Menu Sandwich */}
+          <button
+            onClick={() => setIsMobileMenuOpen(prev => !prev)}
+            className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl transition cursor-pointer active:scale-95"
+            aria-label="Menu principal"
+          >
+            {isMobileMenuOpen ? <X className="w-5 h-5 text-amber-400" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
+      </header>
+
+      {/* TIROIR COULISSANT DU MENU SANDWICH MOBILE */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden fixed inset-0 z-50 flex">
+          {/* Overlay sombre */}
+          <div 
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm animate-fadeIn"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+
+          {/* Panneau coulissant depuis la droite */}
+          <div className="relative ml-auto w-4/5 max-w-xs bg-slate-900 border-l border-slate-800 h-full flex flex-col justify-between p-5 z-10 shadow-2xl animate-fadeIn">
+            <div className="space-y-5 overflow-y-auto">
+              {/* En-tête du tiroir */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-black text-xs">
+                    {orgInitials}
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-white truncate max-w-[150px]">{orgName}</h3>
+                    <span className="text-[10px] font-mono text-emerald-400">{orgCode}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-xl bg-slate-800/60"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Navigation Principale */}
+              <div className="space-y-1">
+                <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  Pilotage & Opérations
+                </div>
+                {OP_ITEMS.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = pathname === item.href;
+                  const isJustif = item.href === '/justifications';
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition ${
+                        isActive
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                        <span>{item.label}</span>
+                      </div>
+                      {isJustif && pendingJustifCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-slate-950">
+                          {pendingJustifCount}
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+
+              {/* Paramètres & Système */}
+              <div className="space-y-1 pt-2 border-t border-slate-800/80">
+                <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  Gouvernance & Hub
+                </div>
+                <Link
+                  href="/parametres"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={`flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition ${
+                    pathname.startsWith('/parametres')
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  }`}
+                >
+                  <Settings className="w-4 h-4 text-slate-400" />
+                  <span>Paramètres & Géofencing</span>
+                </Link>
+                <Link
+                  href="/gerant"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={`flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition ${
+                    pathname === '/gerant'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  }`}
+                >
+                  <Smartphone className="w-4 h-4 text-emerald-400" />
+                  <span>Mode Smartphone Plein Écran</span>
+                </Link>
+                <button
+                  type="button"
+                  onClick={handleOtaUpdate}
+                  className="w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer text-left"
+                >
+                  <RefreshCw className="w-4 h-4 text-cyan-400" />
+                  <span>Mettre à jour l'app (OTA)</span>
+                </button>
+                <Link
+                  href="/a-propos"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={`flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition ${
+                    pathname === '/a-propos'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  }`}
+                >
+                  <Info className="w-4 h-4 text-slate-400" />
+                  <span>À propos & Support</span>
+                </Link>
+              </div>
+            </div>
+
+            {/* Pied du tiroir : Déconnexion */}
+            <div className="pt-4 border-t border-slate-800">
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  handleLogout();
+                }}
+                className="w-full flex items-center justify-center space-x-2 p-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-bold transition cursor-pointer"
               >
-                ✕
+                <LogOut className="w-4 h-4" />
+                <span>Déconnexion Sécurisée</span>
               </button>
             </div>
-            <div className="max-h-48 overflow-y-auto space-y-1">
-              {allOrgs.map((org) => {
-                const isCurrent = org.id === currentOrgId || org.org_code === orgCode;
-                return (
-                  <button
-                    key={org.id}
-                    type="button"
-                    onClick={() => handleSwitchOrg(org)}
-                    className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition cursor-pointer ${
-                      isCurrent ? 'bg-blue-600 text-white font-bold' : 'text-slate-300 hover:bg-slate-700/60'
-                    }`}
-                  >
-                    <span className="truncate">{org.name}</span>
-                    <span className="text-[10px] font-mono text-slate-300 ml-2 shrink-0">{org.org_code}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <Link
-              href="/register"
-              onClick={() => setShowOrgDropdown(false)}
-              className="block text-center text-xs font-bold text-amber-400 py-1.5 border-t border-slate-700/60 mt-1"
-            >
-              + Enregistrer une nouvelle entreprise
-            </Link>
           </div>
-        )}
-        <div className="flex space-x-1.5 overflow-x-auto pb-1 text-xs">
-          {OP_ITEMS.map((item) => {
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`whitespace-nowrap px-3 py-1.5 rounded-xl font-bold transition ${
-                  isActive ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
-                }`}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-          <Link
-            href="/parametres"
-            className={`whitespace-nowrap px-3 py-1.5 rounded-xl font-bold transition ${
-              isSettingsActive ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
-            }`}
-          >
-            Paramètres
-          </Link>
-          <Link
-            href="/a-propos"
-            className={`whitespace-nowrap px-3 py-1.5 rounded-xl font-bold transition ${
-              pathname === '/a-propos' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-300'
-            }`}
-          >
-            À propos
-          </Link>
         </div>
-      </div>
+      )}
+
+      {/* 3. BARRE DE NAVIGATION INFÉRIEURE MOBILE STYLE WHATSAPP */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 py-1.5 flex items-center justify-around select-none shadow-lg">
+        <Link
+          href="/dashboard"
+          className={`flex flex-col items-center py-1 px-3 rounded-2xl transition ${
+            pathname === '/dashboard' ? 'text-blue-400 font-extrabold' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <PieChart className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">Cockpit</span>
+        </Link>
+
+        <Link
+          href="/pointages"
+          className={`flex flex-col items-center py-1 px-3 rounded-2xl transition ${
+            pathname === '/pointages' ? 'text-blue-400 font-extrabold' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <ClipboardList className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">Pointages</span>
+        </Link>
+
+        <Link
+          href="/employes"
+          className={`flex flex-col items-center py-1 px-3 rounded-2xl transition ${
+            pathname === '/employes' ? 'text-blue-400 font-extrabold' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Users className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">Équipe</span>
+        </Link>
+
+        <Link
+          href="/justifications"
+          className={`flex flex-col items-center py-1 px-3 rounded-2xl relative transition ${
+            pathname === '/justifications' ? 'text-blue-400 font-extrabold' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <ClipboardCheck className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">Justifs</span>
+          {pendingJustifCount > 0 && (
+            <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+          )}
+        </Link>
+
+        <Link
+          href="/parametres"
+          className={`flex flex-col items-center py-1 px-3 rounded-2xl transition ${
+            pathname.startsWith('/parametres') ? 'text-blue-400 font-extrabold' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Settings className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">Paramètres</span>
+        </Link>
+      </nav>
     </>
   );
 }

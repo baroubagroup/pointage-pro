@@ -376,6 +376,17 @@ function ParametresContent() {
   const [modalGpsError, setModalGpsError] = useState<string | null>(null);
   const [showPhoneCalibModal, setShowPhoneCalibModal] = useState(false);
   const [localNetworkIp, setLocalNetworkIp] = useState<string>('192.168.11.106');
+
+  const getPublicUrl = (path: string) => {
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin;
+      if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+        return `${origin}${path}`;
+      }
+      return `http://${localNetworkIp || '192.168.11.106'}:3000${path}`;
+    }
+    return `http://192.168.11.106:3000${path}`;
+  };
   const [detectingModalWifi, setDetectingModalWifi] = useState(false);
   const [modalWifiSuccess, setModalWifiSuccess] = useState<string | null>(null);
   const [modalWifiError, setModalWifiError] = useState<string | null>(null);
@@ -2845,7 +2856,7 @@ function ParametresContent() {
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3">
                 <div className="p-3 bg-white rounded-2xl shadow-sm border border-slate-200 flex items-center justify-center">
                   <RealQrCode 
-                    value={`http://${localNetworkIp || '192.168.11.106'}:3000/calibrer`}
+                    value={getPublicUrl('/calibrer')}
                     size={170}
                   />
                 </div>
@@ -2857,19 +2868,19 @@ function ParametresContent() {
                 </div>
                 <div className="w-full flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200 text-left">
                   <span className="font-mono text-[11px] text-blue-600 truncate flex-1 select-all font-bold">
-                    http://{localNetworkIp || '192.168.11.106'}:3000/calibrer
+                    {getPublicUrl('/calibrer')}
                   </span>
                   <button
                     type="button"
                     onClick={() => {
                       if (typeof window !== 'undefined') {
-                        navigator.clipboard.writeText(`http://${localNetworkIp || '192.168.11.106'}:3000/calibrer`);
-                        setToastMsg("Lien Wi-Fi du calibreur copié !");
+                        navigator.clipboard.writeText(getPublicUrl('/calibrer'));
+                        setToastMsg("Lien du calibreur copié !");
                         setTimeout(() => setToastMsg(null), 3000);
                       }
                     }}
                     className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-700 transition cursor-pointer"
-                    title="Copier le lien Wi-Fi"
+                    title="Copier le lien"
                   >
                     <Copy className="w-3.5 h-3.5" />
                   </button>
