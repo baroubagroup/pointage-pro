@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/employee_session.dart';
+import '../services/update_service.dart';
 import 'clock_in_screen.dart';
 import 'stats_tab.dart';
 import 'profile_tab.dart';
@@ -25,6 +26,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       StatsTab(session: widget.session),
       ProfileTab(session: widget.session),
     ];
+
+    // Vérification discrète des mises à jour en arrière-plan au lancement
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        UpdateService().checkForUpdate(context: context, showFeedbackIfLatest: false);
+      }
+    });
   }
 
   @override

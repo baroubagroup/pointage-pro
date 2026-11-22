@@ -1,5 +1,8 @@
 class EmployeeSession {
   final String id;
+  final String orgId;
+  final String orgName;
+  final String orgCode;
   final String fullName;
   final String phone;
   final String role;
@@ -29,6 +32,9 @@ class EmployeeSession {
 
   EmployeeSession({
     required this.id,
+    this.orgId = "53055b65-de5a-40af-9f1c-d27bd83e7c68",
+    this.orgName = "PointagePro Enterprise",
+    this.orgCode = "ORG-NB-2026-3653TB",
     required this.fullName,
     required this.phone,
     required this.role,
@@ -58,6 +64,9 @@ class EmployeeSession {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'org_id': orgId,
+      'org_name': orgName,
+      'org_code': orgCode,
       'full_name': fullName,
       'phone': phone,
       'role': role,
@@ -101,12 +110,15 @@ class EmployeeSession {
 
     return EmployeeSession(
       id: map['id'] ?? '',
+      orgId: map['org_id'] ?? '53055b65-de5a-40af-9f1c-d27bd83e7c68',
+      orgName: map['org_name'] ?? 'PointagePro Enterprise',
+      orgCode: map['org_code'] ?? 'ORG-NB-2026-3653TB',
       fullName: map['full_name'] ?? 'Collaborateur',
       phone: map['phone'] ?? '',
       role: map['role'] ?? 'EMPLOYEE',
       enrollmentToken: map['enrollment_token'] ?? '',
       establishmentId: map['establishment_id'] ?? '',
-      establishmentName: map['establishment_name'] ?? 'Siège Principal Ouagadougou',
+      establishmentName: map['establishment_name'] ?? 'Siège Principal Bobo-Dioulasso',
       boundDeviceId: map['bound_device_id'],
       deviceModel: map['device_model'],
       employeeMatricule: map['employee_matricule'],
@@ -134,7 +146,7 @@ class EmployeeSession {
     return workingDays.contains(weekday);
   }
 
-  String get matricule => employeeMatricule ?? 'OUA-2026-001';
+  String get matricule => employeeMatricule ?? 'MAT-2026-001';
 
   String get initials {
     final parts = fullName.trim().split(RegExp(r'\s+'));

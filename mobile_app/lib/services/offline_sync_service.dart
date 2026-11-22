@@ -146,9 +146,9 @@ class OfflineSyncService {
       throw Exception("Veuillez renseigner un code d'activation.");
     }
 
-    // 1. Recherche de l'employé dans Supabase avec établissement et planning
+    // 1. Recherche de l'employé dans Supabase avec établissement, organisation et planning
     final Uri url = Uri.parse(
-      "$_supabaseUrl/rest/v1/pointage_employees?select=*,pointage_establishments(id,name,latitude,longitude,radius_meters),pointage_schedules(id,name,working_days,morning_start,morning_end,lunch_start,lunch_end,afternoon_start,afternoon_end,tolerance_minutes)&or=(enrollment_token.eq.$cleanToken,enrollment_token.ilike.%$cleanToken%)&limit=1"
+      "$_supabaseUrl/rest/v1/pointage_employees?select=*,pointage_organizations(id,name,org_code),pointage_establishments(id,name,latitude,longitude,radius_meters),pointage_schedules(id,name,working_days,morning_start,morning_end,lunch_start,lunch_end,afternoon_start,afternoon_end,tolerance_minutes)&or=(enrollment_token.eq.$cleanToken,enrollment_token.ilike.%$cleanToken%)&limit=1"
     );
 
     final response = await http.get(url, headers: _headers);
@@ -170,9 +170,15 @@ class OfflineSyncService {
     final token = emp['enrollment_token'] as String? ?? cleanToken;
     final establishmentId = emp['default_establishment_id'] as String? ?? '00000000-0000-0000-0000-000000000010';
     
+    // Données de l'organisation rattachée
+    final orgData = emp['pointage_organizations'];
+    final orgId = (emp['org_id'] as String?) ?? (orgData?['id'] as String?) ?? '53055b65-de5a-40af-9f1c-d27bd83e7c68';
+    final orgName = (orgData?['name'] as String?) ?? 'PointagePro Enterprise';
+    final orgCode = (orgData?['org_code'] as String?) ?? 'ORG-PRO';
+
     // Données de l'établissement
     final estData = emp['pointage_establishments'];
-    final establishmentName = estData?['name'] as String? ?? 'Siège Principal Ouagadougou';
+    final establishmentName = estData?['name'] as String? ?? 'Siège Principal Bobo-Dioulasso';
     final establishmentLat = estData?['latitude'] != null ? (estData['latitude'] as num).toDouble() : 11.24700;
     final establishmentLng = estData?['longitude'] != null ? (estData['longitude'] as num).toDouble() : -4.29180;
     final establishmentRadius = estData?['radius_meters'] != null ? (estData['radius_meters'] as num).toDouble() : 120.0;
@@ -216,6 +222,9 @@ class OfflineSyncService {
     // 3. Création et stockage persistant de la session
     final session = EmployeeSession(
       id: empId,
+      orgId: orgId,
+      orgName: orgName,
+      orgCode: orgCode,
       fullName: fullName,
       phone: phone,
       role: role,
@@ -374,6 +383,9 @@ class OfflineSyncService {
 
     final session = EmployeeSession(
       id: empId,
+      orgId: orgId,
+      orgName: orgName,
+      orgCode: (org['org_code'] as String?) ?? cleanOrg,
       fullName: fullName,
       phone: phone,
       role: role,
@@ -408,13 +420,18 @@ class OfflineSyncService {
   Future<EmployeeSession?> checkReverseEnrollment(String deviceId) async {
     try {
       final Uri url = Uri.parse(
-        "$_supabaseUrl/rest/v1/pointage_employees?select=*,pointage_establishments(id,name,latitude,longitude,radius_meters),pointage_schedules(id,name,working_days,morning_start,morning_end,lunch_start,lunch_end,afternoon_start,afternoon_end,tolerance_minutes)&bound_device_id=eq.$deviceId&is_enrolled=eq.true&limit=1"
+        "$_supabaseUrl/rest/v1/pointage_employees?select=*,pointage_organizations(id,name,org_code),pointage_establishments(id,name,latitude,longitude,radius_meters),pointage_schedules(id,name,working_days,morning_start,morning_end,lunch_start,lunch_end,afternoon_start,afternoon_end,tolerance_minutes)&bound_device_id=eq.$deviceId&is_enrolled=eq.true&limit=1"
       );
       final response = await http.get(url, headers: _headers);
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         if (data.isNotEmpty) {
           final emp = data.first;
+          final orgData = emp['pointage_organizations'];
+          final orgId = (emp['org_id'] as String?) ?? (orgData?['id'] as String?) ?? '53055b65-de5a-40af-9f1c-d27bd83e7c68';
+          final orgName = (orgData?['name'] as String?) ?? 'PointagePro Enterprise';
+          final orgCode = (orgData?['org_code'] as String?) ?? 'ORG-PRO';
+
           final estData = emp['pointage_establishments'];
           final schedData = emp['pointage_schedules'];
 
@@ -425,12 +442,15 @@ class OfflineSyncService {
 
           final session = EmployeeSession(
             id: emp['id'],
+            orgId: orgId,
+            orgName: orgName,
+            orgCode: orgCode,
             fullName: emp['full_name'],
             phone: emp['phone'] ?? '',
             role: emp['role'] ?? 'EMPLOYEE',
             enrollmentToken: emp['enrollment_token'] ?? '',
             establishmentId: emp['default_establishment_id'] ?? '00000000-0000-0000-0000-000000000010',
-            establishmentName: estData?['name'] ?? 'Siège Principal Ouagadougou',
+            establishmentName: estData?['name'] ?? 'Siège Principal Bobo-Dioulasso',
             boundDeviceId: deviceId,
             deviceModel: emp['device_model'] ?? 'Smartphone Sécurisé',
             employeeMatricule: emp['employee_matricule'],
@@ -507,10 +527,15 @@ class OfflineSyncService {
 
   // ==================== CONFIGURATION ANTI-TRICHE D'ENTREPRISE ====================
 
-  /// Récupère la matrice de sécurité anti-triche définie dans l'admin dashboard
-  Future<Map<String, dynamic>> getOrganizationSecurityConfig() async {
+  /// Récupère la matrice de sécurité anti-triche définie dans l'admin dashboard pour l'organisation
+  Future<Map<String, dynamic>> getOrganizationSecurityConfig([String? orgId]) async {
     try {
-      final Uri url = Uri.parse("$_supabaseUrl/rest/v1/pointage_organizations?select=security_config&limit=1");
+      String query = "$_supabaseUrl/rest/v1/pointage_organizations?select=security_config";
+      if (orgId != null && orgId.isNotEmpty) {
+        query += "&id=eq.$orgId";
+      }
+      query += "&limit=1";
+      final Uri url = Uri.parse(query);
       final response = await http.get(url, headers: _headers);
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
@@ -569,6 +594,9 @@ class OfflineSyncService {
 
     if (pending.isEmpty) return;
 
+    final session = await getStoredEmployeeSession();
+    final orgId = session?.orgId ?? "53055b65-de5a-40af-9f1c-d27bd83e7c68";
+
     final Uri postUrl = Uri.parse("$_supabaseUrl/rest/v1/pointage_logs");
 
     for (var map in pending) {
@@ -578,7 +606,7 @@ class OfflineSyncService {
         final String? assistedBy = map['assisted_by_employee_id'];
 
         final payload = {
-          "org_id": "00000000-0000-0000-0000-000000000001",
+          "org_id": orgId,
           "employee_id": punch.userId,
           "establishment_id": punch.establishmentId,
           "punch_type": punch.type.name,
@@ -674,10 +702,14 @@ class OfflineSyncService {
 
   // ==================== ASSISTANCE COLLÈGUE & RECONNAISSANCE FACIALE ====================
 
-  Future<List<Map<String, dynamic>>> getColleaguesList(String currentEmployeeId) async {
+  Future<List<Map<String, dynamic>>> getColleaguesList(String currentEmployeeId, {String? orgId}) async {
     try {
+      String filter = "id=neq.$currentEmployeeId&is_active=eq.true";
+      if (orgId != null && orgId.isNotEmpty) {
+        filter += "&org_id=eq.$orgId";
+      }
       final Uri url = Uri.parse(
-        "$_supabaseUrl/rest/v1/pointage_employees?select=id,full_name,employee_matricule,face_embedding_vector,face_update_count&id=neq.$currentEmployeeId&is_active=eq.true&order=full_name.asc"
+        "$_supabaseUrl/rest/v1/pointage_employees?select=id,full_name,employee_matricule,face_embedding_vector,face_update_count&$filter&order=full_name.asc"
       );
       final response = await http.get(url, headers: _headers);
       if (response.statusCode == 200) {

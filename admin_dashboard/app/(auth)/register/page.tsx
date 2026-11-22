@@ -180,6 +180,8 @@ export default function RegisterPage() {
         localStorage.setItem('pointage_manager_email', email.trim());
         localStorage.setItem('pointage_manager_phone', phone.trim());
         localStorage.setItem('pointage_trial_ends_at', trialEndsAt);
+        // Notifier immédiatement tous les composants d'interface actifs
+        window.dispatchEvent(new Event('pointage_org_updated'));
       }
 
       // 4. Poser les cookies de session et d'organisation active
@@ -189,8 +191,8 @@ export default function RegisterPage() {
       document.cookie = `pointage_active_org_code=${finalCode}; path=/; max-age=86400; SameSite=Lax`;
       document.cookie = 'pointage_manager_session=manager_authenticated; path=/; max-age=86400; SameSite=Lax';
 
-      // 5. Redirection vers le tableau de bord avec notification d'onboarding
-      router.push('/dashboard?onboarding=success');
+      // 5. Redirection franche avec rafraîchissement complet du layout et de la barre de navigation
+      window.location.href = '/dashboard?onboarding=success';
     } catch (err: any) {
       console.error(err);
       setError(err?.message || "Une erreur est survenue lors de l'enregistrement.");

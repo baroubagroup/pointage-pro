@@ -533,7 +533,7 @@ class _ClockInScreenState extends State<ClockInScreen> with SingleTickerProvider
 
     try {
       // 3. Biométrie appareil (Touch ID / Face ID) selon la politique d'entreprise
-      final secConfig = await _syncService.getOrganizationSecurityConfig();
+      final secConfig = await _syncService.getOrganizationSecurityConfig(widget.session.orgId);
       if (secConfig['require_biometrics'] == true) {
         bool authenticated = await _securityService.authenticateBiometric();
         if (!authenticated) {

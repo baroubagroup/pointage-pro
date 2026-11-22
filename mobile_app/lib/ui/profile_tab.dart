@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/employee_session.dart';
 import '../services/face_recognition_service.dart';
 import '../services/offline_sync_service.dart';
+import '../services/update_service.dart';
 import 'enrollment_screen.dart';
 
 class ProfileTab extends StatefulWidget {
@@ -17,6 +18,7 @@ class ProfileTab extends StatefulWidget {
 class _ProfileTabState extends State<ProfileTab> {
   late EmployeeSession _currentSession;
   bool _isUpdatingFace = false;
+  bool _isCheckingUpdate = false;
 
   @override
   void initState() {
@@ -499,6 +501,120 @@ class _ProfileTabState extends State<ProfileTab> {
                         title: "Liaison Unique 1 Téléphone = 1 Collaborateur",
                         desc: "Empêche formellement le pointage de complaisance pour un tiers.",
                         icon: Icons.phonelink_lock_rounded,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // Carte Mises à Jour & Maintenance Logicielle
+            _buildBentoSectionCard(
+              title: "Mises à Jour & Maintenance Logicielle",
+              icon: Icons.system_update_rounded,
+              iconColor: const Color(0xFF2563EB),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                "Version Logiciel",
+                                style: TextStyle(
+                                  color: Color(0xFF64748B),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                "v${UpdateService.currentAppVersion} • Build ${UpdateService.currentVersionCode}",
+                                style: const TextStyle(
+                                  color: Color(0xFF0F172A),
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFECFDF5),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFFA7F3D0)),
+                            ),
+                            child: const Text(
+                              "STABLE",
+                              style: TextStyle(
+                                color: Color(0xFF059669),
+                                fontWeight: FontWeight.w900,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          const Icon(Icons.business_rounded, color: Color(0xFF64748B), size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              "Établissement : ${_currentSession.orgName} (${_currentSession.orgCode})",
+                              style: const TextStyle(
+                                color: Color(0xFF475569),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 46,
+                        child: ElevatedButton.icon(
+                          onPressed: _isCheckingUpdate
+                              ? null
+                              : () async {
+                                  setState(() => _isCheckingUpdate = true);
+                                  await UpdateService().checkForUpdate(
+                                    context: context,
+                                    showFeedbackIfLatest: true,
+                                  );
+                                  if (mounted) setState(() => _isCheckingUpdate = false);
+                                },
+                          icon: _isCheckingUpdate
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.sync_rounded, size: 18),
+                          label: Text(
+                            _isCheckingUpdate ? "Recherche en cours..." : "Rechercher une mise à jour",
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                        ),
                       ),
                     ],
                   ),

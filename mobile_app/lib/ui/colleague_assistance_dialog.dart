@@ -57,7 +57,10 @@ class _ColleagueAssistanceDialogState extends State<ColleagueAssistanceDialog> w
   }
 
   Future<void> _loadColleagues() async {
-    final list = await _syncService.getColleaguesList(widget.currentSession.id);
+    final list = await _syncService.getColleaguesList(
+      widget.currentSession.id,
+      orgId: widget.currentSession.orgId,
+    );
     if (mounted) {
       setState(() {
         _colleagues = list;
