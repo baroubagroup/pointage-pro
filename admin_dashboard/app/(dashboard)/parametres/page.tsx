@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Header } from '@/components/header';
 import { createClient } from '@/lib/supabase/client';
+import { RealQrCode } from '@/components/real-qr-code';
 import { 
   Building2, 
   Shield, 
@@ -374,6 +375,7 @@ function ParametresContent() {
   const [modalGpsSuccess, setModalGpsSuccess] = useState<string | null>(null);
   const [modalGpsError, setModalGpsError] = useState<string | null>(null);
   const [showPhoneCalibModal, setShowPhoneCalibModal] = useState(false);
+  const [localNetworkIp, setLocalNetworkIp] = useState<string>('192.168.11.106');
   const [detectingModalWifi, setDetectingModalWifi] = useState(false);
   const [modalWifiSuccess, setModalWifiSuccess] = useState<string | null>(null);
   const [modalWifiError, setModalWifiError] = useState<string | null>(null);
@@ -400,6 +402,11 @@ function ParametresContent() {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        fetch('/api/network/info')
+          .then(r => r.json())
+          .then(d => { if (d && d.localIp) setLocalNetworkIp(d.localIp); })
+          .catch(() => {});
+
         const supabase = createClient();
         const activeOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
         const activeOrgCode = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') : null;
@@ -2804,8 +2811,8 @@ function ParametresContent() {
 
       {/* Modal Calage Satellite par Smartphone (±2m) */}
       {showPhoneCalibModal && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 space-y-5 border border-slate-100">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-100 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
                 <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
@@ -2836,28 +2843,33 @@ function ParametresContent() {
               </div>
 
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col items-center text-center space-y-3">
-                <div className="p-3 bg-white rounded-xl shadow-xs border border-slate-200">
-                  <QrCode className="w-32 h-32 text-slate-800" />
+                <div className="p-3 bg-white rounded-2xl shadow-sm border border-slate-200 flex items-center justify-center">
+                  <RealQrCode 
+                    value={`http://${localNetworkIp || '192.168.11.106'}:3000/calibrer`}
+                    size={170}
+                  />
                 </div>
-                <div>
-                  <span className="font-bold text-slate-800 text-xs block">Ouvrez le Calibreur Satellite Mobile</span>
-                  <span className="text-[11px] text-slate-500 block">Scannez ce QR Code ou ouvrez le lien ci-dessous :</span>
+                <div className="space-y-1">
+                  <span className="font-bold text-slate-900 text-xs block">Scannez ce QR Code avec votre téléphone</span>
+                  <span className="text-[11px] text-emerald-700 font-bold block bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">
+                    📶 Connectez votre téléphone au Wi-Fi &quot;{selectedSite?.wifiSsid || 'SAKO'}&quot;
+                  </span>
                 </div>
                 <div className="w-full flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200 text-left">
-                  <span className="font-mono text-[11px] text-blue-600 truncate flex-1 select-all">
-                    {typeof window !== 'undefined' ? `${window.location.origin}/calibrer` : '/calibrer'}
+                  <span className="font-mono text-[11px] text-blue-600 truncate flex-1 select-all font-bold">
+                    http://{localNetworkIp || '192.168.11.106'}:3000/calibrer
                   </span>
                   <button
                     type="button"
                     onClick={() => {
                       if (typeof window !== 'undefined') {
-                        navigator.clipboard.writeText(`${window.location.origin}/calibrer`);
-                        setToastMsg("Lien du calibreur copié dans le presse-papier !");
+                        navigator.clipboard.writeText(`http://${localNetworkIp || '192.168.11.106'}:3000/calibrer`);
+                        setToastMsg("Lien Wi-Fi du calibreur copié !");
                         setTimeout(() => setToastMsg(null), 3000);
                       }
                     }}
                     className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-700 transition cursor-pointer"
-                    title="Copier le lien"
+                    title="Copier le lien Wi-Fi"
                   >
                     <Copy className="w-3.5 h-3.5" />
                   </button>
@@ -2885,7 +2897,7 @@ function ParametresContent() {
                   className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition flex items-center gap-1.5 text-xs"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Tester dans un onglet</span>
+                  <span>Tester sur ce PC</span>
                 </a>
                 <button
                   type="button"

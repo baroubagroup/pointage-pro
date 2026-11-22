@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { RealQrCode } from '@/components/real-qr-code';
 import { 
   Smartphone, 
   Users, 
@@ -79,6 +80,7 @@ export default function MaquetteGerantPage() {
   const [broadcastText, setBroadcastText] = useState('');
   const [showQrModal, setShowQrModal] = useState(false);
   const [showPhoneQrModal, setShowPhoneQrModal] = useState(false);
+  const [localNetworkIp, setLocalNetworkIp] = useState<string>('192.168.11.106');
   const [showDynamicIslandAlert, setShowDynamicIslandAlert] = useState(false);
   const [islandMessage, setIslandMessage] = useState('🟢 Tous les sites opérationnels');
 
@@ -116,6 +118,11 @@ export default function MaquetteGerantPage() {
   const loadLiveSupabaseData = async () => {
     setLoadingDb(true);
     try {
+      fetch('/api/network/info')
+        .then(r => r.json())
+        .then(d => { if (d && d.localIp) setLocalNetworkIp(d.localIp); })
+        .catch(() => {});
+
       const supabase = createClient();
       const storedOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
       const storedOrgCode = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') : null;
@@ -1136,8 +1143,8 @@ export default function MaquetteGerantPage() {
 
       {/* MODALE : TESTER SUR VRAI SMARTPHONE (QR CODE EXTERNE) */}
       {showPhoneQrModal && (
-        <div className="fixed inset-0 z-60 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 space-y-4 text-center">
+        <div className="fixed inset-0 z-[100] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 space-y-4 text-center max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Smartphone className="w-5 h-5 text-emerald-400" />
@@ -1146,33 +1153,40 @@ export default function MaquetteGerantPage() {
               <button
                 type="button"
                 onClick={() => setShowPhoneQrModal(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
+                className="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-4 bg-white rounded-2xl inline-block shadow-lg mx-auto">
-              <QrCode className="w-36 h-36 text-slate-900" />
+            <div className="p-3 bg-white rounded-2xl inline-flex items-center justify-center shadow-lg mx-auto">
+              <RealQrCode 
+                value={`http://${localNetworkIp || '192.168.11.106'}:3000/maquette-gerant`} 
+                size={180} 
+              />
             </div>
 
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Scannez ce QR Code avec votre téléphone pour ouvrir l&apos;application gérant en plein écran directement dans votre main.
-            </p>
+            <div className="space-y-1">
+              <span className="font-bold text-white text-xs block">Scannez ce QR Code avec votre téléphone</span>
+              <span className="text-[11px] text-emerald-400 font-bold block bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                📶 Connecté au Wi-Fi &quot;{dbEstablishment?.wifi_ssid || 'SAKO'}&quot;
+              </span>
+            </div>
 
-            <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800">
-              <span className="font-mono text-[11px] text-blue-400 truncate flex-1 select-all">
-                {typeof window !== 'undefined' ? `${window.location.origin}/maquette-gerant` : '/maquette-gerant'}
+            <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800 text-left">
+              <span className="font-mono text-[11px] text-blue-400 truncate flex-1 select-all font-bold">
+                http://{localNetworkIp || '192.168.11.106'}:3000/maquette-gerant
               </span>
               <button
                 type="button"
                 onClick={() => {
                   if (typeof window !== 'undefined') {
-                    navigator.clipboard.writeText(`${window.location.origin}/maquette-gerant`);
-                    triggerToast("Lien copié dans le presse-papier !");
+                    navigator.clipboard.writeText(`http://${localNetworkIp || '192.168.11.106'}:3000/maquette-gerant`);
+                    triggerToast("Lien Wi-Fi copié dans le presse-papier !");
                   }
                 }}
-                className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white transition"
+                className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white transition cursor-pointer"
+                title="Copier l'URL Wi-Fi"
               >
                 <Copy className="w-3.5 h-3.5" />
               </button>
@@ -1181,7 +1195,7 @@ export default function MaquetteGerantPage() {
             <button
               type="button"
               onClick={() => setShowPhoneQrModal(false)}
-              className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl transition"
+              className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl transition cursor-pointer"
             >
               Fermer
             </button>
