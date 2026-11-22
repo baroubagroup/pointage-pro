@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
+import { createClient } from '@/lib/supabase/client';
 import { 
   Smartphone, 
   Users, 
@@ -36,15 +37,17 @@ import {
   MessageCircle,
   Eye,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Copy,
+  Share2
 } from 'lucide-react';
 
-interface MockPunch {
+interface DisplayPunch {
   id: string;
   name: string;
   matricule: string;
   time: string;
-  type: 'IN' | 'OUT';
+  type: string;
   site: string;
   distance: string;
   status: 'VALIDATED' | 'LATE' | 'ALERT';
@@ -53,7 +56,7 @@ interface MockPunch {
   wifiUsed?: string;
 }
 
-interface MockJustif {
+interface DisplayJustif {
   id: string;
   name: string;
   time: string;
@@ -75,101 +78,21 @@ export default function MaquetteGerantPage() {
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
   const [broadcastText, setBroadcastText] = useState('');
   const [showQrModal, setShowQrModal] = useState(false);
+  const [showPhoneQrModal, setShowPhoneQrModal] = useState(false);
   const [showDynamicIslandAlert, setShowDynamicIslandAlert] = useState(false);
   const [islandMessage, setIslandMessage] = useState('🟢 Tous les sites opérationnels');
 
   // Données de l'organisation
-  const [orgName, setOrgName] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_name') || 'NAFA BUSINESS' : 'NAFA BUSINESS'));
-  const [orgCode, setOrgCode] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') || 'ORG-NB-2026-3653TB' : 'ORG-NB-2026-3653TB'));
+  const [orgId, setOrgId] = useState<string | null>(null);
+  const [orgName, setOrgName] = useState('NAFA BUSINESS');
+  const [orgCode, setOrgCode] = useState('ORG-NB-2026-3653TB');
 
-  // Justifications simulées avec actions réelles d'approbation
-  const [justifications, setJustifications] = useState<MockJustif[]>([
-    {
-      id: 'j-1',
-      name: 'KABORE Ibrahim',
-      time: '08:02',
-      delayMinutes: 17,
-      category: 'Transport / Embouteillage',
-      reason: 'Ralentissement au rond-point de Kuinima suite à un camion en panne.',
-      status: 'PENDING'
-    },
-    {
-      id: 'j-2',
-      name: 'OUEDRAOGO Awa',
-      time: '08:14',
-      delayMinutes: 29,
-      category: 'Rendez-vous Client',
-      reason: 'Passage direct à la banque pour retrait de bordereaux avant ouverture.',
-      status: 'PENDING'
-    }
-  ]);
-
-  // Flux des pointages en temps réel
-  const [punches, setPunches] = useState<MockPunch[]>([
-    {
-      id: 'p-1',
-      name: 'TRAORE Amadou',
-      matricule: 'EMP-001',
-      time: '07:28:14',
-      type: 'IN',
-      site: 'Siège Bobo-Dioulasso',
-      distance: '3 mètres',
-      status: 'VALIDATED',
-      avatarColor: 'from-blue-600 to-indigo-600',
-      device: 'Samsung A53 (Sécurisé)',
-      wifiUsed: 'SAKO'
-    },
-    {
-      id: 'p-2',
-      name: 'SAWADOGO Fatou',
-      matricule: 'EMP-002',
-      time: '07:35:42',
-      type: 'IN',
-      site: 'Siège Bobo-Dioulasso',
-      distance: '6 mètres',
-      status: 'VALIDATED',
-      avatarColor: 'from-emerald-600 to-teal-600',
-      device: 'Tecno Camon 20',
-      wifiUsed: 'SAKO'
-    },
-    {
-      id: 'p-3',
-      name: 'BEDN SAKO',
-      matricule: 'EMP-000',
-      time: '07:40:05',
-      type: 'IN',
-      site: 'Direction Générale',
-      distance: '1 mètre',
-      status: 'VALIDATED',
-      avatarColor: 'from-amber-600 to-yellow-600',
-      device: 'Google Pixel 7',
-      wifiUsed: 'SAKO'
-    },
-    {
-      id: 'p-4',
-      name: 'KABORE Ibrahim',
-      matricule: 'EMP-003',
-      time: '08:02:19',
-      type: 'IN',
-      site: 'Siège Bobo-Dioulasso',
-      distance: '12 mètres',
-      status: 'LATE',
-      avatarColor: 'from-orange-600 to-amber-700',
-      device: 'Infinix Note 30'
-    },
-    {
-      id: 'p-5',
-      name: 'OUEDRAOGO Awa',
-      matricule: 'EMP-004',
-      time: '08:14:50',
-      type: 'IN',
-      site: 'Hors-Périmètre (214m)',
-      distance: '214 mètres',
-      status: 'ALERT',
-      avatarColor: 'from-rose-600 to-red-700',
-      device: 'Redmi Note 12'
-    }
-  ]);
+  // Données réelles chargées depuis Supabase
+  const [loadingDb, setLoadingDb] = useState(true);
+  const [dbEmployees, setDbEmployees] = useState<any[]>([]);
+  const [dbEstablishment, setDbEstablishment] = useState<any>(null);
+  const [dbJustifications, setDbJustifications] = useState<any[]>([]);
+  const [dbPunches, setDbPunches] = useState<any[]>([]);
 
   // Horloge dynamique
   useEffect(() => {
@@ -186,25 +109,232 @@ export default function MaquetteGerantPage() {
 
   const triggerToast = (msg: string) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 3000);
+    setTimeout(() => setToastMsg(null), 3500);
   };
 
-  const handleApproveJustif = (id: string, name: string) => {
-    setJustifications(prev => prev.map(j => j.id === id ? { ...j, status: 'APPROVED' } : j));
-    triggerToast(`✓ Retard de ${name} validé et excusé.`);
-    setIslandMessage(`✓ ${name} excusé`);
-    setShowDynamicIslandAlert(true);
-    setTimeout(() => setShowDynamicIslandAlert(false), 3000);
+  // Chargement des données réelles depuis Supabase
+  const loadLiveSupabaseData = async () => {
+    setLoadingDb(true);
+    try {
+      const supabase = createClient();
+      const storedOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
+      const storedOrgCode = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_code') : null;
+
+      // 1. Entreprise active
+      let orgQuery = supabase.from('pointage_organizations').select('*');
+      if (storedOrgId) {
+        orgQuery = orgQuery.eq('id', storedOrgId);
+      } else if (storedOrgCode) {
+        orgQuery = orgQuery.eq('org_code', storedOrgCode);
+      } else {
+        orgQuery = orgQuery.order('created_at', { ascending: false }).limit(1);
+      }
+      const { data: orgData } = await orgQuery.single();
+
+      let targetOrgId = storedOrgId;
+      if (orgData) {
+        targetOrgId = orgData.id;
+        setOrgId(orgData.id);
+        setOrgName(orgData.name);
+        setOrgCode(orgData.org_code);
+      }
+
+      // 2. Établissement actif
+      let estQuery = supabase.from('pointage_establishments').select('*').eq('is_active', true);
+      if (targetOrgId) {
+        estQuery = estQuery.eq('org_id', targetOrgId);
+      }
+      const { data: estData } = await estQuery.limit(1);
+      if (estData && estData.length > 0) {
+        setDbEstablishment(estData[0]);
+      }
+
+      // 3. Employés réels de l'entreprise
+      let empQuery = supabase.from('pointage_employees').select('*').eq('is_active', true);
+      if (targetOrgId) {
+        empQuery = empQuery.eq('org_id', targetOrgId);
+      }
+      const { data: empsData } = await empQuery.order('full_name');
+      if (empsData && empsData.length > 0) {
+        setDbEmployees(empsData);
+      }
+
+      // 4. Justifications réelles avec relation employé
+      const { data: justData } = await supabase
+        .from('pointage_justifications')
+        .select('*, pointage_employees(full_name, employee_matricule, phone)')
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (justData && justData.length > 0) {
+        setDbJustifications(justData);
+      }
+
+      // 5. Pointages réels
+      let logsQuery = supabase
+        .from('pointage_logs')
+        .select('*, pointage_employees(full_name, employee_matricule, role), pointage_establishments(name)')
+        .order('recorded_at_utc', { ascending: false })
+        .limit(50);
+      if (targetOrgId) {
+        logsQuery = logsQuery.eq('org_id', targetOrgId);
+      }
+      const { data: logsData } = await logsQuery;
+      if (logsData && logsData.length > 0) {
+        setDbPunches(logsData);
+      }
+    } catch (err) {
+      console.warn('Erreur chargement Supabase mobile:', err);
+    } finally {
+      setLoadingDb(false);
+    }
   };
 
-  const handleRejectJustif = (id: string, name: string) => {
-    setJustifications(prev => prev.map(j => j.id === id ? { ...j, status: 'REJECTED' } : j));
-    triggerToast(`✕ Justification de ${name} refusée.`);
-    setIslandMessage(`✕ Retard non justifié : ${name}`);
-    setShowDynamicIslandAlert(true);
-    setTimeout(() => setShowDynamicIslandAlert(false), 3000);
+  useEffect(() => {
+    loadLiveSupabaseData();
+  }, []);
+
+  // Transformation des pointages DB en format d'affichage mobile
+  const punches: DisplayPunch[] = useMemo(() => {
+    if (dbPunches.length === 0) {
+      return [];
+    }
+
+    const avatarColors = [
+      'from-blue-600 to-indigo-600',
+      'from-emerald-600 to-teal-600',
+      'from-amber-600 to-yellow-600',
+      'from-orange-600 to-amber-700',
+      'from-rose-600 to-red-700',
+      'from-purple-600 to-violet-700'
+    ];
+
+    return dbPunches.map((p, idx) => {
+      const punchDate = new Date(p.recorded_at_utc || p.created_at);
+      const timeStr = punchDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const empName = p.pointage_employees?.full_name || 'Collaborateur';
+      const matricule = p.pointage_employees?.employee_matricule || `MAT-${String(idx + 1).padStart(3, '0')}`;
+      const dist = Math.round(p.distance_to_site_meters || 0);
+
+      let status: 'VALIDATED' | 'LATE' | 'ALERT' = 'VALIDATED';
+      if (p.status === 'FLAGGED' || dist > (dbEstablishment?.radius_meters || 80)) {
+        status = 'ALERT';
+      } else if (p.status === 'LATE' || (Array.isArray(p.flag_reasons) && p.flag_reasons.some((f: string) => f.includes('RETARD')))) {
+        status = 'LATE';
+      }
+
+      return {
+        id: p.id,
+        name: empName,
+        matricule,
+        time: timeStr,
+        type: p.punch_type || 'CHECK_IN',
+        site: p.pointage_establishments?.name || dbEstablishment?.name || 'Siège Principal',
+        distance: `${dist} mètre${dist > 1 ? 's' : ''}`,
+        status,
+        avatarColor: avatarColors[idx % avatarColors.length],
+        device: p.device_model || 'Smartphone Déclaré',
+        wifiUsed: p.wifi_bssid ? (dbEstablishment?.wifi_ssid || 'SAKO') : undefined
+      };
+    });
+  }, [dbPunches, dbEstablishment]);
+
+  // Transformation des justifications DB
+  const justifications: DisplayJustif[] = useMemo(() => {
+    if (dbJustifications.length === 0) return [];
+
+    return dbJustifications.map((j) => {
+      const created = new Date(j.created_at);
+      const timeStr = created.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      const rawReason = j.reason_text || 'Retard signalé';
+      
+      // Extraction catégorie entre crochets si présente
+      let category = 'Justification RH';
+      let reason = rawReason;
+      const catMatch = rawReason.match(/^\[(.*?)\]\s*(.*)$/);
+      if (catMatch) {
+        category = catMatch[1];
+        reason = catMatch[2] || catMatch[1];
+      }
+
+      return {
+        id: j.id,
+        name: j.pointage_employees?.full_name || 'Collaborateur',
+        time: timeStr,
+        delayMinutes: 20,
+        category,
+        reason,
+        status: j.status || 'PENDING'
+      };
+    });
+  }, [dbJustifications]);
+
+  // Arbitrage réel en direct dans Supabase
+  const handleApproveJustif = async (id: string, name: string) => {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('pointage_justifications')
+        .update({
+          status: 'APPROVED',
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: 'Gérance Mobile PointagePro'
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setDbJustifications(prev => prev.map(j => j.id === id ? { ...j, status: 'APPROVED' } : j));
+      triggerToast(`✓ Retard de ${name} validé et excusé dans la base.`);
+      setIslandMessage(`✓ ${name} excusé`);
+      setShowDynamicIslandAlert(true);
+      setTimeout(() => setShowDynamicIslandAlert(false), 3000);
+    } catch (e: any) {
+      triggerToast(`Erreur: ${e.message}`);
+    }
   };
 
+  const handleRejectJustif = async (id: string, name: string) => {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('pointage_justifications')
+        .update({
+          status: 'REJECTED',
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: 'Gérance Mobile PointagePro'
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setDbJustifications(prev => prev.map(j => j.id === id ? { ...j, status: 'REJECTED' } : j));
+      triggerToast(`✕ Justification de ${name} rejetée.`);
+      setIslandMessage(`✕ Retard non excusé : ${name}`);
+      setShowDynamicIslandAlert(true);
+      setTimeout(() => setShowDynamicIslandAlert(false), 3000);
+    } catch (e: any) {
+      triggerToast(`Erreur: ${e.message}`);
+    }
+  };
+
+  // Envoi réel WhatsApp au collaborateur
+  const handleOpenWhatsApp = (emp: any) => {
+    const rawPhone = emp.phone || '';
+    const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+    const siteName = dbEstablishment?.name || 'Siège Principal';
+    const message = encodeURIComponent(
+      `Bonjour ${emp.full_name},\n\nVotre accès mobile à PointagePro (${orgName}) est configuré pour le site "${siteName}".\n\n` +
+      `🔑 Code Organisation : *${orgCode}*\n` +
+      `🆔 Votre Matricule : *${emp.employee_matricule || 'N/A'}*\n\n` +
+      `Téléchargez l'application mobile et commencez à pointer par satellite :\n` +
+      `${typeof window !== 'undefined' ? window.location.origin : ''}/apk`
+    );
+    window.open(`https://api.whatsapp.com/send?phone=${cleanPhone}&text=${message}`, '_blank');
+    triggerToast(`Lien magique WhatsApp ouvert pour ${emp.full_name}`);
+  };
+
+  // Diffusion d'un message d'urgence push
   const handleSendBroadcast = (e: React.FormEvent) => {
     e.preventDefault();
     if (!broadcastText.trim()) return;
@@ -216,25 +346,59 @@ export default function MaquetteGerantPage() {
     setTimeout(() => setShowDynamicIslandAlert(false), 4000);
   };
 
-  const handleSimulateNewPunch = () => {
-    const newP: MockPunch = {
-      id: `p-${Date.now()}`,
-      name: 'NOUVEAU POINTAGE DIRECT',
-      matricule: 'EMP-005',
-      time: new Date().toLocaleTimeString('fr-FR'),
-      type: 'IN',
-      site: 'Siège Bobo-Dioulasso',
-      distance: '2 mètres',
-      status: 'VALIDATED',
-      avatarColor: 'from-violet-600 to-purple-700',
-      device: 'Smartphone Test',
-      wifiUsed: 'SAKO'
-    };
-    setPunches(prev => [newP, ...prev]);
-    setIslandMessage(`🟢 Nouveau pointage : EMP-005 sur site`);
-    setShowDynamicIslandAlert(true);
-    triggerToast(`Nouveau pointage WGS84 reçu à l'instant !`);
-    setTimeout(() => setShowDynamicIslandAlert(false), 3500);
+  // Simulation d'un nouveau pointage physique réel WGS84 dans Supabase
+  const handleSimulateNewPunch = async () => {
+    try {
+      const supabase = createClient();
+      const targetOrgId = orgId || '53055b65-de5a-40af-9f1c-d27bd83e7c68';
+      
+      const emps = dbEmployees.length > 0 ? dbEmployees : [
+        { id: '79b7aef2-544e-4a70-ac6a-39ce3db1e57c', full_name: 'TRAORE Amadou', employee_matricule: 'MAT-2026-001' }
+      ];
+      const randomEmp = emps[Math.floor(Math.random() * emps.length)];
+      const siteId = dbEstablishment?.id || '729f0aca-bc81-4ee4-84d9-1c179b6f0f93';
+      const baseLat = dbEstablishment?.latitude || 11.247051;
+      const baseLon = dbEstablishment?.longitude || -4.291915;
+
+      // Jitter WGS84 réaliste (1 à 8 mètres)
+      const jitterLat = (Math.random() - 0.5) * 0.00006;
+      const jitterLon = (Math.random() - 0.5) * 0.00006;
+      const lat = Number((baseLat + jitterLat).toFixed(6));
+      const lon = Number((baseLon + jitterLon).toFixed(6));
+      const dist = Math.round(Math.hypot(jitterLat * 111000, jitterLon * 111000) * 10) / 10;
+
+      const { data: newLog, error } = await supabase
+        .from('pointage_logs')
+        .insert({
+          org_id: targetOrgId,
+          employee_id: randomEmp.id,
+          establishment_id: siteId,
+          punch_type: 'CHECK_IN',
+          recorded_at_utc: new Date().toISOString(),
+          latitude: lat,
+          longitude: lon,
+          accuracy_meters: 1.9,
+          distance_to_site_meters: dist,
+          device_model: randomEmp.device_model || 'Smartphone Déclaré',
+          wifi_bssid: dbEstablishment?.wifi_bssids?.[0] || '6a:9e:29:2b:43:08',
+          status: 'VALIDATED',
+          flag_reasons: ['WGS84_OPTIMAL', 'SIMULATION_DIRECTE_MOBILE']
+        })
+        .select('*, pointage_employees(full_name, employee_matricule), pointage_establishments(name)')
+        .single();
+
+      if (error) throw error;
+
+      if (newLog) {
+        setDbPunches(prev => [newLog, ...prev]);
+        setIslandMessage(`🟢 Nouveau pointage : ${randomEmp.full_name} (${dist}m)`);
+        setShowDynamicIslandAlert(true);
+        triggerToast(`Pointage réel enregistré dans Supabase (${dist}m) !`);
+        setTimeout(() => setShowDynamicIslandAlert(false), 3500);
+      }
+    } catch (e: any) {
+      triggerToast(`Erreur simulation: ${e.message}`);
+    }
   };
 
   const filteredPunches = punches.filter(p => {
@@ -249,7 +413,7 @@ export default function MaquetteGerantPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       
-      {/* 1. BARRE DE COMMANDE & CONTROLES DE LA MAQUETTE (Visible sur Grand Écran) */}
+      {/* 1. BARRE DE COMMANDE & CONTRÔLES DE LA MAQUETTE */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-4 py-3 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3">
           
@@ -260,14 +424,14 @@ export default function MaquetteGerantPage() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="font-extrabold text-sm sm:text-base text-white tracking-tight">
-                  Maquette Interactive • Application Gérant Mobile
+                  Application Gérant Mobile • Vue Dirigeant
                 </h1>
-                <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  Preview HD
+                <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  Supabase Live
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Simulation haute fidélité de l'application smartphone dédiée aux dirigeants & gérants
+                Pilotage en temps réel connecté à {orgName} ({orgCode})
               </p>
             </div>
           </div>
@@ -275,14 +439,26 @@ export default function MaquetteGerantPage() {
           {/* Sélecteur de cadre & Actions de test */}
           <div className="flex items-center space-x-2">
             
-            {/* Bouton Simulation d'arrivée */}
+            {/* Bouton Simulation d'arrivée en direct */}
             <button
               type="button"
               onClick={handleSimulateNewPunch}
               className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold rounded-xl transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+              title="Génère un vrai pointage WGS84 dans Supabase"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Simuler Pointage Live</span>
+            </button>
+
+            {/* QR Code pour tester sur vrai smartphone */}
+            <button
+              type="button"
+              onClick={() => setShowPhoneQrModal(true)}
+              className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+              title="Ouvrir sur votre vrai smartphone"
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Ouvrir sur Mobile</span>
             </button>
 
             {/* Sélecteur Appareil */}
@@ -290,7 +466,7 @@ export default function MaquetteGerantPage() {
               <button
                 type="button"
                 onClick={() => setDeviceFrame('iphone')}
-                className={`px-3 py-1 rounded-lg font-bold transition ${
+                className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
                   deviceFrame === 'iphone' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -299,7 +475,7 @@ export default function MaquetteGerantPage() {
               <button
                 type="button"
                 onClick={() => setDeviceFrame('android')}
-                className={`px-3 py-1 rounded-lg font-bold transition ${
+                className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
                   deviceFrame === 'android' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -308,7 +484,7 @@ export default function MaquetteGerantPage() {
               <button
                 type="button"
                 onClick={() => setDeviceFrame('fullscreen')}
-                className={`px-2 py-1 rounded-lg font-bold transition ${
+                className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
                   deviceFrame === 'fullscreen' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                 }`}
                 title="Mode Plein Écran Mobile Direct"
@@ -321,13 +497,13 @@ export default function MaquetteGerantPage() {
               href="/dashboard"
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition border border-slate-700"
             >
-              ← Retour Cockpit
+              ← Cockpit Web
             </Link>
           </div>
         </div>
       </header>
 
-      {/* 2. ZONE CENTRALE : CHÂSSIS SMARTPHONE RÉALISTE */}
+      {/* 2. ZONE CENTRALE : CHÂSSIS SMARTPHONE */}
       <main className="flex-1 flex items-center justify-center p-2 sm:p-6 bg-gradient-to-b from-[#070A12] to-[#0D1322]">
         
         {/* Toast Flottant de la Maquette */}
@@ -388,7 +564,7 @@ export default function MaquetteGerantPage() {
               <Signal className="w-3 h-3" />
               <div className="flex items-center text-[10px] font-bold text-emerald-400">
                 <Wifi className="w-3 h-3 mr-0.5" />
-                <span>SAKO</span>
+                <span>{dbEstablishment?.wifi_ssid || 'SAKO'}</span>
               </div>
               <BatteryMedium className="w-4 h-4 text-emerald-400" />
             </div>
@@ -414,7 +590,7 @@ export default function MaquetteGerantPage() {
                 type="button"
                 onClick={() => setShowBroadcastModal(true)}
                 title="Diffuser une annonce push"
-                className="w-7 h-7 rounded-xl bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center transition"
+                className="w-7 h-7 rounded-xl bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center transition cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5 text-blue-400" />
               </button>
@@ -422,7 +598,7 @@ export default function MaquetteGerantPage() {
                 type="button"
                 onClick={() => setActiveTab('justifs')}
                 title="Alertes & Justifications"
-                className="w-7 h-7 rounded-xl bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center transition relative"
+                className="w-7 h-7 rounded-xl bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center transition relative cursor-pointer"
               >
                 <Bell className="w-3.5 h-3.5" />
                 {pendingCount > 0 && (
@@ -451,32 +627,40 @@ export default function MaquetteGerantPage() {
                       Effectif & Télémétrie Live
                     </span>
                     <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-                      88% Assiduité
+                      {dbEmployees.length > 0 ? `${Math.round((punches.filter(p => p.status === 'VALIDATED').length / Math.max(dbEmployees.length, 1)) * 100)}% Assiduité` : '100% Assiduité'}
                     </span>
                   </div>
 
                   {/* 4 Compteurs Clés */}
                   <div className="grid grid-cols-4 gap-2 text-center">
                     <div className="bg-slate-950/60 p-2 rounded-2xl border border-slate-800">
-                      <span className="text-lg font-black text-emerald-400 leading-none">5</span>
+                      <span className="text-lg font-black text-emerald-400 leading-none">
+                        {punches.filter(p => p.status === 'VALIDATED').length}
+                      </span>
                       <span className="text-[9px] text-slate-400 font-bold block mt-1">Présents</span>
                     </div>
                     <div className="bg-slate-950/60 p-2 rounded-2xl border border-slate-800">
-                      <span className="text-lg font-black text-amber-400 leading-none">1</span>
-                      <span className="text-[9px] text-slate-400 font-bold block mt-1">Retard</span>
+                      <span className="text-lg font-black text-amber-400 leading-none">
+                        {punches.filter(p => p.status === 'LATE').length}
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-bold block mt-1">Retards</span>
                     </div>
                     <div className="bg-slate-950/60 p-2 rounded-2xl border border-slate-800">
-                      <span className="text-lg font-black text-rose-400 leading-none">1</span>
-                      <span className="text-[9px] text-slate-400 font-bold block mt-1">Alerte</span>
+                      <span className="text-lg font-black text-rose-400 leading-none">
+                        {punches.filter(p => p.status === 'ALERT').length}
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-bold block mt-1">Alertes</span>
                     </div>
                     <div className="bg-slate-950/60 p-2 rounded-2xl border border-slate-800">
-                      <span className="text-lg font-black text-blue-400 leading-none">0</span>
-                      <span className="text-[9px] text-slate-400 font-bold block mt-1">Mission</span>
+                      <span className="text-lg font-black text-blue-400 leading-none">
+                        {dbEmployees.length}
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-bold block mt-1">Effectif</span>
                     </div>
                   </div>
                 </div>
 
-                {/* 2. Boutons d'Action Rapide Gérant (Horizontaux) */}
+                {/* 2. Boutons d'Action Rapide Gérant */}
                 <div>
                   <span className="text-[10px] uppercase font-extrabold tracking-wider text-slate-500 block mb-2 px-1">
                     Actions Rapides
@@ -485,7 +669,7 @@ export default function MaquetteGerantPage() {
                     <button
                       type="button"
                       onClick={() => setShowQrModal(true)}
-                      className="px-3 py-2 bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl flex items-center space-x-2 text-slate-200 shrink-0 font-bold active:scale-95 transition"
+                      className="px-3 py-2 bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl flex items-center space-x-2 text-slate-200 shrink-0 font-bold active:scale-95 transition cursor-pointer"
                     >
                       <QrCode className="w-3.5 h-3.5 text-blue-400" />
                       <span>Scanner Enrôlement</span>
@@ -493,7 +677,7 @@ export default function MaquetteGerantPage() {
                     <button
                       type="button"
                       onClick={() => setShowBroadcastModal(true)}
-                      className="px-3 py-2 bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl flex items-center space-x-2 text-slate-200 shrink-0 font-bold active:scale-95 transition"
+                      className="px-3 py-2 bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl flex items-center space-x-2 text-slate-200 shrink-0 font-bold active:scale-95 transition cursor-pointer"
                     >
                       <Send className="w-3.5 h-3.5 text-amber-400" />
                       <span>Alerte Push</span>
@@ -501,7 +685,7 @@ export default function MaquetteGerantPage() {
                     <button
                       type="button"
                       onClick={() => triggerToast("Rapport RH PDF prêt pour téléchargement")}
-                      className="px-3 py-2 bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl flex items-center space-x-2 text-slate-200 shrink-0 font-bold active:scale-95 transition"
+                      className="px-3 py-2 bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl flex items-center space-x-2 text-slate-200 shrink-0 font-bold active:scale-95 transition cursor-pointer"
                     >
                       <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
                       <span>Export Heures</span>
@@ -511,92 +695,104 @@ export default function MaquetteGerantPage() {
 
                 {/* 3. Filtre Segmenté du Flux */}
                 <div className="flex items-center justify-between px-1">
-                  <span className="text-xs font-bold text-white">Flux des Pointages</span>
+                  <span className="text-xs font-bold text-white">Flux des Pointages ({filteredPunches.length})</span>
                   <div className="flex bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[10px] font-bold">
                     <button
                       type="button"
                       onClick={() => setFilterType('ALL')}
-                      className={`px-2 py-0.5 rounded-lg transition ${filterType === 'ALL' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
+                      className={`px-2 py-0.5 rounded-lg transition cursor-pointer ${filterType === 'ALL' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
                     >
-                      Tous ({punches.length})
+                      Tous
                     </button>
                     <button
                       type="button"
                       onClick={() => setFilterType('LATE')}
-                      className={`px-2 py-0.5 rounded-lg transition ${filterType === 'LATE' ? 'bg-amber-600 text-white' : 'text-slate-400'}`}
+                      className={`px-2 py-0.5 rounded-lg transition cursor-pointer ${filterType === 'LATE' ? 'bg-amber-600 text-white' : 'text-slate-400'}`}
                     >
                       Retards
                     </button>
                     <button
                       type="button"
                       onClick={() => setFilterType('ALERT')}
-                      className={`px-2 py-0.5 rounded-lg transition ${filterType === 'ALERT' ? 'bg-rose-600 text-white' : 'text-slate-400'}`}
+                      className={`px-2 py-0.5 rounded-lg transition cursor-pointer ${filterType === 'ALERT' ? 'bg-rose-600 text-white' : 'text-slate-400'}`}
                     >
                       Alertes
                     </button>
                   </div>
                 </div>
 
-                {/* 4. Liste des Cartes de Pointages en Temps Réel */}
+                {/* 4. Liste des Cartes de Pointages */}
                 <div className="space-y-2">
-                  {filteredPunches.map((p) => {
-                    const isValid = p.status === 'VALIDATED';
-                    const isLate = p.status === 'LATE';
-                    const isAlert = p.status === 'ALERT';
+                  {loadingDb ? (
+                    <div className="p-6 text-center text-slate-500 text-xs">
+                      Chargement des pointages réels...
+                    </div>
+                  ) : filteredPunches.length === 0 ? (
+                    <div className="p-6 text-center bg-slate-900/50 rounded-2xl border border-slate-800 text-xs text-slate-400 space-y-1">
+                      <CheckCircle2 className="w-6 h-6 text-emerald-400 mx-auto" />
+                      <p className="font-bold text-white">Aucun pointage dans cette vue</p>
+                      <p className="text-[11px] text-slate-500">Cliquez sur &quot;Simuler Pointage Live&quot; ci-dessus pour tester.</p>
+                    </div>
+                  ) : (
+                    filteredPunches.map((p) => {
+                      const isValid = p.status === 'VALIDATED';
+                      const isLate = p.status === 'LATE';
+                      const isAlert = p.status === 'ALERT';
 
-                    return (
-                      <div 
-                        key={p.id}
-                        className={`p-3 rounded-2xl border transition ${
-                          isAlert 
-                            ? 'bg-rose-950/20 border-rose-800/60 text-rose-100' 
-                            : isLate 
-                              ? 'bg-amber-950/20 border-amber-800/60 text-amber-100'
-                              : 'bg-slate-900/70 border-slate-800 text-slate-200 hover:border-slate-700'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-center space-x-2.5">
-                            <div className={`w-9 h-9 rounded-xl bg-gradient-to-tr ${p.avatarColor} flex items-center justify-center text-white font-extrabold text-xs shrink-0 shadow-sm`}>
-                              {p.name.split(' ').map(w => w[0]).join('').slice(0, 2)}
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-xs text-white leading-tight">{p.name}</span>
-                                <span className="text-[9px] font-mono text-slate-400">{p.matricule}</span>
+                      return (
+                        <div 
+                          key={p.id}
+                          className={`p-3 rounded-2xl border transition ${
+                            isAlert 
+                              ? 'bg-rose-950/20 border-rose-800/60 text-rose-100' 
+                              : isLate 
+                                ? 'bg-amber-950/20 border-amber-800/60 text-amber-100'
+                                : 'bg-slate-900/70 border-slate-800 text-slate-200 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center space-x-2.5">
+                              <div className={`w-9 h-9 rounded-xl bg-gradient-to-tr ${p.avatarColor} flex items-center justify-center text-white font-extrabold text-xs shrink-0 shadow-sm`}>
+                                {p.name.split(' ').map(w => w[0]).join('').slice(0, 2)}
                               </div>
-                              <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                                <MapPin className="w-2.5 h-2.5 text-slate-400" />
-                                <span>{p.site} • ({p.distance})</span>
-                              </p>
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-xs text-white leading-tight">{p.name}</span>
+                                  <span className="text-[9px] font-mono text-slate-400">{p.matricule}</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                  <MapPin className="w-2.5 h-2.5 text-slate-400" />
+                                  <span>{p.site} • ({p.distance})</span>
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <span className="text-xs font-black font-mono text-white block">{p.time}</span>
+                              <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md inline-block mt-0.5 ${
+                                isValid ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                                isLate ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                                'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                              }`}>
+                                {isValid ? 'Validé' : isLate ? 'Retard' : 'Hors-Zone'}
+                              </span>
                             </div>
                           </div>
 
-                          <div className="text-right shrink-0">
-                            <span className="text-xs font-black font-mono text-white block">{p.time}</span>
-                            <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md inline-block mt-0.5 ${
-                              isValid ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                              isLate ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
-                              'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                            }`}>
-                              {isValid ? 'Validé' : isLate ? 'Retard' : 'Hors-Zone'}
-                            </span>
+                          {/* Télémétrie appareil & Wi-Fi */}
+                          <div className="mt-2 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-400">
+                            <span className="truncate max-w-[180px]">📱 {p.device}</span>
+                            {p.wifiUsed && (
+                              <span className="text-emerald-400 font-bold flex items-center gap-1">
+                                <Wifi className="w-2.5 h-2.5" />
+                                <span>Box {p.wifiUsed}</span>
+                              </span>
+                            )}
                           </div>
                         </div>
-
-                        {/* Télémétrie appareil & Wi-Fi */}
-                        <div className="mt-2 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-400">
-                          <span className="truncate max-w-[180px]">📱 {p.device}</span>
-                          {p.wifiUsed && (
-                            <span className="text-emerald-400 font-bold flex items-center gap-1">
-                              <Wifi className="w-2.5 h-2.5" />
-                              <span>Box {p.wifiUsed}</span>
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
 
               </div>
@@ -608,69 +804,77 @@ export default function MaquetteGerantPage() {
                 <div className="flex items-center justify-between px-1">
                   <div>
                     <h2 className="text-xs font-extrabold text-white">Arbitrage des Retards</h2>
-                    <p className="text-[10px] text-slate-400">Validation ou rejet direct en 1 clic</p>
+                    <p className="text-[10px] text-slate-400">Validation ou rejet direct dans Supabase</p>
                   </div>
                   <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
                     {pendingCount} en attente
                   </span>
                 </div>
 
-                {justifications.map((j) => {
-                  const isPending = j.status === 'PENDING';
-                  const isApproved = j.status === 'APPROVED';
-                  const isRejected = j.status === 'REJECTED';
+                {justifications.length === 0 ? (
+                  <div className="p-6 text-center bg-slate-900/50 rounded-2xl border border-slate-800 text-xs text-slate-400 space-y-1">
+                    <CheckCircle2 className="w-6 h-6 text-emerald-400 mx-auto" />
+                    <p className="font-bold text-white">Aucun retard à arbitrer</p>
+                    <p className="text-[11px] text-slate-500">Toutes les justifications ont été traitées.</p>
+                  </div>
+                ) : (
+                  justifications.map((j) => {
+                    const isPending = j.status === 'PENDING';
+                    const isApproved = j.status === 'APPROVED';
+                    const isRejected = j.status === 'REJECTED';
 
-                  return (
-                    <div key={j.id} className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl space-y-2.5">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <span className="font-bold text-xs text-white block">{j.name}</span>
-                          <span className="text-[10px] text-amber-400 font-bold flex items-center gap-1 mt-0.5">
-                            <Clock className="w-3 h-3" />
-                            <span>Retard de {j.delayMinutes} min (Arrivée à {j.time})</span>
+                    return (
+                      <div key={j.id} className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl space-y-2.5">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <span className="font-bold text-xs text-white block">{j.name}</span>
+                            <span className="text-[10px] text-amber-400 font-bold flex items-center gap-1 mt-0.5">
+                              <Clock className="w-3 h-3" />
+                              <span>Signalé à {j.time} • {j.category}</span>
+                            </span>
+                          </div>
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                            isPending ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                            isApproved ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                            'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                          }`}>
+                            {isPending ? 'En attente' : isApproved ? 'Excusé' : 'Non justifié'}
                           </span>
                         </div>
-                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                          isPending ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
-                          isApproved ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                          'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                        }`}>
-                          {isPending ? 'En attente' : isApproved ? 'Excusé' : 'Non justifié'}
-                        </span>
-                      </div>
 
-                      <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/80 text-[11px] text-slate-300 italic">
-                        "{j.reason}"
-                      </div>
+                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/80 text-[11px] text-slate-300 italic">
+                          &quot;{j.reason}&quot;
+                        </div>
 
-                      {/* Boutons d'Arbitrage Flash */}
-                      {isPending ? (
-                        <div className="grid grid-cols-2 gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => handleApproveJustif(j.id, j.name)}
-                            className="py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>Valider</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRejectJustif(j.id, j.name)}
-                            className="py-1.5 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                            <span>Refuser</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="text-[10px] text-slate-400 text-center font-bold py-1">
-                          {isApproved ? '✓ Décision : Retard excusé' : '✕ Décision : Sanctionné / Non justifié'}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                        {/* Boutons d'Arbitrage Flash */}
+                        {isPending ? (
+                          <div className="grid grid-cols-2 gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => handleApproveJustif(j.id, j.name)}
+                              className="py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Valider</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRejectJustif(j.id, j.name)}
+                              className="py-1.5 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              <span>Refuser</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-400 text-center font-bold py-1">
+                            {isApproved ? '✓ Décision enregistrée : Retard excusé' : '✕ Décision enregistrée : Retard non justifié'}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
             )}
 
@@ -679,13 +883,13 @@ export default function MaquetteGerantPage() {
               <div className="space-y-3 animate-fadeIn">
                 <div className="flex items-center justify-between px-1">
                   <div>
-                    <h2 className="text-xs font-extrabold text-white">Personnel ({punches.length})</h2>
-                    <p className="text-[10px] text-slate-400">Liens magiques & liaison téléphones</p>
+                    <h2 className="text-xs font-extrabold text-white">Personnel ({dbEmployees.length})</h2>
+                    <p className="text-[10px] text-slate-400">Liens WhatsApp & liaison des téléphones</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setShowQrModal(true)}
-                    className="text-[11px] font-bold text-blue-400 flex items-center gap-1 hover:underline"
+                    className="text-[11px] font-bold text-blue-400 flex items-center gap-1 hover:underline cursor-pointer"
                   >
                     <QrCode className="w-3.5 h-3.5" />
                     <span>Lier un mobile</span>
@@ -693,23 +897,25 @@ export default function MaquetteGerantPage() {
                 </div>
 
                 <div className="space-y-2">
-                  {punches.map((emp) => (
+                  {dbEmployees.map((emp) => (
                     <div key={emp.id} className="p-3 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between">
                       <div className="flex items-center space-x-2.5">
-                        <div className={`w-8 h-8 rounded-xl bg-gradient-to-tr ${emp.avatarColor} flex items-center justify-center text-white font-black text-xs`}>
-                          {emp.name[0]}
+                        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-xs">
+                          {emp.full_name ? emp.full_name[0] : 'E'}
                         </div>
                         <div>
-                          <span className="font-bold text-xs text-white block">{emp.name}</span>
-                          <span className="text-[10px] text-slate-400">{emp.matricule} • {emp.device}</span>
+                          <span className="font-bold text-xs text-white block">{emp.full_name}</span>
+                          <span className="text-[10px] text-slate-400">
+                            {emp.employee_matricule || 'Sans matricule'} • {emp.phone || 'Sans téléphone'}
+                          </span>
                         </div>
                       </div>
 
                       <button
                         type="button"
-                        onClick={() => triggerToast(`Lien WhatsApp envoyé à ${emp.name}`)}
-                        className="p-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 rounded-xl transition border border-emerald-500/30"
-                        title="Envoyer lien d'activation WhatsApp"
+                        onClick={() => handleOpenWhatsApp(emp)}
+                        className="p-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 rounded-xl transition border border-emerald-500/30 cursor-pointer"
+                        title="Envoyer lien d'activation WhatsApp avec le code entreprise"
                       >
                         <MessageCircle className="w-3.5 h-3.5" />
                       </button>
@@ -730,8 +936,44 @@ export default function MaquetteGerantPage() {
                 <div className="bg-slate-900 p-3.5 rounded-2xl border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
+                      <span className="font-bold text-white block">Établissement Actif</span>
+                      <span className="text-[10px] text-slate-400">
+                        {dbEstablishment?.name || 'Siège Principal'} ({dbEstablishment?.city || 'Bobo-Dioulasso'})
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
+                      Rayon {dbEstablishment?.radius_meters || 80}m
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                    <div>
+                      <span className="font-bold text-white block">Coordonnées WGS84</span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {dbEstablishment?.latitude || 11.247051}°, {dbEstablishment?.longitude || -4.291915}°
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">
+                      ±1m
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                    <div>
+                      <span className="font-bold text-white block">Signature Box Wi-Fi</span>
+                      <span className="text-[10px] text-slate-400">
+                        Réseau : {dbEstablishment?.wifi_ssid || 'SAKO'} ({dbEstablishment?.wifi_bssids?.[0] || '6a:9e:29:2b:43:08'})
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">
+                      Certifié
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                    <div>
                       <span className="font-bold text-white block">Blocage Mock GPS</span>
-                      <span className="text-[10px] text-slate-400">Refus des fausses localisations</span>
+                      <span className="text-[10px] text-slate-400">Refus automatique des fausses localisations</span>
                     </div>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">
                       Actif
@@ -745,16 +987,6 @@ export default function MaquetteGerantPage() {
                     </div>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">
                       Actif
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-                    <div>
-                      <span className="font-bold text-white block">Vérification Box Wi-Fi</span>
-                      <span className="text-[10px] text-slate-400">Réseau : SAKO</span>
-                    </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">
-                      Certifié
                     </span>
                   </div>
                 </div>
@@ -835,12 +1067,12 @@ export default function MaquetteGerantPage() {
                 <div className="flex items-center justify-between">
                   <span className="font-extrabold text-xs text-white flex items-center gap-1.5">
                     <Send className="w-3.5 h-3.5 text-blue-400" />
-                    Diffuser un Message d'Urgence
+                    Diffuser un Message d&apos;Urgence
                   </span>
                   <button 
                     type="button"
                     onClick={() => setShowBroadcastModal(false)}
-                    className="text-slate-400 hover:text-white text-xs px-2 py-1"
+                    className="text-slate-400 hover:text-white text-xs px-2 py-1 cursor-pointer"
                   >
                     ✕
                   </button>
@@ -858,7 +1090,7 @@ export default function MaquetteGerantPage() {
                 <button
                   type="button"
                   onClick={handleSendBroadcast}
-                  className="w-full py-2 bg-blue-600 hover:bg-blue-500 font-bold text-xs text-white rounded-xl transition"
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-500 font-bold text-xs text-white rounded-xl transition cursor-pointer"
                 >
                   Envoyer la Notification Push
                 </button>
@@ -875,7 +1107,7 @@ export default function MaquetteGerantPage() {
                   <button 
                     type="button"
                     onClick={() => setShowQrModal(false)}
-                    className="text-slate-400 hover:text-white text-xs px-2 py-1"
+                    className="text-slate-400 hover:text-white text-xs px-2 py-1 cursor-pointer"
                   >
                     ✕
                   </button>
@@ -891,7 +1123,7 @@ export default function MaquetteGerantPage() {
                     setShowQrModal(false);
                     triggerToast("✓ Smartphone du salarié associé avec succès !");
                   }}
-                  className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 font-bold text-xs text-white rounded-xl transition"
+                  className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 font-bold text-xs text-white rounded-xl transition cursor-pointer"
                 >
                   Simuler Scan Réussi
                 </button>
@@ -901,6 +1133,61 @@ export default function MaquetteGerantPage() {
 
         </div>
       </main>
+
+      {/* MODALE : TESTER SUR VRAI SMARTPHONE (QR CODE EXTERNE) */}
+      {showPhoneQrModal && (
+        <div className="fixed inset-0 z-60 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 space-y-4 text-center">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-extrabold text-white text-sm">Ouvrir sur Smartphone</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPhoneQrModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 bg-white rounded-2xl inline-block shadow-lg mx-auto">
+              <QrCode className="w-36 h-36 text-slate-900" />
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Scannez ce QR Code avec votre téléphone pour ouvrir l&apos;application gérant en plein écran directement dans votre main.
+            </p>
+
+            <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800">
+              <span className="font-mono text-[11px] text-blue-400 truncate flex-1 select-all">
+                {typeof window !== 'undefined' ? `${window.location.origin}/maquette-gerant` : '/maquette-gerant'}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    navigator.clipboard.writeText(`${window.location.origin}/maquette-gerant`);
+                    triggerToast("Lien copié dans le presse-papier !");
+                  }
+                }}
+                className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white transition"
+              >
+                <Copy className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowPhoneQrModal(false)}
+              className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl transition"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );
