@@ -48,7 +48,9 @@ import {
   Phone,
   Settings,
   Calendar,
-  Upload
+  Upload,
+  RefreshCw,
+  CalendarX
 } from 'lucide-react';
 
 const DynamicSiteGeofenceMap = dynamic(
@@ -88,6 +90,24 @@ interface DisplayPunch {
   siteRadius?: number;
   employeeObj?: any;
 }
+
+interface HolidayExemption {
+  id: string;
+  date: string;
+  name: string;
+  category: 'FERIE_LEGAL' | 'CONGE_ENTREPRISE' | 'EVENEMENT_SPECIAL' | 'PEDAGOGIQUE';
+  is_paid: boolean;
+  applies_to_all: boolean;
+  created_at: string;
+}
+
+const DEFAULT_HOLIDAY_PRESETS: Omit<HolidayExemption, 'id' | 'created_at'>[] = [
+  { date: '2026-01-01', name: "Jour de l'An", category: 'FERIE_LEGAL', is_paid: true, applies_to_all: true },
+  { date: '2026-05-01', name: 'Fête du Travail', category: 'FERIE_LEGAL', is_paid: true, applies_to_all: true },
+  { date: '2026-08-05', name: "Fête de l'Indépendance", category: 'FERIE_LEGAL', is_paid: true, applies_to_all: true },
+  { date: '2026-11-01', name: 'Toussaint', category: 'FERIE_LEGAL', is_paid: true, applies_to_all: true },
+  { date: '2026-12-25', name: 'Noël', category: 'FERIE_LEGAL', is_paid: true, applies_to_all: true }
+];
 
 interface DisplayJustif {
   id: string;
@@ -177,7 +197,10 @@ export default function MaquetteGerantPage() {
   // 6 Onglets principaux de navigation mobile
   const [activeTab, setActiveTab] = useState<'cockpit' | 'sites' | 'equipe' | 'plannings' | 'justifs' | 'parametres'>('cockpit');
 
-  // Filtres date & statut du Cockpit + Fiche détail pointage
+  // Filtres date, site & statut du Cockpit + Fiche détail pointage + Temps réel
+  const [selectedCockpitSiteId, setSelectedCockpitSiteId] = useState<string>('ALL');
+  const [isRefreshingLive, setIsRefreshingLive] = useState(false);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
   const [cockpitDateMode, setCockpitDateMode] = useState<'today' | 'yesterday' | 'custom'>('today');
   const [cockpitStartDate, setCockpitStartDate] = useState<string>(() => toDateInputString(new Date()));
   const [cockpitEndDate, setCockpitEndDate] = useState<string>(() => toDateInputString(new Date()));
@@ -210,8 +233,10 @@ export default function MaquetteGerantPage() {
   const [auditNeedsSql, setAuditNeedsSql] = useState<boolean>(false);
   const [auditFilter, setAuditFilter] = useState<'ALL' | 'AUTH' | 'SITES_SEC' | 'OPS'>('ALL');
 
-  // Formulaires Employé
+  // Formulaires Employé (Création + Modification + Archivage)
   const [broadcastText, setBroadcastText] = useState('');
+  const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
+  const [confirmDeleteEmployeeId, setConfirmDeleteEmployeeId] = useState<string | null>(null);
   const [newEmpName, setNewEmpName] = useState('');
   const [newEmpPhone, setNewEmpPhone] = useState('');
   const [newEmpRole, setNewEmpRole] = useState('Collaborateur');
@@ -243,7 +268,8 @@ export default function MaquetteGerantPage() {
   const [isDetectingWifi, setIsDetectingWifi] = useState(false);
   const [wifiDetectNote, setWifiDetectNote] = useState<string | null>(null);
 
-  // Formulaire Couloir Horaire (Arrivée/Départ activables + Pause optionnelle + Jours)
+  // Formulaire Couloir Horaire (Création + Édition + Pause optionnelle + Jours)
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [newSchedName, setNewSchedName] = useState('');
   const [schedTrackArrival, setSchedTrackArrival] = useState<boolean>(true);
   const [newSchedMorningStart, setNewSchedMorningStart] = useState('08:00');
@@ -278,6 +304,14 @@ export default function MaquetteGerantPage() {
   const [orgTimezone, setOrgTimezone] = useState<string>('Africa/Ouagadougou');
   const [orgCurrency, setOrgCurrency] = useState<string>('XOF');
   const [savingOrgSettings, setSavingOrgSettings] = useState(false);
+
+  // Jours fériés & exemptions exceptionnelles (synchronisés avec security_config.holidays)
+  const [orgHolidays, setOrgHolidays] = useState<HolidayExemption[]>([]);
+  const [showHolidayForm, setShowHolidayForm] = useState(false);
+  const [newHolidayDate, setNewHolidayDate] = useState<string>(() => toDateInputString(new Date()));
+  const [newHolidayName, setNewHolidayName] = useState<string>('');
+  const [newHolidayCategory, setNewHolidayCategory] = useState<'FERIE_LEGAL' | 'CONGE_ENTREPRISE' | 'EVENEMENT_SPECIAL'>('FERIE_LEGAL');
+  const [newHolidayPaid, setNewHolidayPaid] = useState<boolean>(true);
 
   // Données réelles chargées depuis Supabase
   const [loadingDb, setLoadingDb] = useState(true);
@@ -381,6 +415,14 @@ export default function MaquetteGerantPage() {
           if (sc.support_contact) setOrgSupportContact(sc.support_contact);
           if (sc.timezone) setOrgTimezone(sc.timezone);
           if (sc.currency) setOrgCurrency(sc.currency);
+          if (Array.isArray(sc.holidays)) {
+            setOrgHolidays(sc.holidays);
+          } else if (typeof window !== 'undefined') {
+            try {
+              const rawH = localStorage.getItem('pointage_holidays');
+              if (rawH) setOrgHolidays(JSON.parse(rawH));
+            } catch {}
+          }
         }
       }
 
@@ -503,9 +545,68 @@ export default function MaquetteGerantPage() {
     }
   };
 
+  const cockpitDateRef = useRef({ start: cockpitStartDate, end: cockpitEndDate });
+  useEffect(() => {
+    cockpitDateRef.current = { start: cockpitStartDate, end: cockpitEndDate };
+  }, [cockpitStartDate, cockpitEndDate]);
+
   useEffect(() => {
     loadLiveSupabaseData();
   }, []);
+
+  // Écoute Supabase Realtime : rafraîchissement instantané des pointages & arbitrages
+  useEffect(() => {
+    if (!orgId) return;
+    const supabase = createClient();
+
+    const refreshJustifications = async () => {
+      const { data } = await supabase
+        .from('pointage_justifications')
+        .select('*, pointage_employees(full_name, employee_matricule, phone)')
+        .eq('org_id', orgId)
+        .order('created_at', { ascending: false })
+        .limit(30);
+      if (data) setDbJustifications(data);
+    };
+
+    const channel = supabase
+      .channel(`maquette-gerant-live-${orgId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pointage_logs', filter: `org_id=eq.${orgId}` },
+        (payload) => {
+          const { start, end } = cockpitDateRef.current;
+          fetchCockpitLogsForRange(start, end, orgId, true);
+          if (payload.eventType === 'INSERT') {
+            setIslandMessage('🟢 Nouveau pointage reçu en direct');
+            setShowDynamicIslandAlert(true);
+            setTimeout(() => setShowDynamicIslandAlert(false), 3000);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pointage_justifications', filter: `org_id=eq.${orgId}` },
+        () => {
+          refreshJustifications();
+        }
+      )
+      .subscribe((status) => {
+        setRealtimeConnected(status === 'SUBSCRIBED');
+      });
+
+    return () => {
+      setRealtimeConnected(false);
+      supabase.removeChannel(channel);
+    };
+  }, [orgId]);
+
+  const handleRefreshLive = async () => {
+    setIsRefreshingLive(true);
+    await loadLiveSupabaseData();
+    setIsRefreshingLive(false);
+    triggerToast('✓ Données synchronisées en direct !');
+  };
 
   // Chargement spécifique des logs pour la plage de dates des Relevés RH
   const fetchHrLogsForRange = async (startStr: string, endStr: string) => {
@@ -555,22 +656,37 @@ export default function MaquetteGerantPage() {
     }
   };
 
-  const activeEstablishment = dbEstablishments[0] || null;
+  const activeEstablishment = useMemo(() => {
+    if (selectedCockpitSiteId !== 'ALL') {
+      return dbEstablishments.find(s => s.id === selectedCockpitSiteId) || dbEstablishments[0] || null;
+    }
+    return dbEstablishments[0] || null;
+  }, [dbEstablishments, selectedCockpitSiteId]);
+
+  const cockpitScopedPunches = useMemo(() => {
+    if (selectedCockpitSiteId === 'ALL') return dbPunches;
+    return dbPunches.filter(p => p.establishment_id === selectedCockpitSiteId);
+  }, [dbPunches, selectedCockpitSiteId]);
+
+  const cockpitScopedEmployees = useMemo(() => {
+    if (selectedCockpitSiteId === 'ALL') return dbEmployees;
+    return dbEmployees.filter(emp => emp.default_establishment_id === selectedCockpitSiteId);
+  }, [dbEmployees, selectedCockpitSiteId]);
 
   // 2. Transformation des pointages DB pour le flux Cockpit
   const punches: DisplayPunch[] = useMemo(() => {
-    if (dbPunches.length === 0) return [];
+    if (cockpitScopedPunches.length === 0) return [];
 
     const avatarColors = [
-      'from-blue-600 to-indigo-600',
-      'from-emerald-600 to-teal-600',
-      'from-amber-600 to-yellow-600',
-      'from-orange-600 to-amber-700',
-      'from-rose-600 to-red-700',
-      'from-purple-600 to-violet-700'
+      'bg-[#1D4ED8]',
+      'bg-emerald-600',
+      'bg-amber-600',
+      'bg-orange-600',
+      'bg-rose-600',
+      'bg-purple-600'
     ];
 
-    return dbPunches.map((p, idx) => {
+    return cockpitScopedPunches.map((p, idx) => {
       const punchDate = new Date(p.recorded_at_utc || p.created_at);
       const isMultiDay = cockpitStartDate !== cockpitEndDate;
       const clockStr = punchDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
@@ -610,13 +726,13 @@ export default function MaquetteGerantPage() {
         employeeObj: empObj
       };
     });
-  }, [dbPunches, dbEmployees, activeEstablishment, cockpitStartDate, cockpitEndDate]);
+  }, [cockpitScopedPunches, dbEmployees, activeEstablishment, cockpitStartDate, cockpitEndDate]);
 
-  // Employés actifs n'ayant pas pointé sur la date / plage sélectionnée
+  // Employés actifs n'ayant pas pointé sur la date / plage / site sélectionné
   const absentEmployees = useMemo(() => {
-    const presentIds = new Set(dbPunches.map(p => p.employee_id));
-    return dbEmployees.filter(emp => !presentIds.has(emp.id));
-  }, [dbEmployees, dbPunches]);
+    const presentIds = new Set(cockpitScopedPunches.map(p => p.employee_id));
+    return cockpitScopedEmployees.filter(emp => !presentIds.has(emp.id));
+  }, [cockpitScopedEmployees, cockpitScopedPunches]);
 
   // 3. Transformation des justifications DB
   const justifications: DisplayJustif[] = useMemo(() => {
@@ -768,8 +884,27 @@ export default function MaquetteGerantPage() {
 
   // ==================== ACTIONS GÉRANT COMPLÈTES ====================
 
-  // A. Créer un nouvel employé
-  const handleCreateEmployee = async (e: React.FormEvent) => {
+  // A. Créer ou modifier un employé + Archiver
+  const openEmployeeModal = (emp?: any) => {
+    if (emp) {
+      setEditingEmployeeId(emp.id);
+      setNewEmpName(emp.full_name || '');
+      setNewEmpPhone(emp.phone || '');
+      setNewEmpRole(emp.role || 'Collaborateur');
+      setNewEmpSiteId(emp.default_establishment_id || activeEstablishment?.id || '');
+      setNewEmpScheduleId(emp.schedule_id || dbSchedules[0]?.id || '');
+    } else {
+      setEditingEmployeeId(null);
+      setNewEmpName('');
+      setNewEmpPhone('');
+      setNewEmpRole('Collaborateur');
+      setNewEmpSiteId(activeEstablishment?.id || '');
+      setNewEmpScheduleId(dbSchedules[0]?.id || '');
+    }
+    setShowAddEmployeeModal(true);
+  };
+
+  const handleSaveEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEmpName.trim()) {
       triggerToast("Veuillez saisir le nom complet.");
@@ -778,36 +913,79 @@ export default function MaquetteGerantPage() {
     try {
       const supabase = createClient();
       const targetOrgId = orgId || '53055b65-de5a-40af-9f1c-d27bd83e7c68';
-      const year = new Date().getFullYear();
-      const randNum = String(Math.floor(Math.random() * 900) + 100);
-      const matricule = `MAT-${year}-${randNum}`;
 
-      const { data: newEmp, error } = await supabase
-        .from('pointage_employees')
-        .insert({
-          org_id: targetOrgId,
-          full_name: newEmpName.trim(),
-          employee_matricule: matricule,
-          phone: newEmpPhone.trim() || null,
-          role: newEmpRole,
-          default_establishment_id: newEmpSiteId || (activeEstablishment?.id || null),
-          schedule_id: newEmpScheduleId || (dbSchedules[0]?.id || null),
-          is_active: true
-        })
-        .select('*, pointage_establishments(name), pointage_schedules(name, morning_start, afternoon_end, tolerance_minutes)')
-        .single();
+      if (editingEmployeeId) {
+        const { data: updatedEmp, error } = await supabase
+          .from('pointage_employees')
+          .update({
+            full_name: newEmpName.trim(),
+            phone: newEmpPhone.trim() || null,
+            role: newEmpRole,
+            default_establishment_id: newEmpSiteId || (activeEstablishment?.id || null),
+            schedule_id: newEmpScheduleId || (dbSchedules[0]?.id || null)
+          })
+          .eq('id', editingEmployeeId)
+          .select('*, pointage_establishments(name), pointage_schedules(name, morning_start, afternoon_end, tolerance_minutes)')
+          .single();
 
-      if (error) throw error;
+        if (error) throw error;
+        if (updatedEmp) {
+          setDbEmployees(prev => prev.map(em => (em.id === editingEmployeeId ? updatedEmp : em)));
+          recordAuditEvent('EMPLOYEE_UPDATED', 'INFO', { employee_name: updatedEmp.full_name, role: updatedEmp.role });
+          triggerToast(`✓ Fiche de ${updatedEmp.full_name} mise à jour !`);
+        }
+      } else {
+        const year = new Date().getFullYear();
+        const randNum = String(Math.floor(Math.random() * 900) + 100);
+        const matricule = `MAT-${year}-${randNum}`;
 
-      if (newEmp) {
-        setDbEmployees(prev => [newEmp, ...prev]);
-        setShowAddEmployeeModal(false);
-        setNewEmpName('');
-        setNewEmpPhone('');
-        triggerToast(`✓ Collaborateur ${newEmp.full_name} créé (${matricule}) !`);
+        const { data: newEmp, error } = await supabase
+          .from('pointage_employees')
+          .insert({
+            org_id: targetOrgId,
+            full_name: newEmpName.trim(),
+            employee_matricule: matricule,
+            phone: newEmpPhone.trim() || null,
+            role: newEmpRole,
+            default_establishment_id: newEmpSiteId || (activeEstablishment?.id || null),
+            schedule_id: newEmpScheduleId || (dbSchedules[0]?.id || null),
+            is_active: true
+          })
+          .select('*, pointage_establishments(name), pointage_schedules(name, morning_start, afternoon_end, tolerance_minutes)')
+          .single();
+
+        if (error) throw error;
+
+        if (newEmp) {
+          setDbEmployees(prev => [newEmp, ...prev]);
+          recordAuditEvent('EMPLOYEE_CREATED', 'INFO', { employee_name: newEmp.full_name, matricule });
+          triggerToast(`✓ Collaborateur ${newEmp.full_name} créé (${matricule}) !`);
+        }
       }
+
+      setShowAddEmployeeModal(false);
+      setEditingEmployeeId(null);
+      setNewEmpName('');
+      setNewEmpPhone('');
     } catch (err: any) {
-      triggerToast(`Erreur création: ${err.message}`);
+      triggerToast(`Erreur enregistrement: ${err.message}`);
+    }
+  };
+
+  const handleArchiveEmployee = async (emp: any) => {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('pointage_employees')
+        .update({ is_active: false })
+        .eq('id', emp.id);
+      if (error) throw error;
+      setDbEmployees(prev => prev.filter(e => e.id !== emp.id));
+      setConfirmDeleteEmployeeId(null);
+      recordAuditEvent('EMPLOYEE_ARCHIVED', 'WARNING', { employee_name: emp.full_name, matricule: emp.employee_matricule });
+      triggerToast(`Collaborateur "${emp.full_name}" archivé.`);
+    } catch (err: any) {
+      triggerToast(`Erreur archivage: ${err.message}`);
     }
   };
 
@@ -1335,6 +1513,79 @@ export default function MaquetteGerantPage() {
     }
   };
 
+  // D5. Jours Fériés & Exemptions (synchronisés avec security_config.holidays)
+  const persistOrgHolidays = async (nextHolidays: HolidayExemption[]) => {
+    const sorted = [...nextHolidays].sort((a, b) => a.date.localeCompare(b.date));
+    setOrgHolidays(sorted);
+    const updatedConfig = {
+      ...orgSecurityConfigRaw,
+      holidays: sorted,
+      org_logo: orgLogo || undefined
+    };
+    setOrgSecurityConfigRaw(updatedConfig);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pointage_holidays', JSON.stringify(sorted));
+      localStorage.setItem('pointage_security_config', JSON.stringify(updatedConfig));
+      window.dispatchEvent(new Event('pointage_holidays_updated'));
+    }
+
+    const targetOrgId = orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+    if (!targetOrgId) return;
+
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('pointage_organizations')
+        .update({ security_config: updatedConfig })
+        .eq('id', targetOrgId);
+      if (error) throw error;
+    } catch (err: any) {
+      triggerToast(`Erreur synchro jours fériés : ${err.message}`);
+    }
+  };
+
+  const handleAddHoliday = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newHolidayDate || !newHolidayName.trim()) {
+      triggerToast("Date et libellé du jour férié requis.");
+      return;
+    }
+    const item: HolidayExemption = {
+      id: `hol-${Date.now()}`,
+      date: newHolidayDate,
+      name: newHolidayName.trim(),
+      category: newHolidayCategory,
+      is_paid: newHolidayPaid,
+      applies_to_all: true,
+      created_at: new Date().toISOString()
+    };
+    const next = [...orgHolidays.filter(h => h.date !== item.date), item];
+    await persistOrgHolidays(next);
+    recordAuditEvent('HOLIDAY_ADDED', 'INFO', { date: item.date, name: item.name, category: item.category });
+    setNewHolidayName('');
+    setShowHolidayForm(false);
+    triggerToast(`✓ "${item.name}" (${item.date}) enregistré !`);
+  };
+
+  const handleDeleteHoliday = async (hol: HolidayExemption) => {
+    const next = orgHolidays.filter(h => h.id !== hol.id);
+    await persistOrgHolidays(next);
+    recordAuditEvent('HOLIDAY_REMOVED', 'WARNING', { date: hol.date, name: hol.name });
+    triggerToast(`Jour férié "${hol.name}" retiré.`);
+  };
+
+  const handleImportDefaultHolidays = async () => {
+    const map = new Map<string, HolidayExemption>();
+    DEFAULT_HOLIDAY_PRESETS.forEach((p, i) => {
+      map.set(p.date, { ...p, id: `preset-${i}-${Date.now()}`, created_at: new Date().toISOString() });
+    });
+    orgHolidays.forEach(h => map.set(h.date, h));
+    await persistOrgHolidays(Array.from(map.values()));
+    recordAuditEvent('HOLIDAYS_PRESETS_IMPORTED', 'INFO', { count: DEFAULT_HOLIDAY_PRESETS.length });
+    triggerToast(`✓ ${DEFAULT_HOLIDAY_PRESETS.length} jours fériés officiels importés !`);
+  };
+
   // Calcul net journalier pour la modale Couloir Horaire
   const scheduleDailyPreview = useMemo(() => {
     if (!schedTrackArrival && schedTrackDeparture) {
@@ -1376,8 +1627,41 @@ export default function MaquetteGerantPage() {
     );
   };
 
-  // E. Créer un couloir horaire flexible (Arrivée/Départ activables + Pause optionnelle)
-  const handleCreateSchedule = async (e: React.FormEvent) => {
+  // E. Créer ou modifier un couloir horaire flexible (Arrivée/Départ activables + Pause optionnelle)
+  const openScheduleModal = (sched?: any) => {
+    if (sched) {
+      const cat = sched.category || 'Continu';
+      const trackArr = cat !== 'Départ seul';
+      const trackDep = cat !== 'Arrivée seule';
+      const hasBrk = Boolean(sched.lunch_start && sched.lunch_end && sched.lunch_start !== sched.lunch_end);
+      setEditingScheduleId(sched.id);
+      setNewSchedName(sched.name || '');
+      setSchedTrackArrival(trackArr);
+      setNewSchedMorningStart(sched.morning_start || '08:00');
+      setSchedTrackDeparture(trackDep);
+      setNewSchedAfternoonEnd(sched.afternoon_end || '17:00');
+      setSchedHasBreak(hasBrk);
+      setNewSchedBreakStart(hasBrk ? sched.lunch_start : '12:00');
+      setNewSchedBreakEnd(hasBrk ? sched.lunch_end : '13:30');
+      setNewSchedTolerance(sched.tolerance_minutes ?? 15);
+      setNewSchedDays(Array.isArray(sched.working_days) && sched.working_days.length > 0 ? sched.working_days : [1, 2, 3, 4, 5]);
+    } else {
+      setEditingScheduleId(null);
+      setNewSchedName('');
+      setSchedTrackArrival(true);
+      setNewSchedMorningStart('08:00');
+      setSchedTrackDeparture(true);
+      setNewSchedAfternoonEnd('17:00');
+      setSchedHasBreak(false);
+      setNewSchedBreakStart('12:00');
+      setNewSchedBreakEnd('13:30');
+      setNewSchedTolerance(15);
+      setNewSchedDays([1, 2, 3, 4, 5]);
+    }
+    setShowAddScheduleModal(true);
+  };
+
+  const handleSaveSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSchedName.trim()) {
       triggerToast("Veuillez nommer le couloir horaire.");
@@ -1429,35 +1713,56 @@ export default function MaquetteGerantPage() {
 
       const weeklyHours = Math.round(((dailyNetMinutes * newSchedDays.length) / 60) * 10) / 10;
 
-      const { data: newSched, error } = await supabase
-        .from('pointage_schedules')
-        .insert({
-          org_id: targetOrgId,
-          name: newSchedName.trim(),
-          category,
-          working_days: newSchedDays,
-          morning_start: morningStart,
-          morning_end: morningEnd,
-          lunch_start: lunchStart,
-          lunch_end: lunchEnd,
-          afternoon_start: afternoonStart,
-          afternoon_end: afternoonEnd,
-          tolerance_minutes: schedTrackArrival ? newSchedTolerance : 0,
-          weekly_hours: weeklyHours,
-          is_active: true
-        })
-        .select()
-        .single();
+      const payload = {
+        name: newSchedName.trim(),
+        category,
+        working_days: newSchedDays,
+        morning_start: morningStart,
+        morning_end: morningEnd,
+        lunch_start: lunchStart,
+        lunch_end: lunchEnd,
+        afternoon_start: afternoonStart,
+        afternoon_end: afternoonEnd,
+        tolerance_minutes: schedTrackArrival ? newSchedTolerance : 0,
+        weekly_hours: weeklyHours
+      };
 
-      if (error) throw error;
+      if (editingScheduleId) {
+        const { data: updatedSched, error } = await supabase
+          .from('pointage_schedules')
+          .update(payload)
+          .eq('id', editingScheduleId)
+          .select()
+          .single();
 
-      if (newSched) {
-        setDbSchedules(prev => [...prev, newSched]);
-        setShowAddScheduleModal(false);
-        setNewSchedName('');
-        recordAuditEvent('SCHEDULE_CREATED', 'INFO', { schedule_name: newSched.name, category });
-        triggerToast(`✓ Couloir "${newSched.name}" (${category}) créé !`);
+        if (error) throw error;
+        if (updatedSched) {
+          setDbSchedules(prev => prev.map(s => (s.id === editingScheduleId ? updatedSched : s)));
+          recordAuditEvent('SCHEDULE_UPDATED', 'INFO', { schedule_name: updatedSched.name, category });
+          triggerToast(`✓ Couloir "${updatedSched.name}" mis à jour !`);
+        }
+      } else {
+        const { data: newSched, error } = await supabase
+          .from('pointage_schedules')
+          .insert({
+            org_id: targetOrgId,
+            ...payload,
+            is_active: true
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        if (newSched) {
+          setDbSchedules(prev => [...prev, newSched]);
+          recordAuditEvent('SCHEDULE_CREATED', 'INFO', { schedule_name: newSched.name, category });
+          triggerToast(`✓ Couloir "${newSched.name}" (${category}) créé !`);
+        }
       }
+
+      setShowAddScheduleModal(false);
+      setEditingScheduleId(null);
+      setNewSchedName('');
     } catch (err: any) {
       triggerToast(`Erreur planning: ${err.message}`);
     }
@@ -1813,7 +2118,7 @@ export default function MaquetteGerantPage() {
   const presentCount = punches.filter(p => p.status === 'VALIDATED').length;
   const lateCount = punches.filter(p => p.status === 'LATE').length;
   const alertCount = punches.filter(p => p.status === 'ALERT').length;
-  const totalEmployees = Math.max(dbEmployees.length, presentCount + lateCount);
+  const totalEmployees = Math.max(cockpitScopedEmployees.length, presentCount + lateCount);
   const attendanceRate = totalEmployees > 0 ? Math.min(100, Math.round((presentCount / totalEmployees) * 100)) : 100;
 
   return (
@@ -1823,7 +2128,7 @@ export default function MaquetteGerantPage() {
       <header className={`border-b border-slate-800 bg-slate-950/90 text-white px-4 py-2.5 sticky top-0 z-50 ${isMobileScreen ? 'hidden' : 'block'}`}>
         <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-blue-500/20 font-black">
+            <div className="w-9 h-9 rounded-2xl bg-[#1D4ED8] flex items-center justify-center text-white shadow-md shadow-blue-500/20 font-black">
               <Smartphone className="w-4 h-4" />
             </div>
             <div>
@@ -1907,7 +2212,7 @@ export default function MaquetteGerantPage() {
       </header>
 
       {/* 2. ZONE CENTRALE : CHÂSSIS SMARTPHONE */}
-      <main className="flex-1 flex items-center justify-center p-0 sm:p-6 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+      <main className="flex-1 flex items-center justify-center p-0 sm:p-6 bg-slate-950">
 
         {toastMsg && (
           <div className="fixed top-16 z-[70] bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-2xl font-bold text-xs flex items-center gap-2 border border-slate-700 animate-bounce">
@@ -2000,6 +2305,15 @@ export default function MaquetteGerantPage() {
             </div>
 
             <div className="flex items-center space-x-1.5">
+              <button
+                type="button"
+                onClick={handleRefreshLive}
+                disabled={isRefreshingLive}
+                title="Rafraîchir les données en direct"
+                className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition cursor-pointer border border-slate-200 active:scale-95 disabled:opacity-60"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingLive ? 'animate-spin text-[#1D4ED8]' : ''}`} />
+              </button>
               <button
                 type="button"
                 onClick={() => setShowBroadcastModal(true)}
@@ -2246,15 +2560,35 @@ export default function MaquetteGerantPage() {
                 {/* Carte Hero Bleue Unie Sans Dégradé */}
                 <div className="bg-[#1D4ED8] border-2 border-[#60A5FA]/70 rounded-3xl p-4 shadow-[0_10px_28px_rgba(29,78,216,0.3)] relative overflow-hidden text-white">
 
-                  <div className="relative z-10 flex items-center justify-between mb-3">
-                    <span className="text-[11px] font-extrabold text-white flex items-center gap-1.5 min-w-0 pr-2">
+                  <div className="relative z-10 flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
                       <Building2 className="w-3.5 h-3.5 text-blue-100 shrink-0" />
-                      <span className="truncate">{activeEstablishment?.name || 'Siège Principal'}</span>
-                    </span>
+                      {dbEstablishments.length > 1 ? (
+                        <select
+                          value={selectedCockpitSiteId}
+                          onChange={(e) => setSelectedCockpitSiteId(e.target.value)}
+                          aria-label="Filtrer par site"
+                          className="bg-white/15 border border-white/25 rounded-full text-[11px] font-extrabold text-white px-2.5 py-0.5 max-w-[175px] truncate focus:outline-none cursor-pointer"
+                        >
+                          <option value="ALL" className="text-slate-900">
+                            Tous les sites ({dbEstablishments.length})
+                          </option>
+                          {dbEstablishments.map((site) => (
+                            <option key={site.id} value={site.id} className="text-slate-900">
+                              {site.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-[11px] font-extrabold text-white truncate">
+                          {activeEstablishment?.name || 'Siège Principal'}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[10px] font-black text-white bg-white/15 border border-white/25 px-2.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                       <span className={`w-1.5 h-1.5 rounded-full ${cockpitDateMode === 'today' ? 'bg-emerald-300 animate-pulse' : 'bg-blue-200'}`} />
                       {cockpitDateMode === 'today'
-                        ? 'Télémétrie Live'
+                        ? (realtimeConnected ? 'En direct Live' : 'Télémétrie Live')
                         : cockpitDateMode === 'yesterday'
                           ? 'Hier'
                           : cockpitStartDate === cockpitEndDate
@@ -2320,7 +2654,7 @@ export default function MaquetteGerantPage() {
                 <div className="grid grid-cols-4 gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowAddEmployeeModal(true)}
+                    onClick={() => openEmployeeModal()}
                     className="p-2.5 bg-white border border-slate-200/80 hover:border-blue-300 rounded-2xl flex flex-col items-center justify-center text-center transition active:scale-95 cursor-pointer shadow-xs"
                   >
                     <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-1">
@@ -2596,7 +2930,7 @@ export default function MaquetteGerantPage() {
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-3">
-                              <div className={`w-10 h-10 rounded-2xl bg-gradient-to-tr ${p.avatarColor} flex items-center justify-center text-white font-black text-xs shrink-0 shadow-sm`}>
+                              <div className={`w-10 h-10 rounded-2xl ${p.avatarColor} flex items-center justify-center text-white font-black text-xs shrink-0 shadow-sm`}>
                                 {p.name.split(' ').map(w => w[0]).join('').slice(0, 2)}
                               </div>
                               <div>
@@ -2760,8 +3094,8 @@ export default function MaquetteGerantPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowAddEmployeeModal(true)}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm cursor-pointer active:scale-95"
+                    onClick={() => openEmployeeModal()}
+                    className="px-3 py-1.5 bg-[#1D4ED8] hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm cursor-pointer active:scale-95"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Ajouter Salarié</span>
@@ -2785,29 +3119,69 @@ export default function MaquetteGerantPage() {
 
                     return (
                       <div key={emp.id} className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-xs shrink-0 shadow-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center space-x-3 min-w-0">
+                            <div className="w-10 h-10 rounded-2xl bg-[#1D4ED8] flex items-center justify-center text-white font-black text-xs shrink-0 shadow-sm">
                               {emp.full_name ? emp.full_name[0] : 'E'}
                             </div>
-                            <div>
-                              <span className="font-extrabold text-xs text-slate-900 block leading-tight">{emp.full_name}</span>
+                            <div className="min-w-0">
+                              <span className="font-extrabold text-xs text-slate-900 block leading-tight truncate">{emp.full_name}</span>
                               <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500">
                                 <span className="font-mono font-bold">{emp.employee_matricule || 'N/A'}</span>
                                 <span>•</span>
-                                <span>{emp.role || 'Collaborateur'}</span>
+                                <span className="truncate">{emp.role || 'Collaborateur'}</span>
                               </div>
                             </div>
                           </div>
 
-                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
-                            isBound
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-amber-50 text-amber-700 border border-amber-200'
-                          }`}>
-                            {isBound ? 'Téléphone Lié' : 'À Enrôler'}
-                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                              isBound
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-amber-50 text-amber-700 border border-amber-200'
+                            }`}>
+                              {isBound ? 'Lié' : 'À Enrôler'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => openEmployeeModal(emp)}
+                              title="Modifier ce collaborateur"
+                              className="p-1.5 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-[#1D4ED8] transition cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteEmployeeId(confirmDeleteEmployeeId === emp.id ? null : emp.id)}
+                              title="Archiver ce collaborateur"
+                              className="p-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
+
+                        {confirmDeleteEmployeeId === emp.id && (
+                          <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-between gap-2 text-[11px] animate-fadeIn">
+                            <span className="font-bold text-rose-800">Archiver {emp.full_name} ?</span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteEmployeeId(null)}
+                                className="px-2 py-1 rounded-lg bg-white border border-slate-200 text-slate-600 font-bold cursor-pointer"
+                              >
+                                Annuler
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleArchiveEmployee(emp)}
+                                className="px-2 py-1 rounded-lg bg-rose-600 text-white font-bold cursor-pointer"
+                              >
+                                Confirmer
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
                           <span className="truncate max-w-[160px]">
@@ -2866,8 +3240,8 @@ export default function MaquetteGerantPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowAddScheduleModal(true)}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm cursor-pointer active:scale-95"
+                    onClick={() => openScheduleModal()}
+                    className="px-3 py-1.5 bg-[#1D4ED8] hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm cursor-pointer active:scale-95"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Créer Couloir</span>
@@ -2910,14 +3284,22 @@ export default function MaquetteGerantPage() {
                                 </span>
                               </div>
                             </div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
                                 {sched.category || 'Standard'}
                               </span>
                               <button
                                 type="button"
+                                onClick={() => openScheduleModal(sched)}
+                                className="p-1.5 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-[#1D4ED8] transition cursor-pointer"
+                                title="Modifier ce couloir"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => handleDeleteSchedule(sched.id, sched.name)}
-                                className="p-1 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                                className="p-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition cursor-pointer"
                                 title="Supprimer ce couloir"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -3205,6 +3587,120 @@ export default function MaquetteGerantPage() {
                   </button>
                 </form>
 
+                {/* Jours Fériés & Exemptions Exceptionnelles */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-4 space-y-3 shadow-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                        <CalendarX className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="font-extrabold text-xs text-slate-900 block">Jours Fériés & Exemptions ({orgHolidays.length})</span>
+                        <span className="text-[10px] text-slate-500 block truncate">Neutralise automatiquement retards et absences</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowHolidayForm(v => !v)}
+                      className="px-2.5 py-1.5 bg-[#1D4ED8] hover:bg-blue-700 text-white font-bold text-[10px] rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>{showHolidayForm ? 'Fermer' : 'Ajouter'}</span>
+                    </button>
+                  </div>
+
+                  {showHolidayForm && (
+                    <form onSubmit={handleAddHoliday} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5 animate-fadeIn">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[9px] font-extrabold uppercase text-slate-500 block mb-0.5">Date</label>
+                          <input
+                            type="date"
+                            required
+                            value={newHolidayDate}
+                            onChange={(e) => setNewHolidayDate(e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-xl px-2 py-1.5 text-[11px] font-mono text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-extrabold uppercase text-slate-500 block mb-0.5">Catégorie</label>
+                          <select
+                            value={newHolidayCategory}
+                            onChange={(e) => setNewHolidayCategory(e.target.value as any)}
+                            className="w-full bg-white border border-slate-200 rounded-xl px-2 py-1.5 text-[11px] text-slate-900"
+                          >
+                            <option value="FERIE_LEGAL">Férié légal</option>
+                            <option value="CONGE_ENTREPRISE">Congé entreprise</option>
+                            <option value="EVENEMENT_SPECIAL">Événement</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-extrabold uppercase text-slate-500 block mb-0.5">Libellé</label>
+                        <input
+                          type="text"
+                          required
+                          value={newHolidayName}
+                          onChange={(e) => setNewHolidayName(e.target.value)}
+                          placeholder="Ex: Tabaski / Fermeture annuelle"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-900"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between pt-0.5">
+                        <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={newHolidayPaid}
+                            onChange={(e) => setNewHolidayPaid(e.target.checked)}
+                            className="rounded border-slate-300"
+                          />
+                          <span>Jour chômé & payé</span>
+                        </label>
+                        <button
+                          type="submit"
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-xl cursor-pointer"
+                        >
+                          Valider
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {orgHolidays.length === 0 ? (
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 text-center space-y-2">
+                      <p className="text-[11px] text-slate-500">Aucun jour férié enregistré pour cette organisation.</p>
+                      <button
+                        type="button"
+                        onClick={handleImportDefaultHolidays}
+                        className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] font-bold text-[10px] rounded-xl border border-blue-200 transition cursor-pointer"
+                      >
+                        Importer Jours Fériés Officiels
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+                      {orgHolidays.map((hol) => (
+                        <div key={hol.id} className="p-2.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2 text-[11px]">
+                          <div className="min-w-0">
+                            <span className="font-bold text-slate-900 block truncate">{hol.name}</span>
+                            <span className="text-[10px] font-mono text-slate-500">
+                              {hol.date} • {hol.is_paid ? 'Payé' : 'Non payé'}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteHoliday(hol)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer shrink-0"
+                            title="Retirer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* Raccourcis Gouvernance & Sécurité */}
                 <div className="bg-white border border-slate-200 rounded-3xl p-3.5 space-y-2 shadow-xs">
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-1 block">
@@ -3310,11 +3806,13 @@ export default function MaquetteGerantPage() {
                     <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
                       <Users className="w-4 h-4" />
                     </div>
-                    <span className="font-extrabold text-xs text-slate-900">Ajouter un Collaborateur</span>
+                    <span className="font-extrabold text-xs text-slate-900">
+                      {editingEmployeeId ? 'Modifier le Collaborateur' : 'Ajouter un Collaborateur'}
+                    </span>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowAddEmployeeModal(false)}
+                    onClick={() => { setShowAddEmployeeModal(false); setEditingEmployeeId(null); }}
                     aria-label="Fermer"
                     className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
                   >
@@ -3322,7 +3820,7 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
 
-                <form onSubmit={handleCreateEmployee} className="space-y-3">
+                <form onSubmit={handleSaveEmployee} className="space-y-3">
                   <div>
                     <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Nom & Prénoms</label>
                     <input
@@ -3392,9 +3890,9 @@ export default function MaquetteGerantPage() {
 
                   <button
                     type="submit"
-                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition shadow-md shadow-blue-500/20 active:scale-95 cursor-pointer mt-2"
+                    className="w-full py-2.5 bg-[#1D4ED8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition shadow-md shadow-blue-500/20 active:scale-95 cursor-pointer mt-2"
                   >
-                    Enregistrer l&apos;Employé dans Supabase
+                    {editingEmployeeId ? 'Enregistrer les Modifications' : "Enregistrer l'Employé dans Supabase"}
                   </button>
                 </form>
               </div>
@@ -3775,11 +4273,13 @@ export default function MaquetteGerantPage() {
                     <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
                       <Clock className="w-4 h-4" />
                     </div>
-                    <span className="font-extrabold text-xs text-slate-900">Nouveau Couloir Horaire</span>
+                    <span className="font-extrabold text-xs text-slate-900">
+                      {editingScheduleId ? 'Modifier le Couloir Horaire' : 'Nouveau Couloir Horaire'}
+                    </span>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowAddScheduleModal(false)}
+                    onClick={() => { setShowAddScheduleModal(false); setEditingScheduleId(null); }}
                     aria-label="Fermer"
                     className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
                   >
@@ -3787,7 +4287,7 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
 
-                <form onSubmit={handleCreateSchedule} className="space-y-3">
+                <form onSubmit={handleSaveSchedule} className="space-y-3">
                   <div>
                     <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Intitulé du Planning / Événement</label>
                     <input
@@ -3958,7 +4458,7 @@ export default function MaquetteGerantPage() {
                     type="submit"
                     className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl transition shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer"
                   >
-                    Activer ce Couloir Horaire
+                    {editingScheduleId ? 'Mettre à Jour ce Couloir Horaire' : 'Activer ce Couloir Horaire'}
                   </button>
                 </form>
               </div>
