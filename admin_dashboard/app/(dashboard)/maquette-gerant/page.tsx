@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { RealQrCode } from '@/components/real-qr-code';
@@ -41,8 +42,28 @@ import {
   Printer,
   Coffee,
   Trash2,
-  Edit3
+  Edit3,
+  Fingerprint,
+  Link2
 } from 'lucide-react';
+
+const DynamicSiteGeofenceMap = dynamic(
+  () => import('@/components/site-geofence-map').then((mod) => mod.SiteGeofenceMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-52 rounded-2xl bg-slate-100 flex items-center justify-center border border-slate-200 text-[11px] text-slate-500">
+        Chargement de la vue satellite...
+      </div>
+    )
+  }
+);
+
+interface WifiEntry {
+  ssid: string;
+  bssid?: string;
+  source: 'detected' | 'manual';
+}
 
 interface DisplayPunch {
   id: string;
@@ -173,16 +194,25 @@ export default function MaquetteGerantPage() {
   const [newEmpSiteId, setNewEmpSiteId] = useState('');
   const [newEmpScheduleId, setNewEmpScheduleId] = useState('');
 
-  // Formulaire Site & Géofencing + Détection Auto Wi-Fi
+  // Formulaire Site & Géofencing (2 modes GPS + Vue Satellite + Multi-Wi-Fi)
   const [editingSiteId, setEditingSiteId] = useState<string | null>(null);
   const [newSiteName, setNewSiteName] = useState('');
   const [newSiteCity, setNewSiteCity] = useState('Bobo-Dioulasso');
   const [newSiteRadius, setNewSiteRadius] = useState<number>(80);
+  const [gpsMode, setGpsMode] = useState<'current' | 'custom'>('current');
   const [newSiteLat, setNewSiteLat] = useState<string>('11.247051');
   const [newSiteLon, setNewSiteLon] = useState<string>('-4.291915');
+  const [gpsAccuracyMeters, setGpsAccuracyMeters] = useState<number | null>(null);
+  const [gpsStatusNote, setGpsStatusNote] = useState<string | null>(null);
+  const [mapsLinkInput, setMapsLinkInput] = useState<string>('');
+  const [isResolvingMapsLink, setIsResolvingMapsLink] = useState(false);
+  const gpsWatchRef = useRef<number | null>(null);
+
   const [newSiteHasWifi, setNewSiteHasWifi] = useState<boolean>(true);
-  const [newSiteWifiSsid, setNewSiteWifiSsid] = useState<string>('');
-  const [newSiteWifiBssid, setNewSiteWifiBssid] = useState<string>('');
+  const [siteWifiList, setSiteWifiList] = useState<WifiEntry[]>([]);
+  const [wifiAddMode, setWifiAddMode] = useState<'detect' | 'manual'>('detect');
+  const [manualWifiSsid, setManualWifiSsid] = useState<string>('');
+  const [manualWifiBssid, setManualWifiBssid] = useState<string>('');
   const [isCalibratingGps, setIsCalibratingGps] = useState(false);
   const [isDetectingWifi, setIsDetectingWifi] = useState(false);
   const [wifiDetectNote, setWifiDetectNote] = useState<string | null>(null);
@@ -199,8 +229,8 @@ export default function MaquetteGerantPage() {
   const [newSchedTolerance, setNewSchedTolerance] = useState<number>(15);
   const [newSchedDays, setNewSchedDays] = useState<number[]>([1, 2, 3, 4, 5]);
 
-  // Relevés & Synthèse RH (Plage de dates personnalisable + Fiche individuelle)
-  const [hrPreset, setHrPreset] = useState<'7d' | '14d' | '30d' | '45d' | '60d' | 'custom'>('30d');
+  // Relevés & Synthèse RH (7 jours, 1 mois, ou plage libre Du/Au)
+  const [hrPreset, setHrPreset] = useState<'7d' | '30d' | 'custom'>('30d');
   const [hrStartDate, setHrStartDate] = useState<string>(() => getDateDaysAgo(29));
   const [hrEndDate, setHrEndDate] = useState<string>(() => toDateInputString(new Date()));
   const [hrLogs, setHrLogs] = useState<any[]>([]);
@@ -225,10 +255,13 @@ export default function MaquetteGerantPage() {
   const [dbJustifications, setDbJustifications] = useState<any[]>([]);
   const [dbPunches, setDbPunches] = useState<any[]>([]);
 
-  // Toggles de sécurité
+  // Politique de sécurité réelle synchronisée avec pointage_organizations.security_config
+  const [orgSecurityConfigRaw, setOrgSecurityConfigRaw] = useState<Record<string, any>>({});
+  const [secBiometricsRequired, setSecBiometricsRequired] = useState(true);
   const [secMockGpsBlocked, setSecMockGpsBlocked] = useState(true);
   const [secDeviceBindingStrict, setSecDeviceBindingStrict] = useState(true);
   const [secWifiMandatory, setSecWifiMandatory] = useState(false);
+  const [savingSecurity, setSavingSecurity] = useState(false);
 
   // Détection écran mobile réel
   useEffect(() => {
@@ -303,6 +336,14 @@ export default function MaquetteGerantPage() {
         setOrgId(orgData.id);
         setOrgName(orgData.name);
         setOrgCode(orgData.org_code);
+        if (orgData.security_config && typeof orgData.security_config === 'object') {
+          const sc = orgData.security_config;
+          setOrgSecurityConfigRaw(sc);
+          setSecBiometricsRequired(sc.require_biometrics !== false);
+          setSecMockGpsBlocked(sc.hard_block_mock_gps !== false);
+          setSecDeviceBindingStrict(sc.require_device_binding !== false);
+          setSecWifiMandatory(sc.require_wifi_bssid === true);
+        }
       }
 
       // B. Établissements réels
@@ -418,23 +459,14 @@ export default function MaquetteGerantPage() {
     }
   }, [showRelevesDrawer, hrStartDate, hrEndDate, orgId]);
 
-  const applyHrPreset = (preset: '7d' | '14d' | '30d' | '45d' | '60d' | 'custom') => {
+  const applyHrPreset = (preset: '7d' | '30d' | 'custom') => {
     setHrPreset(preset);
     const today = toDateInputString(new Date());
     if (preset === '7d') {
       setHrStartDate(getDateDaysAgo(6));
       setHrEndDate(today);
-    } else if (preset === '14d') {
-      setHrStartDate(getDateDaysAgo(13));
-      setHrEndDate(today);
     } else if (preset === '30d') {
       setHrStartDate(getDateDaysAgo(29));
-      setHrEndDate(today);
-    } else if (preset === '45d') {
-      setHrStartDate(getDateDaysAgo(44));
-      setHrEndDate(today);
-    } else if (preset === '60d') {
-      setHrStartDate(getDateDaysAgo(59));
       setHrEndDate(today);
     }
   };
@@ -677,11 +709,12 @@ export default function MaquetteGerantPage() {
     }
   };
 
-  // B. Détection automatique du Wi-Fi pour un site
+  // B. Détection automatique & Ajout Multi-Wi-Fi pour un site
   const handleDetectSiteWifi = async () => {
     if (isMobileScreen) {
+      setWifiAddMode('manual');
       setWifiDetectNote(
-        "Sur navigateur web mobile, Chrome/Safari bloque la lecture du Wi-Fi par confidentialité : saisissez le nom du réseau ci-dessus. Dans l'APK natif Android/iOS, cette détection SSID + MAC est 100% automatique."
+        "Sur navigateur web mobile, Chrome/Safari bloque la lecture du Wi-Fi par confidentialité : utilisez l'onglet « Ajouter manuellement » juste à côté. Dans l'APK natif Android/iOS, la détection SSID + MAC est 100% automatique."
       );
       return;
     }
@@ -692,27 +725,73 @@ export default function MaquetteGerantPage() {
       const res = await fetch('/api/wifi/current?refresh=true');
       const data = await res.json();
       if (data && data.success && (data.ssid || data.bssid)) {
-        const detectedSsid = data.ssid || '';
-        const detectedBssid = data.bssid || '';
-        setNewSiteWifiSsid(detectedSsid);
-        setNewSiteWifiBssid(detectedBssid);
+        const detectedSsid = (data.ssid || 'Wi-Fi_Bureau').trim();
+        const detectedBssid = data.bssid ? String(data.bssid).toLowerCase().trim() : undefined;
+
+        setSiteWifiList(prev => {
+          const exists = prev.some(
+            w => w.ssid.toLowerCase() === detectedSsid.toLowerCase() && (w.bssid || '') === (detectedBssid || '')
+          );
+          if (exists) return prev;
+          return [...prev, { ssid: detectedSsid, bssid: detectedBssid, source: 'detected' }];
+        });
+
         setWifiDetectNote(
-          `✓ Wi-Fi détecté : ${detectedSsid}${detectedBssid ? ` (${detectedBssid})` : ''}`
+          `✓ Réseau ajouté : ${detectedSsid}${detectedBssid ? ` (${detectedBssid})` : ''}`
         );
-        triggerToast(`✓ Box Wi-Fi "${detectedSsid}" détectée automatiquement !`);
+        triggerToast(`✓ Box Wi-Fi "${detectedSsid}" ajoutée au site !`);
       } else {
-        setWifiDetectNote("Aucun réseau Wi-Fi actif détecté sur cette interface. Saisissez le nom manuellement.");
+        setWifiDetectNote("Aucun réseau Wi-Fi actif détecté sur cette interface. Passez en mode « Manuel » pour l'ajouter sans vous déconnecter.");
       }
-    } catch (err: any) {
-      setWifiDetectNote("Détection locale indisponible. Saisissez le nom du Wi-Fi manuellement.");
+    } catch {
+      setWifiDetectNote("Détection locale indisponible. Utilisez « Ajouter manuellement ».");
     } finally {
       setIsDetectingWifi(false);
     }
   };
 
+  const handleAddManualWifi = () => {
+    const cleanSsid = manualWifiSsid.trim();
+    const cleanBssid = manualWifiBssid.trim().toLowerCase();
+    if (!cleanSsid) {
+      triggerToast("Saisissez d'abord le nom du réseau Wi-Fi (SSID).");
+      return;
+    }
+    if (cleanBssid && !/^([0-9a-f]{2}[:-]){5}[0-9a-f]{2}$/i.test(cleanBssid)) {
+      triggerToast("Format d'adresse MAC / BSSID invalide (ex: 6a:9e:29:2b:43:08).");
+      return;
+    }
+    const normalizedBssid = cleanBssid ? cleanBssid.replace(/-/g, ':') : undefined;
+    setSiteWifiList(prev => {
+      const exists = prev.some(w => w.ssid.toLowerCase() === cleanSsid.toLowerCase());
+      if (exists) {
+        return prev.map(w => w.ssid.toLowerCase() === cleanSsid.toLowerCase()
+          ? { ...w, bssid: normalizedBssid || w.bssid }
+          : w
+        );
+      }
+      return [...prev, { ssid: cleanSsid, bssid: normalizedBssid, source: 'manual' }];
+    });
+    setManualWifiSsid('');
+    setManualWifiBssid('');
+    setWifiDetectNote(`✓ "${cleanSsid}" ajouté sans vous déconnecter de votre Wi-Fi actuel.`);
+    triggerToast(`✓ Wi-Fi "${cleanSsid}" ajouté à la liste du site !`);
+  };
+
+  const handleRemoveWifiEntry = (index: number) => {
+    setSiteWifiList(prev => prev.filter((_, i) => i !== index));
+  };
+
   // Ouvrir modale création / édition de site
   const openSiteModal = (siteToEdit?: any) => {
     setWifiDetectNote(null);
+    setGpsStatusNote(null);
+    setGpsAccuracyMeters(null);
+    setMapsLinkInput('');
+    setWifiAddMode('detect');
+    setManualWifiSsid('');
+    setManualWifiBssid('');
+
     if (siteToEdit) {
       setEditingSiteId(siteToEdit.id);
       setNewSiteName(siteToEdit.name || '');
@@ -720,9 +799,19 @@ export default function MaquetteGerantPage() {
       setNewSiteRadius(siteToEdit.radius_meters || 80);
       setNewSiteLat(String(siteToEdit.latitude ?? '11.247051'));
       setNewSiteLon(String(siteToEdit.longitude ?? '-4.291915'));
-      setNewSiteHasWifi(!!siteToEdit.wifi_ssid);
-      setNewSiteWifiSsid(siteToEdit.wifi_ssid || '');
-      setNewSiteWifiBssid(Array.isArray(siteToEdit.wifi_bssids) ? (siteToEdit.wifi_bssids[0] || '') : '');
+      setGpsMode('custom');
+
+      const ssids = siteToEdit.wifi_ssid
+        ? String(siteToEdit.wifi_ssid).split(',').map((s: string) => s.trim()).filter(Boolean)
+        : [];
+      const bssids = Array.isArray(siteToEdit.wifi_bssids) ? siteToEdit.wifi_bssids : [];
+      const combined: WifiEntry[] = ssids.map((s: string, idx: number) => ({
+        ssid: s,
+        bssid: bssids[idx] || undefined,
+        source: 'detected'
+      }));
+      setNewSiteHasWifi(combined.length > 0);
+      setSiteWifiList(combined);
     } else {
       setEditingSiteId(null);
       setNewSiteName('');
@@ -730,9 +819,9 @@ export default function MaquetteGerantPage() {
       setNewSiteRadius(80);
       setNewSiteLat('11.247051');
       setNewSiteLon('-4.291915');
+      setGpsMode('current');
       setNewSiteHasWifi(true);
-      setNewSiteWifiSsid('');
-      setNewSiteWifiBssid('');
+      setSiteWifiList([]);
     }
     setShowAddSiteModal(true);
   };
@@ -747,8 +836,13 @@ export default function MaquetteGerantPage() {
     try {
       const supabase = createClient();
       const targetOrgId = orgId || '53055b65-de5a-40af-9f1c-d27bd83e7c68';
-      const cleanSsid = newSiteHasWifi && newSiteWifiSsid.trim() ? newSiteWifiSsid.trim() : null;
-      const cleanBssids = newSiteHasWifi && newSiteWifiBssid.trim() ? [newSiteWifiBssid.trim()] : [];
+
+      const cleanSsid = newSiteHasWifi && siteWifiList.length > 0
+        ? siteWifiList.map(w => w.ssid).join(', ')
+        : null;
+      const cleanBssids = newSiteHasWifi && siteWifiList.length > 0
+        ? siteWifiList.map(w => w.bssid).filter((b): b is string => !!b)
+        : [];
 
       if (editingSiteId) {
         const { data: updated, error } = await supabase
@@ -802,31 +896,156 @@ export default function MaquetteGerantPage() {
     }
   };
 
-  // D. Calibrer la position GPS en direct
+  // D. Calibrer la position GPS actuelle par affinement progressif + retour visuel honnête
+  const stopGpsWatch = () => {
+    if (gpsWatchRef.current !== null && typeof navigator !== 'undefined') {
+      navigator.geolocation.clearWatch(gpsWatchRef.current);
+      gpsWatchRef.current = null;
+    }
+    setIsCalibratingGps(false);
+  };
+
   const handleCalibrateGpsFromDevice = () => {
-    if (!navigator.geolocation) {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
       triggerToast("La géolocalisation n'est pas supportée par ce navigateur.");
       return;
     }
+    stopGpsWatch();
     setIsCalibratingGps(true);
-    triggerToast("Connexion aux satellites GNSS en cours...");
+    setGpsStatusNote("Acquisition satellite en cours...");
 
-    navigator.geolocation.getCurrentPosition(
+    let bestAccuracy = Infinity;
+    let settled = false;
+
+    const finalize = (finalAcc: number) => {
+      if (settled) return;
+      settled = true;
+      stopGpsWatch();
+      if (finalAcc < Infinity) {
+        if (finalAcc <= 15) {
+          setGpsStatusNote(`✓ Position satellite haute précision verrouillée (±${finalAcc}m). Vérifiez le marqueur sur la carte ci-dessous.`);
+        } else if (finalAcc <= 45) {
+          setGpsStatusNote(`Position captée (±${finalAcc}m). Ajustez si besoin le marqueur sur votre bâtiment sur la carte.`);
+        } else {
+          setGpsStatusNote(
+            isMobileScreen
+              ? `Signal intérieur atténué (±${finalAcc}m). Touchez votre toit sur la carte satellite ci-dessous pour une précision à 1m.`
+              : `Précision réseau PC approximative (±${finalAcc}m, sans puce GPS). Cliquez directement sur votre bâtiment sur la carte ci-dessous.`
+          );
+        }
+      } else {
+        setGpsStatusNote("Signal GPS indisponible. Passez sur « Position personnalisée » ou cliquez directement sur la carte.");
+      }
+    };
+
+    const timer = setTimeout(() => finalize(bestAccuracy), 7000);
+
+    gpsWatchRef.current = navigator.geolocation.watchPosition(
       (pos) => {
-        setIsCalibratingGps(false);
-        const lat = pos.coords.latitude.toFixed(6);
-        const lon = pos.coords.longitude.toFixed(6);
         const acc = Math.round(pos.coords.accuracy);
-        setNewSiteLat(lat);
-        setNewSiteLon(lon);
-        triggerToast(`✓ GPS calé avec précision ±${acc}m (${lat}, ${lon}) !`);
+        if (acc < bestAccuracy) {
+          bestAccuracy = acc;
+          setGpsAccuracyMeters(acc);
+          setNewSiteLat(pos.coords.latitude.toFixed(6));
+          setNewSiteLon(pos.coords.longitude.toFixed(6));
+        }
+        if (acc <= 12) {
+          clearTimeout(timer);
+          finalize(acc);
+        }
       },
       (err) => {
-        setIsCalibratingGps(false);
-        triggerToast(`Erreur GPS: ${err.message}`);
+        clearTimeout(timer);
+        if (bestAccuracy === Infinity) {
+          setIsCalibratingGps(false);
+          setGpsStatusNote(`Erreur GPS : ${err.message}. Vous pouvez cliquer directement sur la carte satellite.`);
+        } else {
+          finalize(bestAccuracy);
+        }
       },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
+  };
+
+  // D2. Extraction de coordonnées depuis un lien Google Maps ou saisie brute
+  const handleExtractMapsLink = async () => {
+    const raw = mapsLinkInput.trim();
+    if (!raw) {
+      triggerToast("Collez un lien Google Maps ou des coordonnées (ex: 11.2470, -4.2919).");
+      return;
+    }
+
+    // 1. Coordonnées brutes "11.247051, -4.291915"
+    const rawCoords = raw.match(/(-?\d+\.\d+)\s*[,;\s]\s*(-?\d+\.\d+)/);
+    if (rawCoords && !raw.startsWith('http')) {
+      const lat = parseFloat(rawCoords[1]);
+      const lon = parseFloat(rawCoords[2]);
+      if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+        setNewSiteLat(lat.toFixed(6));
+        setNewSiteLon(lon.toFixed(6));
+        setGpsAccuracyMeters(1);
+        setGpsStatusNote("✓ Coordonnées extraites et centrées sur la carte satellite.");
+        triggerToast("✓ Coordonnées appliquées sur la carte !");
+        return;
+      }
+    }
+
+    // 2. Lien Google Maps complet ou lien court (maps.app.goo.gl)
+    setIsResolvingMapsLink(true);
+    setGpsStatusNote("Analyse du lien Google Maps...");
+    try {
+      const res = await fetch(`/api/maps/resolve?url=${encodeURIComponent(raw)}`);
+      const data = await res.json();
+      if (data && data.success && typeof data.lat === 'number' && typeof data.lon === 'number') {
+        setNewSiteLat(Number(data.lat).toFixed(6));
+        setNewSiteLon(Number(data.lon).toFixed(6));
+        setGpsAccuracyMeters(1);
+        setGpsStatusNote(`✓ Coordonnées extraites du lien Google Maps (${data.lat}, ${data.lon}).`);
+        triggerToast("✓ Position Google Maps centrée sur la carte !");
+      } else {
+        setGpsStatusNote(data?.error || "Impossible d'extraire les coordonnées. Saisissez Lat/Lon ou cliquez sur la carte.");
+      }
+    } catch {
+      setGpsStatusNote("Erreur de connexion lors de la lecture du lien court.");
+    } finally {
+      setIsResolvingMapsLink(false);
+    }
+  };
+
+  // D3. Sauvegarde réelle des règles anti-triche dans Supabase
+  const handleSaveSecurityPolicy = async (closeAfter = true) => {
+    const targetOrgId = orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+    const updatedConfig = {
+      ...orgSecurityConfigRaw,
+      require_biometrics: secBiometricsRequired,
+      hard_block_mock_gps: secMockGpsBlocked,
+      require_device_binding: secDeviceBindingStrict,
+      require_wifi_bssid: secWifiMandatory
+    };
+    setOrgSecurityConfigRaw(updatedConfig);
+
+    if (!targetOrgId) {
+      if (closeAfter) setShowSecurityDrawer(false);
+      triggerToast("✓ Règles mises à jour localement.");
+      return;
+    }
+
+    setSavingSecurity(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('pointage_organizations')
+        .update({ security_config: updatedConfig })
+        .eq('id', targetOrgId);
+
+      if (error) throw error;
+      if (closeAfter) setShowSecurityDrawer(false);
+      triggerToast("✓ Règles anti-triche appliquées en direct sur tous les téléphones !");
+    } catch (err: any) {
+      triggerToast(`Erreur sauvegarde sécurité : ${err.message}`);
+    } finally {
+      setSavingSecurity(false);
+    }
   };
 
   // Calcul net journalier pour la modale Couloir Horaire
@@ -2523,67 +2742,266 @@ export default function MaquetteGerantPage() {
                     </div>
                   </div>
 
-                  {/* Calibration GPS */}
-                  <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-2xl space-y-2">
-                    <span className="text-[10px] font-bold text-blue-900 block">Coordonnées Satellite WGS84 :</span>
-                    <button
-                      type="button"
-                      onClick={handleCalibrateGpsFromDevice}
-                      disabled={isCalibratingGps}
-                      className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-60"
-                    >
-                      <Navigation className="w-3.5 h-3.5" />
-                      <span>{isCalibratingGps ? 'Calcul GNSS en cours...' : '📍 Caler ma Position GPS Actuelle'}</span>
-                    </button>
-                    <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-600">
-                      <span>Lat: {newSiteLat}</span>
-                      <span>Lon: {newSiteLon}</span>
+                  {/* Localisation GPS : 2 Cartes de Choix + Vue Satellite Visuelle */}
+                  <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-2xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold uppercase text-blue-900">Position GPS du Site</span>
+                      {gpsAccuracyMeters !== null && (
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                          gpsAccuracyMeters <= 15
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : gpsAccuracyMeters <= 40
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          Précision ±{gpsAccuracyMeters}m
+                        </span>
+                      )}
+                    </div>
+
+                    {/* 2 Cartes Exclusives */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setGpsMode('current')}
+                        className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                          gpsMode === 'current'
+                            ? 'bg-white border-blue-500 ring-2 ring-blue-500/20 shadow-xs'
+                            : 'bg-white/60 border-slate-200 hover:bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-slate-900">
+                          <Navigation className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                          <span>Ma position</span>
+                        </div>
+                        <span className="text-[9px] text-slate-500 block mt-0.5">Calage GPS direct</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setGpsMode('custom')}
+                        className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                          gpsMode === 'custom'
+                            ? 'bg-white border-blue-500 ring-2 ring-blue-500/20 shadow-xs'
+                            : 'bg-white/60 border-slate-200 hover:bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-slate-900">
+                          <Link2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          <span>Personnalisée</span>
+                        </div>
+                        <span className="text-[9px] text-slate-500 block mt-0.5">Lien Maps ou Lat/Lon</span>
+                      </button>
+                    </div>
+
+                    {/* Contenu de la Carte Choisie */}
+                    {gpsMode === 'current' ? (
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          onClick={handleCalibrateGpsFromDevice}
+                          disabled={isCalibratingGps}
+                          className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-60"
+                        >
+                          <Navigation className="w-3.5 h-3.5" />
+                          <span>{isCalibratingGps ? 'Affinement satellite en cours...' : '📍 Caler ma Position GPS Actuelle'}</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 bg-white p-2.5 rounded-xl border border-blue-100">
+                        <div>
+                          <label className="text-[9px] font-extrabold uppercase text-slate-500 block mb-1">
+                            Coller un Lien Google Maps (ou Lat, Lon)
+                          </label>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={mapsLinkInput}
+                              onChange={(e) => setMapsLinkInput(e.target.value)}
+                              placeholder="https://maps.app.goo.gl/... ou 11.24, -4.29"
+                              className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-900 focus:outline-none focus:border-blue-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleExtractMapsLink}
+                              disabled={isResolvingMapsLink}
+                              className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] rounded-lg transition cursor-pointer shrink-0 disabled:opacity-60"
+                            >
+                              {isResolvingMapsLink ? '...' : 'Extraire'}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[9px] font-bold uppercase text-slate-400 block mb-0.5">Latitude</label>
+                            <input
+                              type="text"
+                              value={newSiteLat}
+                              onChange={(e) => setNewSiteLat(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-bold uppercase text-slate-400 block mb-0.5">Longitude</label>
+                            <input
+                              type="text"
+                              value={newSiteLon}
+                              onChange={(e) => setNewSiteLon(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-900"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {gpsStatusNote && (
+                      <p className="text-[10px] text-slate-700 bg-white/90 border border-blue-200 rounded-xl p-2 leading-relaxed">
+                        {gpsStatusNote}
+                      </p>
+                    )}
+
+                    {/* Aperçu Carte Satellite Interactive Gratuite */}
+                    <div className="space-y-1">
+                      <DynamicSiteGeofenceMap
+                        name={newSiteName || 'Nouveau Site'}
+                        city={newSiteCity || 'Site'}
+                        lat={parseFloat(newSiteLat) || 11.247051}
+                        lon={parseFloat(newSiteLon) || -4.291915}
+                        radiusMeters={newSiteRadius}
+                        mode="picker"
+                        defaultStyle="googleHybrid"
+                        heightClassName="h-52"
+                        onCoordinatesChange={(lat, lon) => {
+                          setNewSiteLat(lat.toFixed(6));
+                          setNewSiteLon(lon.toFixed(6));
+                          setGpsAccuracyMeters(1);
+                          setGpsStatusNote("✓ Repère ajusté visuellement sur la vue satellite (précision 1m).");
+                        }}
+                      />
+                      <span className="text-[9px] text-slate-500 block text-center">
+                        Touchez directement votre bâtiment sur la vue satellite pour ajuster au mètre près.
+                      </span>
                     </div>
                   </div>
 
-                  {/* Détection Automatique Wi-Fi & Switch optionnel */}
+                  {/* Multi-Wi-Fi : Détection Auto + Ajout Manuel (sans se déconnecter) */}
                   <div className="p-3 bg-emerald-50/60 border border-emerald-100 rounded-2xl space-y-2.5">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         <Wifi className="w-3.5 h-3.5 text-emerald-600" />
-                        <span className="text-[10px] font-extrabold uppercase text-slate-700">Box Wi-Fi du Site</span>
+                        <span className="text-[10px] font-extrabold uppercase text-slate-700">
+                          Réseaux Wi-Fi Autorisés ({siteWifiList.length})
+                        </span>
                       </div>
                       <button
                         type="button"
                         onClick={() => setNewSiteHasWifi(prev => !prev)}
                         className={`w-10 h-5 rounded-full transition p-0.5 cursor-pointer ${newSiteHasWifi ? 'bg-emerald-600' : 'bg-slate-300'}`}
-                        title="Activer ou désactiver la détection Wi-Fi sur ce site"
+                        title="Activer ou désactiver le contrôle Wi-Fi sur ce site"
                       >
                         <div className={`w-4 h-4 rounded-full bg-white transition-transform ${newSiteHasWifi ? 'translate-x-5' : 'translate-x-0'}`} />
                       </button>
                     </div>
 
                     {newSiteHasWifi ? (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            type="text"
-                            value={newSiteWifiSsid}
-                            onChange={(e) => setNewSiteWifiSsid(e.target.value)}
-                            placeholder="Nom Wi-Fi (ex: Bureau_WiFi)"
-                            className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
-                          />
+                      <div className="space-y-2.5">
+                        {/* Liste des box Wi-Fi déjà ajoutées pour ce site */}
+                        {siteWifiList.length > 0 && (
+                          <div className="space-y-1.5">
+                            {siteWifiList.map((w, idx) => (
+                              <div
+                                key={`${w.ssid}-${idx}`}
+                                className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-xl border border-emerald-200 text-[11px]"
+                              >
+                                <div className="min-w-0 pr-2">
+                                  <span className="font-extrabold text-slate-900 block truncate">{w.ssid}</span>
+                                  <span className="text-[9px] font-mono text-emerald-700 block">
+                                    {w.bssid ? `MAC : ${w.bssid}` : 'Nom seul (MAC non renseignée)'}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveWifiEntry(idx)}
+                                  className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
+                                  title="Retirer ce Wi-Fi"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Choix du mode d'ajout Wi-Fi */}
+                        <div className="grid grid-cols-2 gap-1.5 bg-white/80 p-1 rounded-xl border border-emerald-100 text-[10px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setWifiAddMode('detect')}
+                            className={`py-1.5 rounded-lg transition cursor-pointer ${
+                              wifiAddMode === 'detect' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            📡 Détecter actuel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setWifiAddMode('manual')}
+                            className={`py-1.5 rounded-lg transition cursor-pointer ${
+                              wifiAddMode === 'manual' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            ✍️ Saisie manuelle
+                          </button>
+                        </div>
+
+                        {wifiAddMode === 'detect' ? (
                           <button
                             type="button"
                             onClick={handleDetectSiteWifi}
                             disabled={isDetectingWifi}
-                            className="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-xl transition flex items-center gap-1 shrink-0 shadow-xs cursor-pointer disabled:opacity-60"
-                            title="Détecter automatiquement le réseau Wi-Fi actuel"
+                            className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-60"
                           >
                             <Wifi className="w-3.5 h-3.5" />
-                            <span>{isDetectingWifi ? 'Scan...' : 'Détecter'}</span>
+                            <span>{isDetectingWifi ? 'Scan Wi-Fi...' : '+ Détecter & Ajouter mon Wi-Fi actuel'}</span>
                           </button>
-                        </div>
-
-                        {newSiteWifiBssid && (
-                          <span className="text-[10px] font-mono text-emerald-700 block">
-                            Signature BSSID : {newSiteWifiBssid}
-                          </span>
+                        ) : (
+                          <div className="space-y-2 bg-white p-2.5 rounded-xl border border-emerald-200/80">
+                            <div>
+                              <label className="text-[9px] font-extrabold uppercase text-slate-500 block mb-0.5">
+                                Nom du réseau (SSID) *
+                              </label>
+                              <input
+                                type="text"
+                                value={manualWifiSsid}
+                                onChange={(e) => setManualWifiSsid(e.target.value)}
+                                placeholder="Ex: Box_Labo, SAKO_5G, Famille_SAKO..."
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-extrabold uppercase text-slate-500 block mb-0.5">
+                                Adresse MAC / BSSID (recommandée anti-fraude)
+                              </label>
+                              <input
+                                type="text"
+                                value={manualWifiBssid}
+                                onChange={(e) => setManualWifiBssid(e.target.value)}
+                                placeholder="Ex: 6a:9e:29:2b:43:08 (optionnel)"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-900 focus:outline-none focus:border-emerald-500"
+                              />
+                              <span className="text-[9px] text-slate-500 block mt-0.5 leading-tight">
+                                Sans MAC, le nom suffit, mais l&apos;adresse MAC empêche tout faux partage de connexion.
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleAddManualWifi}
+                              className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-lg transition cursor-pointer"
+                            >
+                              + Ajouter ce réseau à la liste
+                            </button>
+                          </div>
                         )}
 
                         {wifiDetectNote && (
@@ -2924,22 +3342,19 @@ export default function MaquetteGerantPage() {
                 {/* VUE 1 : SYNTHÈSE GLOBALE AVEC CHOIX DE PLAGE DE DATES */}
                 {!selectedHrSummary ? (
                   <>
-                    {/* Raccourcis de Période */}
+                    {/* Raccourcis de Période épurés : 7 jours, 1 mois, Personnalisé */}
                     <div className="space-y-2 shrink-0">
-                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                      <div className="grid grid-cols-3 gap-1.5">
                         {[
                           { id: '7d', label: '7 jours' },
-                          { id: '14d', label: '2 sem.' },
                           { id: '30d', label: '1 mois' },
-                          { id: '45d', label: '45 jours' },
-                          { id: '60d', label: '2 mois' },
-                          { id: 'custom', label: 'Libre' }
+                          { id: 'custom', label: 'Personnalisé' }
                         ].map((p) => (
                           <button
                             key={p.id}
                             type="button"
                             onClick={() => applyHrPreset(p.id as any)}
-                            className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold shrink-0 transition cursor-pointer ${
+                            className={`py-1.5 rounded-xl text-[10px] font-extrabold transition cursor-pointer ${
                               hrPreset === p.id
                                 ? 'bg-blue-600 text-white shadow-xs'
                                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -3189,7 +3604,7 @@ export default function MaquetteGerantPage() {
             </div>
           )}
 
-          {/* TIROIR MODAL 7 : SÉCURITÉ ANTI-TRICHE */}
+          {/* TIROIR MODAL 7 : SÉCURITÉ ANTI-TRICHE CONNECTÉE À SUPABASE */}
           {showSecurityDrawer && (
             <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 animate-fadeIn">
               <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -3207,53 +3622,67 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
 
-                <div className="space-y-3 text-xs">
-                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                <div className="space-y-2.5 text-xs">
+                  {/* 1. Biométrie / Code PIN au Pointage (Nouveau, synchronisé avec APK Employé) */}
+                  <div className="flex items-center justify-between p-3 bg-blue-50/70 rounded-2xl border border-blue-100 gap-2">
+                    <div className="flex items-start gap-2">
+                      <Fingerprint className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold text-slate-900 block">Biométrie / Code PIN au pointage</span>
+                        <span className="text-[10px] text-slate-600 block leading-snug">
+                          Exige Empreinte / Face ID (prioritaires) ou Code PIN du téléphone à chaque scan.
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSecBiometricsRequired(p => !p)}
+                      className={`w-11 h-6 rounded-full transition p-1 cursor-pointer shrink-0 ${secBiometricsRequired ? 'bg-blue-600' : 'bg-slate-300'}`}
+                    >
+                      <div className={`w-4 h-4 rounded-full bg-white transition-transform ${secBiometricsRequired ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+
+                  {/* 2. Blocage Mock GPS */}
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100 gap-2">
                     <div>
                       <span className="font-bold text-slate-900 block">Blocage Mock GPS</span>
                       <span className="text-[10px] text-slate-500">Refus des fausses localisations</span>
                     </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        setSecMockGpsBlocked(p => !p);
-                        triggerToast(`Anti-Mock GPS : ${!secMockGpsBlocked ? 'Activé' : 'Désactivé'}`);
-                      }}
-                      className={`w-11 h-6 rounded-full transition p-1 cursor-pointer ${secMockGpsBlocked ? 'bg-blue-600' : 'bg-slate-300'}`}
+                      onClick={() => setSecMockGpsBlocked(p => !p)}
+                      className={`w-11 h-6 rounded-full transition p-1 cursor-pointer shrink-0 ${secMockGpsBlocked ? 'bg-blue-600' : 'bg-slate-300'}`}
                     >
                       <div className={`w-4 h-4 rounded-full bg-white transition-transform ${secMockGpsBlocked ? 'translate-x-5' : 'translate-x-0'}`} />
                     </button>
                   </div>
 
-                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                  {/* 3. Liaison 1 Téléphone / Salarié */}
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100 gap-2">
                     <div>
                       <span className="font-bold text-slate-900 block">Liaison 1 Téléphone / Salarié</span>
                       <span className="text-[10px] text-slate-500">Empêche de pointer pour autrui</span>
                     </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        setSecDeviceBindingStrict(p => !p);
-                        triggerToast(`Liaison stricte : ${!secDeviceBindingStrict ? 'Activée' : 'Désactivée'}`);
-                      }}
-                      className={`w-11 h-6 rounded-full transition p-1 cursor-pointer ${secDeviceBindingStrict ? 'bg-blue-600' : 'bg-slate-300'}`}
+                      onClick={() => setSecDeviceBindingStrict(p => !p)}
+                      className={`w-11 h-6 rounded-full transition p-1 cursor-pointer shrink-0 ${secDeviceBindingStrict ? 'bg-blue-600' : 'bg-slate-300'}`}
                     >
                       <div className={`w-4 h-4 rounded-full bg-white transition-transform ${secDeviceBindingStrict ? 'translate-x-5' : 'translate-x-0'}`} />
                     </button>
                   </div>
 
-                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                  {/* 4. Wi-Fi Obligatoire en Box */}
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100 gap-2">
                     <div>
                       <span className="font-bold text-slate-900 block">Wi-Fi Obligatoire en Box</span>
-                      <span className="text-[10px] text-slate-500">Exige la présence du Wi-Fi du site</span>
+                      <span className="text-[10px] text-slate-500">Exige la présence d&apos;un Wi-Fi autorisé</span>
                     </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        setSecWifiMandatory(p => !p);
-                        triggerToast(`Wi-Fi obligatoire : ${!secWifiMandatory ? 'Activé' : 'Désactivé'}`);
-                      }}
-                      className={`w-11 h-6 rounded-full transition p-1 cursor-pointer ${secWifiMandatory ? 'bg-blue-600' : 'bg-slate-300'}`}
+                      onClick={() => setSecWifiMandatory(p => !p)}
+                      className={`w-11 h-6 rounded-full transition p-1 cursor-pointer shrink-0 ${secWifiMandatory ? 'bg-blue-600' : 'bg-slate-300'}`}
                     >
                       <div className={`w-4 h-4 rounded-full bg-white transition-transform ${secWifiMandatory ? 'translate-x-5' : 'translate-x-0'}`} />
                     </button>
@@ -3262,13 +3691,11 @@ export default function MaquetteGerantPage() {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowSecurityDrawer(false);
-                    triggerToast("✓ Politiques de sécurité synchronisées sur Supabase.");
-                  }}
-                  className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition cursor-pointer"
+                  disabled={savingSecurity}
+                  onClick={() => handleSaveSecurityPolicy(true)}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition cursor-pointer disabled:opacity-60 shadow-sm"
                 >
-                  Appliquer les Règles de Sécurité
+                  {savingSecurity ? 'Enregistrement en cours...' : 'Appliquer les Règles de Sécurité'}
                 </button>
               </div>
             </div>
