@@ -15,9 +15,20 @@ class OfflineSyncService {
   Database? _db;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
-  // Configuration Supabase Direct REST
-  final String _supabaseUrl = "https://ylrnxuphtaoazlhlmnsd.supabase.co";
-  final String _apiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlscm54dXBodGFvYXpsaGxtbnNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzMDc3NDgsImV4cCI6MjEwMTg4Mzc0OH0._F9Kr-vgD_nahWhVfYJDhP8xRhDw_HyukIHWw5yOC8g";
+  // Configuration Supabase Direct REST (mutable pour bascule distante Anti-Blocage)
+  static const String _defaultSupabaseUrl = "https://ylrnxuphtaoazlhlmnsd.supabase.co";
+  static const String _defaultApiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlscm54dXBodGFvYXpsaGxtbnNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzMDc3NDgsImV4cCI6MjEwMTg4Mzc0OH0._F9Kr-vgD_nahWhVfYJDhP8xRhDw_HyukIHWw5yOC8g";
+  static const String _defaultApiBaseUrl = "https://pointage-pro.vercel.app";
+  static const String _githubBootstrapUrl = "https://raw.githubusercontent.com/baroubagroup/pointage-pro/master/remote_bootstrap.json";
+
+  String _supabaseUrl = _defaultSupabaseUrl;
+  String _apiKey = _defaultApiKey;
+  String _backupSupabaseUrl = "";
+  String _backupSupabaseAnonKey = "";
+  String _apiBaseUrl = _defaultApiBaseUrl;
+
+  String get supabaseUrl => _supabaseUrl;
+  String get apiBaseUrl => _apiBaseUrl;
 
   final _pendingCountController = StreamController<int>.broadcast();
   Stream<int> get pendingCountStream => _pendingCountController.stream;
@@ -31,12 +42,15 @@ class OfflineSyncService {
 
   Future<void> initialize() async {
     _db = await _initDatabase();
+    await _loadRemoteConfigFromSqlite();
     await _updatePendingCount();
+    refreshRemoteConfig().catchError((_) => false);
 
     // Écoute automatique des changements de connexion
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen((results) {
       bool hasConnection = results.any((r) => r != ConnectivityResult.none);
       if (hasConnection) {
+        refreshRemoteConfig().catchError((_) => false);
         syncPendingPunches();
       }
     });
@@ -47,12 +61,25 @@ class OfflineSyncService {
     _pendingCountController.close();
   }
 
+  Future<void> _ensureMetaTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS app_meta (
+        meta_key TEXT PRIMARY KEY,
+        meta_value TEXT NOT NULL
+      )
+    ''');
+  }
+
   Future<Database> _initDatabase() async {
     String dbPath = join(await getDatabasesPath(), 'attendance_offline_v4.db');
     return await openDatabase(
       dbPath,
       version: 1,
+      onOpen: (db) async {
+        await _ensureMetaTable(db);
+      },
       onCreate: (db, version) async {
+        await _ensureMetaTable(db);
         // Table des sessions collaborateur
         await db.execute('''
           CREATE TABLE employee_session (
@@ -672,11 +699,23 @@ class OfflineSyncService {
           "assisted_by_employee_id": assistedBy,
         };
 
-        final response = await http.post(
+        var response = await http.post(
           postUrl,
           headers: _headers,
           body: jsonEncode(payload),
-        );
+        ).timeout(const Duration(seconds: 8));
+
+        if (_shouldFailoverStatus(response.statusCode)) {
+          final switched = await _tryFailoverSupabase();
+          if (switched) {
+            final retryUrl = Uri.parse("$_supabaseUrl/rest/v1/pointage_logs");
+            response = await http.post(
+              retryUrl,
+              headers: _headers,
+              body: jsonEncode(payload),
+            ).timeout(const Duration(seconds: 8));
+          }
+        }
 
         if (response.statusCode == 201 || response.statusCode == 200) {
           if (map['id'] != null) {
@@ -923,6 +962,188 @@ class OfflineSyncService {
       'punctualityRate': punctualityRate.clamp(0.0, 100.0).roundToDouble(),
       'recentPunches': punches,
     };
+  }
+
+  // ==================== ANTI-BLOCAGE & CONFIG DISTANTE + ALERTES PUSH ====================
+
+  Future<String?> getMetaValue(String key) async {
+    try {
+      final db = _db ?? await _initDatabase();
+      await _ensureMetaTable(db);
+      final rows = await db.query(
+        'app_meta',
+        where: 'meta_key = ?',
+        whereArgs: [key],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) {
+        return rows.first['meta_value']?.toString();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> setMetaValue(String key, String value) async {
+    try {
+      final db = _db ?? await _initDatabase();
+      await _ensureMetaTable(db);
+      await db.insert(
+        'app_meta',
+        {'meta_key': key, 'meta_value': value},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _loadRemoteConfigFromSqlite() async {
+    final savedUrl = await getMetaValue('remote_supabase_url');
+    final savedKey = await getMetaValue('remote_supabase_anon_key');
+    final savedBackupUrl = await getMetaValue('remote_backup_supabase_url');
+    final savedBackupKey = await getMetaValue('remote_backup_supabase_anon_key');
+    final savedApiBase = await getMetaValue('remote_api_base_url');
+
+    if (savedUrl != null && savedUrl.startsWith('http')) {
+      _supabaseUrl = savedUrl;
+    }
+    if (savedKey != null && savedKey.isNotEmpty) {
+      _apiKey = savedKey;
+    }
+    if (savedBackupUrl != null && savedBackupUrl.startsWith('http')) {
+      _backupSupabaseUrl = savedBackupUrl;
+    }
+    if (savedBackupKey != null && savedBackupKey.isNotEmpty) {
+      _backupSupabaseAnonKey = savedBackupKey;
+    }
+    if (savedApiBase != null && savedApiBase.startsWith('http')) {
+      _apiBaseUrl = savedApiBase;
+    }
+  }
+
+  Future<bool> _applyRemoteConfigMap(Map<String, dynamic> data) async {
+    bool changed = false;
+    final newUrl = data['supabase_url']?.toString().trim() ?? '';
+    final newKey = data['supabase_anon_key']?.toString().trim() ?? '';
+    final newBackupUrl = data['backup_supabase_url']?.toString().trim() ?? '';
+    final newBackupKey = data['backup_supabase_anon_key']?.toString().trim() ?? '';
+    final newApiBase = data['api_base_url']?.toString().trim() ?? '';
+
+    if (newUrl.startsWith('http') && newKey.isNotEmpty) {
+      if (newUrl != _supabaseUrl || newKey != _apiKey) {
+        _supabaseUrl = newUrl;
+        _apiKey = newKey;
+        changed = true;
+      }
+      await setMetaValue('remote_supabase_url', newUrl);
+      await setMetaValue('remote_supabase_anon_key', newKey);
+    }
+
+    if (newBackupUrl.startsWith('http') && newBackupKey.isNotEmpty) {
+      _backupSupabaseUrl = newBackupUrl;
+      _backupSupabaseAnonKey = newBackupKey;
+      await setMetaValue('remote_backup_supabase_url', newBackupUrl);
+      await setMetaValue('remote_backup_supabase_anon_key', newBackupKey);
+    }
+
+    if (newApiBase.startsWith('http')) {
+      _apiBaseUrl = newApiBase.replaceAll(RegExp(r'/$'), '');
+      await setMetaValue('remote_api_base_url', _apiBaseUrl);
+    }
+
+    return changed;
+  }
+
+  Future<bool> refreshRemoteConfig() async {
+    final endpoints = <String>{
+      "$_apiBaseUrl/api/config/remote",
+      _githubBootstrapUrl,
+    }.toList();
+
+    for (final endpoint in endpoints) {
+      try {
+        final response = await http.get(Uri.parse(endpoint)).timeout(const Duration(seconds: 5));
+        if (response.statusCode == 200) {
+          final parsed = jsonDecode(response.body);
+          if (parsed is Map<String, dynamic>) {
+            await _applyRemoteConfigMap(parsed);
+            return true;
+          }
+        }
+      } catch (_) {
+        // Essai sur le miroir suivant (GitHub Raw / Vercel)
+      }
+    }
+    return false;
+  }
+
+  bool _shouldFailoverStatus(int statusCode) {
+    return statusCode == 401 ||
+        statusCode == 402 ||
+        statusCode == 403 ||
+        statusCode == 429 ||
+        statusCode >= 500;
+  }
+
+  Future<bool> _tryFailoverSupabase() async {
+    final prevUrl = _supabaseUrl;
+    final prevKey = _apiKey;
+
+    if (_backupSupabaseUrl.isNotEmpty &&
+        _backupSupabaseAnonKey.isNotEmpty &&
+        _supabaseUrl != _backupSupabaseUrl) {
+      _supabaseUrl = _backupSupabaseUrl;
+      _apiKey = _backupSupabaseAnonKey;
+      await setMetaValue('remote_supabase_url', _supabaseUrl);
+      await setMetaValue('remote_supabase_anon_key', _apiKey);
+      return true;
+    }
+
+    await refreshRemoteConfig();
+    return _supabaseUrl != prevUrl || _apiKey != prevKey;
+  }
+
+  Future<Map<String, dynamic>?> fetchUnseenBroadcast(String orgId) async {
+    if (orgId.trim().isEmpty) return null;
+    try {
+      final Uri url = Uri.parse(
+        "$_supabaseUrl/rest/v1/pointage_organizations?id=eq.$orgId&select=security_config&limit=1"
+      );
+      var response = await http.get(url, headers: _headers).timeout(const Duration(seconds: 6));
+
+      if (_shouldFailoverStatus(response.statusCode)) {
+        final switched = await _tryFailoverSupabase();
+        if (switched) {
+          final retryUrl = Uri.parse(
+            "$_supabaseUrl/rest/v1/pointage_organizations?id=eq.$orgId&select=security_config&limit=1"
+          );
+          response = await http.get(retryUrl, headers: _headers).timeout(const Duration(seconds: 6));
+        }
+      }
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        if (data.isNotEmpty && data.first['security_config'] is Map) {
+          final sc = Map<String, dynamic>.from(data.first['security_config']);
+          final latest = sc['latest_broadcast'];
+          if (latest is Map) {
+            final broadcast = Map<String, dynamic>.from(latest);
+            final broadcastId = broadcast['id']?.toString() ?? '';
+            if (broadcastId.isEmpty) return null;
+            final seenId = await getMetaValue('last_seen_broadcast_id');
+            if (seenId != broadcastId) {
+              return broadcast;
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // Hors-ligne ou erreur réseau temporaire
+    }
+    return null;
+  }
+
+  Future<void> markBroadcastSeen(String broadcastId) async {
+    if (broadcastId.trim().isEmpty) return;
+    await setMetaValue('last_seen_broadcast_id', broadcastId.trim());
   }
 }
 

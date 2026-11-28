@@ -304,6 +304,9 @@ export default function MaquetteGerantPage() {
 
   // Formulaires Employé (Création + Modification + Archivage)
   const [broadcastText, setBroadcastText] = useState('');
+  const [broadcastSending, setBroadcastSending] = useState(false);
+  const [latestBroadcast, setLatestBroadcast] = useState<{ id: string; message: string; sender?: string; sent_at?: string } | null>(null);
+  const [exportingBackup, setExportingBackup] = useState(false);
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [confirmDeleteEmployeeId, setConfirmDeleteEmployeeId] = useState<string | null>(null);
   const [newEmpName, setNewEmpName] = useState('');
@@ -509,6 +512,9 @@ export default function MaquetteGerantPage() {
           if (sc.currency) setOrgCurrency(sc.currency);
           if (sc.admission_policy) setOrgAdmissionPolicy(sc.admission_policy);
           if (sc.last_code_regenerated_at) setLastCodeRegenAt(sc.last_code_regenerated_at);
+          if (sc.latest_broadcast && typeof sc.latest_broadcast === 'object') {
+            setLatestBroadcast(sc.latest_broadcast);
+          }
           if (sc.schedule_day_overrides && typeof sc.schedule_day_overrides === 'object') {
             setScheduleOverridesMap(sc.schedule_day_overrides);
           } else if (typeof window !== 'undefined') {
@@ -2593,16 +2599,75 @@ export default function MaquetteGerantPage() {
     triggerToast(`Lien magique WhatsApp ouvert pour ${emp.full_name}`);
   };
 
-  // J. Diffusion notification push
-  const handleSendBroadcast = (e: React.FormEvent) => {
+  // J. Diffusion notification push réelle (Supabase + Audit)
+  const handleSendBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!broadcastText.trim()) return;
-    setShowBroadcastModal(false);
-    triggerToast(`📢 Message diffusé instantanément à tous les smartphones des employés !`);
-    setIslandMessage(`📢 Push : "${broadcastText.slice(0, 20)}..."`);
-    setShowDynamicIslandAlert(true);
-    setBroadcastText('');
-    setTimeout(() => setShowDynamicIslandAlert(false), 4000);
+    const msg = broadcastText.trim();
+    if (!msg || broadcastSending) return;
+
+    setBroadcastSending(true);
+    try {
+      const targetOrgId = orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null) || '53055b65-de5a-40af-9f1c-d27bd83e7c68';
+      const mgrName = (typeof window !== 'undefined' ? localStorage.getItem('pointage_manager_name') : null) || 'Direction / Gérant';
+
+      const res = await fetch('/api/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: targetOrgId,
+          message: msg,
+          sender: mgrName,
+          urgent: true
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || 'Échec de diffusion Supabase');
+      }
+
+      setLatestBroadcast(data.broadcast);
+      recordAuditEvent('EMERGENCY_BROADCAST_SENT', 'WARNING', {
+        broadcast_id: data.broadcast?.id,
+        message_preview: msg.slice(0, 120)
+      });
+      setShowBroadcastModal(false);
+      triggerToast('📢 Annonce enregistrée sur le cloud et diffusée aux applications ouvertes !');
+      setIslandMessage(`📢 Alerte diffusée : "${msg.slice(0, 22)}..."`);
+      setShowDynamicIslandAlert(true);
+      setBroadcastText('');
+      setTimeout(() => setShowDynamicIslandAlert(false), 4500);
+    } catch (err: any) {
+      triggerToast(`❌ Erreur diffusion : ${err?.message || 'Serveur inaccessible'}`);
+    } finally {
+      setBroadcastSending(false);
+    }
+  };
+
+  // J2. Export Sauvegarde Cloud JSON (Anti-blocage / Migration Supabase)
+  const handleExportBackup = async () => {
+    if (exportingBackup) return;
+    setExportingBackup(true);
+    try {
+      const targetOrgId = orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+      const url = `/api/backup/export?download=1${targetOrgId ? `&org_id=${encodeURIComponent(targetOrgId)}` : ''}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Échec génération sauvegarde');
+      const blob = await res.blob();
+      const dlUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = dlUrl;
+      a.download = `Backup_PointagePro_${orgCode}_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(dlUrl);
+      recordAuditEvent('ORG_CLOUD_BACKUP_EXPORTED', 'INFO', { org_code: orgCode });
+      triggerToast('💾 Sauvegarde JSON téléchargée (prête pour migration Supabase).');
+    } catch (err: any) {
+      triggerToast(`❌ Erreur sauvegarde : ${err?.message || 'Impossible'}`);
+    } finally {
+      setExportingBackup(false);
+    }
   };
 
   // K. Simulation pointage réel
@@ -4423,6 +4488,18 @@ export default function MaquetteGerantPage() {
                     </span>
                     <ChevronRight className="w-4 h-4 text-slate-400" />
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleExportBackup}
+                    disabled={exportingBackup}
+                    className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-slate-50 hover:bg-amber-50/70 border border-slate-100 text-xs font-bold text-slate-800 transition cursor-pointer disabled:opacity-50"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Download className="w-4 h-4 text-amber-600" />
+                      <span>{exportingBackup ? 'Génération JSON...' : 'Sauvegarde Cloud JSON (Anti-Blocage)'}</span>
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
                 </div>
               </div>
             )}
@@ -5356,8 +5433,21 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
                 <p className="text-[10px] text-slate-500">
-                  Cette notification fera sonner instantanément le smartphone de tous les collaborateurs de {orgName}.
+                  Enregistre l&apos;alerte sur Supabase et déclenche instantanément un pop-up prioritaire + vibration sur les applications mobiles ouvertes de {orgName}.
                 </p>
+                {latestBroadcast && (
+                  <div className="p-2.5 rounded-xl bg-blue-50/80 border border-blue-200 text-[10px] text-slate-700 space-y-0.5">
+                    <div className="flex items-center justify-between font-bold text-[#1D4ED8]">
+                      <span>Dernière alerte active</span>
+                      <span>
+                        {latestBroadcast.sent_at
+                          ? new Date(latestBroadcast.sent_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                          : ''}
+                      </span>
+                    </div>
+                    <p className="text-slate-800 line-clamp-2">&laquo; {latestBroadcast.message} &raquo;</p>
+                  </div>
+                )}
                 <textarea
                   rows={3}
                   value={broadcastText}
@@ -5368,9 +5458,10 @@ export default function MaquetteGerantPage() {
                 <button
                   type="button"
                   onClick={handleSendBroadcast}
-                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 font-bold text-xs text-white rounded-xl transition cursor-pointer active:scale-95 shadow-md shadow-blue-500/20"
+                  disabled={broadcastSending || !broadcastText.trim()}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 font-bold text-xs text-white rounded-xl transition cursor-pointer active:scale-95 shadow-md shadow-blue-500/20"
                 >
-                  Envoyer la Notification Push
+                  {broadcastSending ? 'Diffusion vers Supabase...' : 'Diffuser l\'Alerte aux Smartphones'}
                 </button>
               </div>
             </div>

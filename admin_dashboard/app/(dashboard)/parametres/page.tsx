@@ -461,6 +461,34 @@ function ParametresContent() {
   const [auditFilter, setAuditFilter] = useState<'ALL' | 'AUTH' | 'SITES_SEC' | 'OPS'>('ALL');
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [exportingBackup, setExportingBackup] = useState(false);
+
+  const handleExportCloudBackup = async () => {
+    if (exportingBackup) return;
+    setExportingBackup(true);
+    try {
+      const targetOrgId = currentOrgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+      const url = `/api/backup/export?download=1${targetOrgId ? `&org_id=${encodeURIComponent(targetOrgId)}` : ''}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Échec génération sauvegarde');
+      const blob = await res.blob();
+      const dlUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = dlUrl;
+      a.download = `Backup_PointagePro_${orgCode}_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(dlUrl);
+      setToastMsg('💾 Sauvegarde JSON téléchargée (prête pour migration Supabase).');
+      setTimeout(() => setToastMsg(null), 3500);
+    } catch (err: any) {
+      setToastMsg(`❌ Erreur sauvegarde : ${err?.message || 'Impossible'}`);
+      setTimeout(() => setToastMsg(null), 3500);
+    } finally {
+      setExportingBackup(false);
+    }
+  };
 
   // Charger les données initiales
   useEffect(() => {
@@ -2079,7 +2107,7 @@ function ParametresContent() {
           </div>
 
           {/* Bouton de sauvegarde */}
-          <div className="pt-5 border-t border-slate-100 flex items-center justify-between">
+          <div className="pt-5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
             {saved ? (
               <span className="text-xs font-bold text-emerald-600 flex items-center gap-1.5 animate-fadeIn">
                 <CheckCircle2 className="w-4 h-4" /> Paramètres d'organisation et clé multi-tenant enregistrés !
@@ -2089,14 +2117,26 @@ function ParametresContent() {
                 Les modifications sont propagées immédiatement aux smartphones des {sectorProfile === 'SCHOOL' ? 'élèves' : 'collaborateurs'}.
               </span>
             )}
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition shadow-md shadow-blue-500/20 cursor-pointer disabled:opacity-50"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>{saving ? 'Sauvegarde...' : 'Enregistrer la Configuration'}</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2.5 ml-auto">
+              <button
+                type="button"
+                onClick={handleExportCloudBackup}
+                disabled={exportingBackup}
+                className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl transition cursor-pointer disabled:opacity-50"
+                title="Exporter toutes les tables de votre organisation au format JSON pour restauration ou bascule Supabase"
+              >
+                <Download className="w-3.5 h-3.5 text-blue-600" />
+                <span>{exportingBackup ? 'Export en cours...' : 'Sauvegarde Cloud JSON'}</span>
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition shadow-md shadow-blue-500/20 cursor-pointer disabled:opacity-50"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{saving ? 'Sauvegarde...' : 'Enregistrer la Configuration'}</span>
+              </button>
+            </div>
           </div>
         </form>
       )}

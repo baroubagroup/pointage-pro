@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'offline_sync_service.dart';
 
 class AppUpdateInfo {
   final String latestVersion;
@@ -51,7 +52,15 @@ class UpdateService {
   static const String fallbackUpdateServerUrl = "http://localhost:3000/api/app/version";
 
   Future<AppUpdateInfo?> fetchUpdateInfo() async {
-    for (final url in [defaultUpdateServerUrl, fallbackUpdateServerUrl]) {
+    final dynamicBase = OfflineSyncService().apiBaseUrl;
+    final dynamicUpdateUrl = "$dynamicBase/api/app/version";
+    final candidates = <String>{
+      dynamicUpdateUrl,
+      defaultUpdateServerUrl,
+      fallbackUpdateServerUrl,
+    }.toList();
+
+    for (final url in candidates) {
       try {
         final uri = Uri.parse(url);
         final response = await http.get(uri).timeout(const Duration(seconds: 4));

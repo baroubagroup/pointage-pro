@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-28T16:10:00Z",
+  "supabase_url": "https://ylrnxuphtaoazlhlmnsd.supabase.co",
+  "supabase_anon_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlscm54dXBodGFvYXpsaGxtbnNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzMDc3NDgsImV4cCI6MjEwMTg4Mzc0OH0._F9Kr-vgD_nahWhVfYJDhP8xRhDw_HyukIHWw5yOC8g",
+  "backup_supabase_url": "",
+  "backup_supabase_anon_key": "",
+  "api_base_url": "https://pointage-pro.vercel.app",
+  "min_app_version": "1.0.0",
+  "apk_download_url": "https://pointage-pro.vercel.app/apk"
+}

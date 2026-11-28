@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/employee_session.dart';
+import '../services/offline_sync_service.dart';
 import '../services/update_service.dart';
 import 'clock_in_screen.dart';
 import 'stats_tab.dart';
@@ -17,6 +20,9 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
   late final List<Widget> _pages;
+  Timer? _broadcastPollTimer;
+  bool _isShowingBroadcastDialog = false;
+  Map<String, dynamic>? _activeBroadcastBanner;
 
   @override
   void initState() {
@@ -33,6 +39,126 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         UpdateService().checkForUpdate(context: context, showFeedbackIfLatest: false);
       }
     });
+
+    // Vérification immédiate puis périodique des alertes push de la direction (Supabase)
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      if (mounted) {
+        _checkForEmergencyBroadcast();
+      }
+    });
+    _broadcastPollTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+      if (mounted) {
+        _checkForEmergencyBroadcast();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _broadcastPollTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkForEmergencyBroadcast() async {
+    if (_isShowingBroadcastDialog) return;
+    final broadcast = await OfflineSyncService().fetchUnseenBroadcast(widget.session.orgId);
+    if (!mounted || broadcast == null) return;
+
+    final broadcastId = broadcast['id']?.toString() ?? '';
+    final message = broadcast['message']?.toString() ?? '';
+    final sender = broadcast['sender']?.toString() ?? 'Direction / Gérant';
+    final sentAtRaw = broadcast['sent_at']?.toString();
+
+    if (message.isEmpty) return;
+
+    HapticFeedback.heavyImpact();
+    setState(() {
+      _activeBroadcastBanner = broadcast;
+    });
+
+    _isShowingBroadcastDialog = true;
+    String formattedTime = '';
+    if (sentAtRaw != null) {
+      final parsed = DateTime.tryParse(sentAtRaw)?.toLocal();
+      if (parsed != null) {
+        formattedTime =
+            '${parsed.day.toString().padLeft(2, '0')}/${parsed.month.toString().padLeft(2, '0')} à ${parsed.hour.toString().padLeft(2, '0')}:${parsed.minute.toString().padLeft(2, '0')}';
+      }
+    }
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: Colors.white,
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFDBEAFE),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.campaign_rounded, color: Color(0xFF1D4ED8), size: 22),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Annonce Direction',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Text(
+                message,
+                style: const TextStyle(fontSize: 14, height: 1.4, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'De : $sender${formattedTime.isNotEmpty ? ' • $formattedTime' : ''}',
+              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () async {
+                if (broadcastId.isNotEmpty) {
+                  await OfflineSyncService().markBroadcastSeen(broadcastId);
+                }
+                if (ctx.mounted) Navigator.of(ctx).pop();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1D4ED8),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              child: const Text("J'ai pris connaissance", style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    _isShowingBroadcastDialog = false;
   }
 
   @override
@@ -45,6 +171,57 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             index: _currentIndex,
             children: _pages,
           ),
+          if (_activeBroadcastBanner != null)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              left: 16,
+              right: 16,
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1D4ED8),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1D4ED8).withOpacity(0.28),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.campaign_rounded, color: Colors.white, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _activeBroadcastBanner!['message']?.toString() ?? '',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () async {
+                          final bid = _activeBroadcastBanner?['id']?.toString() ?? '';
+                          if (bid.isNotEmpty) {
+                            await OfflineSyncService().markBroadcastSeen(bid);
+                          }
+                          if (mounted) {
+                            setState(() => _activeBroadcastBanner = null);
+                          }
+                        },
+                        icon: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             left: 24,
             right: 24,
