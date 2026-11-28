@@ -43,6 +43,7 @@ const OP_ITEMS = [
   { href: '/releves', label: 'Relevés & Heures RH', icon: FileSpreadsheet },
   { href: '/justifications', label: 'Justifications', icon: ClipboardCheck },
   { href: '/maquette-gerant', label: 'App Gérant Mobile', icon: Smartphone },
+  { href: '/maquette-employe', label: 'App Employé (Maquette)', icon: Smartphone },
 ];
 
 const SETTINGS_SUB_ITEMS = [
