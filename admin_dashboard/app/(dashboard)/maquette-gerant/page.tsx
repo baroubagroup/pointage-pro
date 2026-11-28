@@ -2069,9 +2069,10 @@ export default function MaquetteGerantPage() {
                     <button
                       type="button"
                       onClick={() => setIsSandwichOpen(false)}
-                      className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                      aria-label="Fermer le menu"
+                      className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
                     >
-                      <X className="w-4 h-4" />
+                      <X className="w-4 h-4 text-white" />
                     </button>
                   </div>
 
@@ -3314,9 +3315,10 @@ export default function MaquetteGerantPage() {
                   <button
                     type="button"
                     onClick={() => setShowAddEmployeeModal(false)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                    aria-label="Fermer"
+                    className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
                   >
-                    ✕
+                    <X className="w-4 h-4 text-white" />
                   </button>
                 </div>
 
@@ -3419,9 +3421,10 @@ export default function MaquetteGerantPage() {
                   <button
                     type="button"
                     onClick={() => setShowAddSiteModal(false)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                    aria-label="Fermer"
+                    className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
                   >
-                    ✕
+                    <X className="w-4 h-4 text-white" />
                   </button>
                 </div>
 
@@ -3777,9 +3780,10 @@ export default function MaquetteGerantPage() {
                   <button
                     type="button"
                     onClick={() => setShowAddScheduleModal(false)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                    aria-label="Fermer"
+                    className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
                   >
-                    ✕
+                    <X className="w-4 h-4 text-white" />
                   </button>
                 </div>
 
@@ -3974,9 +3978,10 @@ export default function MaquetteGerantPage() {
                   <button
                     type="button"
                     onClick={() => setShowQrModal(null)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                    aria-label="Fermer"
+                    className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
                   >
-                    ✕
+                    <X className="w-4 h-4 text-white" />
                   </button>
                 </div>
 
@@ -4025,9 +4030,10 @@ export default function MaquetteGerantPage() {
                   <button
                     type="button"
                     onClick={() => setShowBroadcastModal(false)}
-                    className="text-slate-400 hover:text-slate-700 text-xs p-1 cursor-pointer"
+                    aria-label="Fermer"
+                    className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
                   >
-                    ✕
+                    <X className="w-4 h-4 text-white" />
                   </button>
                 </div>
                 <p className="text-[10px] text-slate-500">
@@ -4080,9 +4086,10 @@ export default function MaquetteGerantPage() {
                   <button
                     type="button"
                     onClick={() => setShowRelevesDrawer(false)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                    aria-label="Fermer"
+                    className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
                   >
-                    ✕
+                    <X className="w-4 h-4 text-white" />
                   </button>
                 </div>
 
@@ -4377,9 +4384,10 @@ export default function MaquetteGerantPage() {
                   <button
                     type="button"
                     onClick={() => setShowSecurityDrawer(false)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                    aria-label="Fermer"
+                    className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
                   >
-                    ✕
+                    <X className="w-4 h-4 text-white" />
                   </button>
                 </div>
 
@@ -4492,9 +4500,10 @@ export default function MaquetteGerantPage() {
                   <button
                     type="button"
                     onClick={() => setShowAuditDrawer(false)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                    aria-label="Fermer"
+                    className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
                   >
-                    ✕
+                    <X className="w-4 h-4 text-white" />
                   </button>
                 </div>
 
@@ -4724,9 +4733,10 @@ export default function MaquetteGerantPage() {
                   <button
                     type="button"
                     onClick={() => setSelectedPunchDetail(null)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer shrink-0"
+                    aria-label="Fermer"
+                    className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
                   >
-                    ✕
+                    <X className="w-4 h-4 text-white" />
                   </button>
                 </div>
 
