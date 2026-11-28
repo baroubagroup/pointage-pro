@@ -44,7 +44,8 @@ import {
   Trash2,
   Edit3,
   Fingerprint,
-  Link2
+  Link2,
+  Phone
 } from 'lucide-react';
 
 const DynamicSiteGeofenceMap = dynamic(
@@ -67,8 +68,10 @@ interface WifiEntry {
 
 interface DisplayPunch {
   id: string;
+  employeeId?: string;
   name: string;
   matricule: string;
+  phone?: string;
   time: string;
   type: string;
   site: string;
@@ -77,6 +80,10 @@ interface DisplayPunch {
   avatarColor: string;
   device: string;
   wifiUsed?: string;
+  lat?: number;
+  lon?: number;
+  siteRadius?: number;
+  employeeObj?: any;
 }
 
 interface DisplayJustif {
@@ -167,8 +174,9 @@ export default function MaquetteGerantPage() {
   // 5 Onglets principaux de navigation mobile
   const [activeTab, setActiveTab] = useState<'cockpit' | 'sites' | 'equipe' | 'plannings' | 'justifs'>('cockpit');
 
-  // Filtres
-  const [filterType, setFilterType] = useState<'ALL' | 'PRESENT' | 'LATE' | 'ALERT'>('ALL');
+  // Filtres & Fiche détail pointage
+  const [filterType, setFilterType] = useState<'ALL' | 'PRESENT' | 'LATE' | 'ALERT' | 'ABSENT'>('ALL');
+  const [selectedPunchDetail, setSelectedPunchDetail] = useState<DisplayPunch | null>(null);
   const [searchEmployeeQuery, setSearchEmployeeQuery] = useState('');
   const [currentTime, setCurrentTime] = useState('09:41');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -257,6 +265,7 @@ export default function MaquetteGerantPage() {
   const [orgId, setOrgId] = useState<string | null>(null);
   const [orgName, setOrgName] = useState('NAFA BUSINESS');
   const [orgCode, setOrgCode] = useState('ORG-NB-2026-3653TB');
+  const [orgLogo, setOrgLogo] = useState<string | null>(null);
 
   // Données réelles chargées depuis Supabase
   const [loadingDb, setLoadingDb] = useState(true);
@@ -347,6 +356,8 @@ export default function MaquetteGerantPage() {
         setOrgId(orgData.id);
         setOrgName(orgData.name);
         setOrgCode(orgData.org_code);
+        const savedLogo = orgData.security_config?.org_logo || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_logo') : null);
+        if (savedLogo) setOrgLogo(savedLogo);
         if (orgData.security_config && typeof orgData.security_config === 'object') {
           const sc = orgData.security_config;
           setOrgSecurityConfigRaw(sc);
@@ -413,7 +424,7 @@ export default function MaquetteGerantPage() {
       // F. Pointages récents pour le cockpit
       let logsQuery = supabase
         .from('pointage_logs')
-        .select('*, pointage_employees(full_name, employee_matricule, role), pointage_establishments(name)')
+        .select('*, pointage_employees(id, full_name, employee_matricule, role, phone), pointage_establishments(name, radius_meters)')
         .order('recorded_at_utc', { ascending: false })
         .limit(80);
       if (targetOrgId) {
@@ -500,12 +511,14 @@ export default function MaquetteGerantPage() {
     return dbPunches.map((p, idx) => {
       const punchDate = new Date(p.recorded_at_utc || p.created_at);
       const timeStr = punchDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-      const empName = p.pointage_employees?.full_name || 'Collaborateur';
-      const matricule = p.pointage_employees?.employee_matricule || `MAT-${String(idx + 1).padStart(3, '0')}`;
+      const empObj = dbEmployees.find(e => e.id === p.employee_id) || p.pointage_employees;
+      const empName = p.pointage_employees?.full_name || empObj?.full_name || 'Collaborateur';
+      const matricule = p.pointage_employees?.employee_matricule || empObj?.employee_matricule || `MAT-${String(idx + 1).padStart(3, '0')}`;
       const dist = Math.round(p.distance_to_site_meters || 0);
+      const siteRad = p.pointage_establishments?.radius_meters || activeEstablishment?.radius_meters || 80;
 
       let status: 'VALIDATED' | 'LATE' | 'ALERT' = 'VALIDATED';
-      if (p.status === 'FLAGGED' || dist > (activeEstablishment?.radius_meters || 80)) {
+      if (p.status === 'FLAGGED' || dist > siteRad) {
         status = 'ALERT';
       } else if (p.status === 'LATE' || (Array.isArray(p.flag_reasons) && p.flag_reasons.some((f: string) => f.includes('RETARD')))) {
         status = 'LATE';
@@ -513,8 +526,10 @@ export default function MaquetteGerantPage() {
 
       return {
         id: p.id,
+        employeeId: p.employee_id,
         name: empName,
         matricule,
+        phone: p.pointage_employees?.phone || empObj?.phone || undefined,
         time: timeStr,
         type: p.punch_type || 'CHECK_IN',
         site: p.pointage_establishments?.name || activeEstablishment?.name || 'Siège Principal',
@@ -522,10 +537,25 @@ export default function MaquetteGerantPage() {
         status,
         avatarColor: avatarColors[idx % avatarColors.length],
         device: p.device_model || 'Smartphone Déclaré',
-        wifiUsed: p.wifi_bssid ? (activeEstablishment?.wifi_ssid || 'Wi-Fi Bureau') : undefined
+        wifiUsed: p.wifi_bssid ? (activeEstablishment?.wifi_ssid || 'Wi-Fi Bureau') : undefined,
+        lat: typeof p.latitude === 'number' ? p.latitude : undefined,
+        lon: typeof p.longitude === 'number' ? p.longitude : undefined,
+        siteRadius: siteRad,
+        employeeObj: empObj
       };
     });
-  }, [dbPunches, activeEstablishment]);
+  }, [dbPunches, dbEmployees, activeEstablishment]);
+
+  // Employés actifs n'ayant pas encore pointé aujourd'hui ("Non pointés / Absents du jour")
+  const absentEmployees = useMemo(() => {
+    const todayKey = toDateInputString(new Date());
+    const presentTodayIds = new Set(
+      dbPunches
+        .filter(p => toDateInputString(new Date(p.recorded_at_utc || p.created_at)) === todayKey)
+        .map(p => p.employee_id)
+    );
+    return dbEmployees.filter(emp => !presentTodayIds.has(emp.id));
+  }, [dbEmployees, dbPunches]);
 
   // 3. Transformation des justifications DB
   const justifications: DisplayJustif[] = useMemo(() => {
@@ -1792,9 +1822,17 @@ export default function MaquetteGerantPage() {
               </button>
 
               <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-xs shadow-sm shadow-blue-500/20">
-                  {orgName.slice(0, 2).toUpperCase()}
-                </div>
+                {orgLogo ? (
+                  <img
+                    src={orgLogo}
+                    alt={orgName}
+                    className="w-8 h-8 rounded-xl object-cover border border-slate-200 bg-white shadow-xs shrink-0"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-xs shadow-sm shadow-blue-500/20 shrink-0">
+                    {orgName.slice(0, 2).toUpperCase()}
+                  </div>
+                )}
                 <div>
                   <div className="flex items-center gap-1.5">
                     <span className="font-extrabold text-xs text-slate-900 leading-tight truncate max-w-[130px]">{orgName}</span>
@@ -1842,9 +1880,17 @@ export default function MaquetteGerantPage() {
                 <div className="space-y-4 overflow-y-auto pr-1">
                   <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                     <div className="flex items-center space-x-2.5">
-                      <div className="w-9 h-9 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black text-xs shadow-md shadow-blue-500/20">
-                        {orgName.slice(0, 2).toUpperCase()}
-                      </div>
+                      {orgLogo ? (
+                        <img
+                          src={orgLogo}
+                          alt={orgName}
+                          className="w-9 h-9 rounded-2xl object-cover border border-slate-200 bg-white shadow-xs shrink-0"
+                        />
+                      ) : (
+                        <div className="w-9 h-9 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black text-xs shadow-md shadow-blue-500/20 shrink-0">
+                          {orgName.slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
                       <div>
                         <h3 className="font-extrabold text-xs text-slate-900 truncate max-w-[140px]">{orgName}</h3>
                         <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
@@ -2137,25 +2183,31 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
 
-                {/* Filtres pointages */}
-                <div className="flex items-center justify-between px-0.5 pt-1">
-                  <span className="text-xs font-extrabold text-slate-900">Pointages du Jour ({filteredPunches.length})</span>
+                {/* Filtres pointages + Non pointés du jour */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between px-0.5">
+                    <span className="text-xs font-extrabold text-slate-900">
+                      {filterType === 'ABSENT'
+                        ? `Non pointés aujourd'hui (${absentEmployees.length})`
+                        : `Pointages du Jour (${filteredPunches.length})`}
+                    </span>
+                  </div>
 
-                  <div className="flex bg-slate-200/80 p-0.5 rounded-xl text-[10px] font-bold">
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[10px] font-bold">
                     <button
                       type="button"
                       onClick={() => setFilterType('ALL')}
-                      className={`px-2 py-0.5 rounded-lg transition cursor-pointer ${
-                        filterType === 'ALL' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                      className={`px-2.5 py-1 rounded-xl shrink-0 transition cursor-pointer ${
+                        filterType === 'ALL' ? 'bg-slate-900 text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-600'
                       }`}
                     >
-                      Tous
+                      Tous ({punches.length})
                     </button>
                     <button
                       type="button"
                       onClick={() => setFilterType('PRESENT')}
-                      className={`px-2 py-0.5 rounded-lg transition cursor-pointer ${
-                        filterType === 'PRESENT' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600'
+                      className={`px-2.5 py-1 rounded-xl shrink-0 transition cursor-pointer ${
+                        filterType === 'PRESENT' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-600'
                       }`}
                     >
                       À l&apos;heure
@@ -2163,8 +2215,8 @@ export default function MaquetteGerantPage() {
                     <button
                       type="button"
                       onClick={() => setFilterType('LATE')}
-                      className={`px-2 py-0.5 rounded-lg transition cursor-pointer ${
-                        filterType === 'LATE' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-600'
+                      className={`px-2.5 py-1 rounded-xl shrink-0 transition cursor-pointer ${
+                        filterType === 'LATE' ? 'bg-amber-600 text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-600'
                       }`}
                     >
                       Retards
@@ -2172,21 +2224,93 @@ export default function MaquetteGerantPage() {
                     <button
                       type="button"
                       onClick={() => setFilterType('ALERT')}
-                      className={`px-2 py-0.5 rounded-lg transition cursor-pointer ${
-                        filterType === 'ALERT' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600'
+                      className={`px-2.5 py-1 rounded-xl shrink-0 transition cursor-pointer ${
+                        filterType === 'ALERT' ? 'bg-rose-600 text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-600'
                       }`}
                     >
                       Alertes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterType('ABSENT')}
+                      className={`px-2.5 py-1 rounded-xl shrink-0 transition cursor-pointer ${
+                        filterType === 'ABSENT' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-white border border-slate-200 text-indigo-700'
+                      }`}
+                    >
+                      Non pointés ({absentEmployees.length})
                     </button>
                   </div>
                 </div>
 
                 <div className="space-y-2.5">
                   {loadingDb ? (
-                    <div className="p-8 text-center text-slate-500 text-xs">
-                      <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                      Chargement des pointages réels...
+                    /* Squelettes animés haut de gamme */
+                    <div className="space-y-2.5">
+                      {[1, 2, 3].map((sk) => (
+                        <div key={sk} className="p-3.5 rounded-2xl border border-slate-200 bg-white animate-pulse space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-10 h-10 rounded-2xl bg-slate-200" />
+                              <div className="space-y-1.5">
+                                <div className="h-3 w-28 bg-slate-200 rounded-full" />
+                                <div className="h-2.5 w-20 bg-slate-100 rounded-full" />
+                              </div>
+                            </div>
+                            <div className="space-y-1.5 flex flex-col items-end">
+                              <div className="h-3 w-12 bg-slate-200 rounded-full" />
+                              <div className="h-4 w-16 bg-slate-100 rounded-full" />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
+                  ) : filterType === 'ABSENT' ? (
+                    absentEmployees.length === 0 ? (
+                      <div className="p-6 text-center bg-white rounded-3xl border border-slate-200 text-xs text-slate-500 space-y-1">
+                        <CheckCircle2 className="w-7 h-7 text-emerald-500 mx-auto" />
+                        <p className="font-bold text-slate-900 text-xs">Tout le personnel a pointé aujourd&apos;hui !</p>
+                        <p className="text-[11px] text-slate-500">Aucun absent ou retardataire non signalé.</p>
+                      </div>
+                    ) : (
+                      absentEmployees.map((emp) => (
+                        <div
+                          key={emp.id}
+                          className="p-3.5 rounded-2xl border border-indigo-100 bg-white shadow-xs flex items-center justify-between gap-2"
+                        >
+                          <div className="flex items-center space-x-3 min-w-0">
+                            <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-700 border border-indigo-100 flex items-center justify-center font-black text-xs shrink-0">
+                              {emp.full_name ? emp.full_name[0] : 'E'}
+                            </div>
+                            <div className="min-w-0">
+                              <span className="font-extrabold text-xs text-slate-900 block truncate">{emp.full_name}</span>
+                              <span className="text-[10px] text-slate-500 block truncate">
+                                {emp.employee_matricule || 'N/A'} • Pas encore pointé
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {emp.phone && (
+                              <a
+                                href={`tel:${emp.phone}`}
+                                className="p-2 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-600 rounded-xl border border-slate-200 transition"
+                                title={`Appeler ${emp.full_name}`}
+                              >
+                                <Phone className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenWhatsApp(emp)}
+                              className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl border border-emerald-200 transition cursor-pointer"
+                              title={`Message WhatsApp à ${emp.full_name}`}
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )
                   ) : filteredPunches.length === 0 ? (
                     <div className="p-6 text-center bg-white rounded-3xl border border-slate-200 text-xs text-slate-500 space-y-1">
                       <CheckCircle2 className="w-7 h-7 text-emerald-500 mx-auto" />
@@ -2200,14 +2324,16 @@ export default function MaquetteGerantPage() {
                       const isAlert = p.status === 'ALERT';
 
                       return (
-                        <div
+                        <button
                           key={p.id}
-                          className={`p-3.5 rounded-2xl border transition bg-white shadow-xs ${
+                          type="button"
+                          onClick={() => setSelectedPunchDetail(p)}
+                          className={`w-full text-left p-3.5 rounded-2xl border transition bg-white shadow-xs active:scale-[0.99] cursor-pointer ${
                             isAlert
-                              ? 'border-rose-200 bg-rose-50/20'
+                              ? 'border-rose-200 bg-rose-50/20 hover:border-rose-300'
                               : isLate
-                                ? 'border-amber-200 bg-amber-50/20'
-                                : 'border-slate-200 hover:border-slate-300'
+                                ? 'border-amber-200 bg-amber-50/20 hover:border-amber-300'
+                                : 'border-slate-200 hover:border-blue-300'
                           }`}
                         >
                           <div className="flex items-center justify-between">
@@ -2228,15 +2354,18 @@ export default function MaquetteGerantPage() {
                               </div>
                             </div>
 
-                            <div className="text-right shrink-0">
-                              <span className="text-xs font-black font-mono text-slate-900 block">{p.time}</span>
-                              <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full inline-block mt-0.5 ${
-                                isValid ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                                isLate ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                                'bg-rose-50 text-rose-700 border border-rose-200'
-                              }`}>
-                                {isValid ? 'À l\'heure' : isLate ? 'Retard' : 'Hors-Zone'}
-                              </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="text-right">
+                                <span className="text-xs font-black font-mono text-slate-900 block">{p.time}</span>
+                                <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full inline-block mt-0.5 ${
+                                  isValid ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                  isLate ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                  'bg-rose-50 text-rose-700 border border-rose-200'
+                                }`}>
+                                  {isValid ? 'À l\'heure' : isLate ? 'Retard' : 'Hors-Zone'}
+                                </span>
+                              </div>
+                              <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
                             </div>
                           </div>
 
@@ -2249,7 +2378,7 @@ export default function MaquetteGerantPage() {
                               </span>
                             )}
                           </div>
-                        </div>
+                        </button>
                       );
                     })
                   )}
@@ -2702,10 +2831,14 @@ export default function MaquetteGerantPage() {
 
           {/* ===================== MODALES ET TIROIRS DU GÉRANT ===================== */}
 
-          {/* MODALE 1 : CRÉER UN EMPLOYÉ */}
+          {/* MODALE 1 : CRÉER UN EMPLOYÉ (BOTTOM SHEET NATIF) */}
           {showAddEmployeeModal && (
-            <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 animate-fadeIn">
-              <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div
+              onClick={(e) => { if (e.target === e.currentTarget) setShowAddEmployeeModal(false); }}
+              className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end justify-center p-0 animate-fadeIn"
+            >
+              <div className="bg-white border-t border-slate-200 w-full rounded-t-[28px] px-4 pt-2.5 pb-6 space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-1" />
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
@@ -2801,10 +2934,14 @@ export default function MaquetteGerantPage() {
             </div>
           )}
 
-          {/* MODALE 2 : CRÉER / CALIBRER UN SITE AVEC DÉTECTION AUTO DU WI-FI */}
+          {/* MODALE 2 : CRÉER / CALIBRER UN SITE AVEC DÉTECTION AUTO DU WI-FI (BOTTOM SHEET NATIF) */}
           {showAddSiteModal && (
-            <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 animate-fadeIn">
-              <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div
+              onClick={(e) => { if (e.target === e.currentTarget) setShowAddSiteModal(false); }}
+              className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end justify-center p-0 animate-fadeIn"
+            >
+              <div className="bg-white border-t border-slate-200 w-full rounded-t-[28px] px-4 pt-2.5 pb-6 space-y-3.5 shadow-2xl max-h-[92vh] overflow-y-auto">
+                <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-1" />
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
@@ -3157,10 +3294,14 @@ export default function MaquetteGerantPage() {
             </div>
           )}
 
-          {/* MODALE 3 : COULOIR HORAIRE FLEXIBLE (ARRIVÉE/DÉPART ACTIVABLES + PAUSE OPTIONNELLE) */}
+          {/* MODALE 3 : COULOIR HORAIRE FLEXIBLE (BOTTOM SHEET NATIF) */}
           {showAddScheduleModal && (
-            <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 animate-fadeIn">
-              <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3 shadow-2xl max-h-[92vh] overflow-y-auto">
+            <div
+              onClick={(e) => { if (e.target === e.currentTarget) setShowAddScheduleModal(false); }}
+              className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end justify-center p-0 animate-fadeIn"
+            >
+              <div className="bg-white border-t border-slate-200 w-full rounded-t-[28px] px-4 pt-2.5 pb-6 space-y-3 shadow-2xl max-h-[92vh] overflow-y-auto">
+                <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-1" />
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
@@ -3355,10 +3496,14 @@ export default function MaquetteGerantPage() {
             </div>
           )}
 
-          {/* MODALE 4 : QR CODE D'ENRÔLEMENT SALARIÉ */}
+          {/* MODALE 4 : QR CODE D'ENRÔLEMENT SALARIÉ (BOTTOM SHEET NATIF) */}
           {showQrModal && (
-            <div className="absolute inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
-              <div className="bg-white border border-slate-200 w-full max-w-xs rounded-3xl p-5 space-y-4 text-center shadow-2xl">
+            <div
+              onClick={(e) => { if (e.target === e.currentTarget) setShowQrModal(null); }}
+              className="absolute inset-0 z-50 bg-slate-950/65 backdrop-blur-xs flex items-end justify-center p-0 animate-fadeIn"
+            >
+              <div className="bg-white border-t border-slate-200 w-full rounded-t-[28px] px-5 pt-2.5 pb-6 space-y-4 text-center shadow-2xl">
+                <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-1" />
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <span className="font-extrabold text-xs text-slate-900">Enrôlement Mobile Salarié</span>
                   <button
@@ -3399,10 +3544,14 @@ export default function MaquetteGerantPage() {
             </div>
           )}
 
-          {/* MODALE 5 : DIFFUSION PUSH NOTIFICATION */}
+          {/* MODALE 5 : DIFFUSION PUSH NOTIFICATION (BOTTOM SHEET NATIF) */}
           {showBroadcastModal && (
-            <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 animate-fadeIn">
-              <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3 shadow-2xl">
+            <div
+              onClick={(e) => { if (e.target === e.currentTarget) setShowBroadcastModal(false); }}
+              className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end justify-center p-0 animate-fadeIn"
+            >
+              <div className="bg-white border-t border-slate-200 w-full rounded-t-[28px] px-4 pt-2.5 pb-6 space-y-3 shadow-2xl">
+                <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-1" />
                 <div className="flex items-center justify-between">
                   <span className="font-extrabold text-xs text-slate-900 flex items-center gap-1.5">
                     <Send className="w-3.5 h-3.5 text-blue-600" />
@@ -3437,10 +3586,14 @@ export default function MaquetteGerantPage() {
             </div>
           )}
 
-          {/* TIROIR MODAL 6 : RELEVÉS & SYNTHÈSE RH DÉTAILLÉS (PLAGE LIBRE + FICHE CLIQUABLE + EXPORT EXCEL/PDF) */}
+          {/* TIROIR MODAL 6 : RELEVÉS & SYNTHÈSE RH DÉTAILLÉS (BOTTOM SHEET NATIF) */}
           {showRelevesDrawer && (
-            <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-2 sm:p-3 animate-fadeIn">
-              <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3 shadow-2xl h-[92%] flex flex-col">
+            <div
+              onClick={(e) => { if (e.target === e.currentTarget) setShowRelevesDrawer(false); }}
+              className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end justify-center p-0 animate-fadeIn"
+            >
+              <div className="bg-white border-t border-slate-200 w-full rounded-t-[28px] px-4 pt-2.5 pb-5 space-y-3 shadow-2xl h-[92%] flex flex-col">
+                <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto shrink-0" />
 
                 {/* En-tête */}
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100 shrink-0">
@@ -3520,9 +3673,19 @@ export default function MaquetteGerantPage() {
                     {/* Liste Cliquable des Employés avec Vraies Stats */}
                     <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">
                       {hrLoading ? (
-                        <div className="p-8 text-center text-xs text-slate-500">
-                          <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                          Calcul des statistiques sur la période...
+                        <div className="space-y-2 py-1">
+                          {[0, 1, 2, 3].map((sk) => (
+                            <div key={sk} className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3 flex items-center justify-between gap-2 animate-pulse">
+                              <div className="space-y-1.5">
+                                <div className="h-3 w-28 bg-slate-200 rounded-full" />
+                                <div className="h-2.5 w-36 bg-slate-100 rounded-full" />
+                              </div>
+                              <div className="space-y-1.5 text-right">
+                                <div className="h-3 w-14 bg-slate-200 rounded-full ml-auto" />
+                                <div className="h-2.5 w-16 bg-slate-100 rounded-full ml-auto" />
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       ) : hrSummaries.length === 0 ? (
                         <div className="p-6 text-center text-xs text-slate-500">
@@ -3733,10 +3896,14 @@ export default function MaquetteGerantPage() {
             </div>
           )}
 
-          {/* TIROIR MODAL 7 : SÉCURITÉ ANTI-TRICHE CONNECTÉE À SUPABASE */}
+          {/* TIROIR MODAL 7 : SÉCURITÉ ANTI-TRICHE CONNECTÉE À SUPABASE (BOTTOM SHEET NATIF) */}
           {showSecurityDrawer && (
-            <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 animate-fadeIn">
-              <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div
+              onClick={(e) => { if (e.target === e.currentTarget) setShowSecurityDrawer(false); }}
+              className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end justify-center p-0 animate-fadeIn"
+            >
+              <div className="bg-white border-t border-slate-200 w-full rounded-t-[28px] px-4 pt-2.5 pb-6 space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-1" />
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4 text-blue-600" />
@@ -3839,10 +4006,14 @@ export default function MaquetteGerantPage() {
             </div>
           )}
 
-          {/* TIROIR MODAL 8 : JOURNAL D'AUDIT INVIOLABLE (APPEND-ONLY + SHA-256) */}
+          {/* TIROIR MODAL 8 : JOURNAL D'AUDIT INVIOLABLE (BOTTOM SHEET NATIF) */}
           {showAuditDrawer && (
-            <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-2 sm:p-3 animate-fadeIn">
-              <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3 shadow-2xl h-[92%] flex flex-col">
+            <div
+              onClick={(e) => { if (e.target === e.currentTarget) setShowAuditDrawer(false); }}
+              className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end justify-center p-0 animate-fadeIn"
+            >
+              <div className="bg-white border-t border-slate-200 w-full rounded-t-[28px] px-4 pt-2.5 pb-5 space-y-3 shadow-2xl h-[92%] flex flex-col">
+                <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto shrink-0" />
 
                 {/* En-tête */}
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100 shrink-0">
@@ -3913,9 +4084,17 @@ export default function MaquetteGerantPage() {
                 {/* Liste immuable des événements */}
                 <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">
                   {auditLoading ? (
-                    <div className="p-8 text-center text-xs text-slate-500">
-                      <div className="w-5 h-5 border-2 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                      Vérification de la chaîne d&apos;audit...
+                    <div className="space-y-2 py-1">
+                      {[0, 1, 2, 3].map((sk) => (
+                        <div key={sk} className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3 space-y-2 animate-pulse">
+                          <div className="flex items-center justify-between">
+                            <div className="h-3 w-32 bg-slate-200 rounded-full" />
+                            <div className="h-3 w-12 bg-slate-200 rounded-full" />
+                          </div>
+                          <div className="h-2.5 w-48 bg-slate-100 rounded-full" />
+                          <div className="h-2 w-24 bg-slate-100 rounded-full" />
+                        </div>
+                      ))}
                     </div>
                   ) : auditEntries.filter((ev) => {
                       if (auditFilter === 'ALL') return true;
@@ -4042,6 +4221,142 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
 
+              </div>
+            </div>
+          )}
+
+          {/* BOTTOM SHEET 9 : FICHE DÉTAIL D'UN POINTAGE + POSITION SATELLITE */}
+          {selectedPunchDetail && (
+            <div
+              onClick={(e) => { if (e.target === e.currentTarget) setSelectedPunchDetail(null); }}
+              className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end justify-center p-0 animate-fadeIn"
+            >
+              <div className="bg-white border-t border-slate-200 w-full rounded-t-[28px] px-4 pt-2.5 pb-6 space-y-3 shadow-2xl max-h-[88vh] overflow-y-auto">
+                <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-1" />
+
+                {/* En-tête collaborateur + statut */}
+                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className={`w-10 h-10 rounded-full ${selectedPunchDetail.avatarColor} text-white flex items-center justify-center font-extrabold text-xs shrink-0 shadow-xs`}>
+                      {selectedPunchDetail.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <span className="font-extrabold text-xs text-slate-900 block truncate">{selectedPunchDetail.name}</span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] font-mono text-slate-500">{selectedPunchDetail.matricule}</span>
+                        <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${
+                          selectedPunchDetail.status === 'VALIDATED'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : selectedPunchDetail.status === 'LATE'
+                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                        }`}>
+                          {selectedPunchDetail.status === 'VALIDATED' ? 'Conforme' : selectedPunchDetail.status === 'LATE' ? 'Retard' : 'Alerte'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPunchDetail(null)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer shrink-0"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Métriques du pointage */}
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5">
+                    <span className="text-[9px] font-bold uppercase text-slate-400 block">Heure & Type</span>
+                    <span className="font-extrabold text-slate-900 font-mono">{selectedPunchDetail.time} • {selectedPunchDetail.type}</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5">
+                    <span className="text-[9px] font-bold uppercase text-slate-400 block">Site & Distance</span>
+                    <span className="font-bold text-slate-900 block truncate">{selectedPunchDetail.site} ({selectedPunchDetail.distance})</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5">
+                    <span className="text-[9px] font-bold uppercase text-slate-400 block">Terminal utilisé</span>
+                    <span className="font-semibold text-slate-800 block truncate">{selectedPunchDetail.device}</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5">
+                    <span className="text-[9px] font-bold uppercase text-slate-400 block">Réseau / Wi-Fi</span>
+                    <span className="font-semibold text-slate-800 block truncate">{selectedPunchDetail.wifiUsed || 'GPS Satellite'}</span>
+                  </div>
+                </div>
+
+                {/* Carte satellite exacte du pointage si coordonnées disponibles */}
+                {typeof selectedPunchDetail.lat === 'number' && typeof selectedPunchDetail.lon === 'number' && !Number.isNaN(selectedPunchDetail.lat) ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="font-extrabold uppercase text-slate-500 flex items-center gap-1">
+                        <MapPin className="w-3 h-3 text-blue-600" />
+                        Position GPS enregistrée
+                      </span>
+                      <span className="font-mono text-slate-500">
+                        {selectedPunchDetail.lat.toFixed(5)}, {selectedPunchDetail.lon.toFixed(5)}
+                      </span>
+                    </div>
+                    <div className="rounded-2xl overflow-hidden border border-slate-200">
+                      <DynamicSiteGeofenceMap
+                        name={selectedPunchDetail.name}
+                        city={selectedPunchDetail.site}
+                        lat={selectedPunchDetail.lat}
+                        lon={selectedPunchDetail.lon}
+                        radiusMeters={selectedPunchDetail.siteRadius || 80}
+                        mode="test"
+                        defaultStyle="googleHybrid"
+                        heightClassName="h-44"
+                        compact={true}
+                        interactive={false}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-500 text-center">
+                    Coordonnées GPS exactes non transmises pour ce pointage.
+                  </div>
+                )}
+
+                {/* Actions directes Appeler + WhatsApp */}
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  {selectedPunchDetail.phone ? (
+                    <a
+                      href={`tel:${selectedPunchDetail.phone.replace(/\s+/g, '')}`}
+                      className="py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>Appeler</span>
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled
+                      className="py-2.5 bg-slate-100 text-slate-400 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-not-allowed"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>Aucun numéro</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleOpenWhatsApp(
+                        selectedPunchDetail.employeeObj || {
+                          full_name: selectedPunchDetail.name,
+                          phone: selectedPunchDetail.phone,
+                          employee_matricule: selectedPunchDetail.matricule,
+                          pointage_establishments: { name: selectedPunchDetail.site }
+                        }
+                      );
+                    }}
+                    className="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    <span>WhatsApp</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
