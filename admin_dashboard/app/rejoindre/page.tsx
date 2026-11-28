@@ -80,7 +80,7 @@ function RejoindreContent() {
     };
   }, [org, nameParam]);
 
-  const androidIntentUrl = `intent://join?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}&mat=${encodeURIComponent(mat)}#Intent;scheme=pointagepro;package=com.example.pointage_mobile;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;end`;
+  const androidIntentUrl = `intent://join?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}&mat=${encodeURIComponent(mat)}#Intent;scheme=pointagepro;package=com.barouba.pointage_mobile;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;end`;
   const customSchemeUrl = `pointagepro://join?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}&mat=${encodeURIComponent(mat)}`;
 
   const handleLaunchApp = () => {

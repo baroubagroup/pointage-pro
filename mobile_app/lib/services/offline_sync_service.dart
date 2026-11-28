@@ -7,6 +7,22 @@ import 'package:sqflite/sqflite.dart';
 import '../models/employee_session.dart';
 import '../models/punch_model.dart';
 
+class PendingApprovalException implements Exception {
+  final String orgName;
+  final String fullName;
+  final String matricule;
+
+  PendingApprovalException({
+    required this.orgName,
+    required this.fullName,
+    required this.matricule,
+  });
+
+  @override
+  String toString() =>
+      "Demande envoyée à $orgName ($fullName • $matricule). En attente d'approbation par le Gérant.";
+}
+
 class OfflineSyncService {
   static final OfflineSyncService _instance = OfflineSyncService._internal();
   factory OfflineSyncService() => _instance;
@@ -70,6 +86,22 @@ class OfflineSyncService {
     ''');
   }
 
+  Future<void> _ensureEmployeeSessionColumns(Database db) async {
+    try {
+      final info = await db.rawQuery('PRAGMA table_info(employee_session)');
+      final cols = info.map((r) => r['name']?.toString()).toSet();
+      if (!cols.contains('org_id')) {
+        await db.execute("ALTER TABLE employee_session ADD COLUMN org_id TEXT");
+      }
+      if (!cols.contains('org_name')) {
+        await db.execute("ALTER TABLE employee_session ADD COLUMN org_name TEXT");
+      }
+      if (!cols.contains('org_code')) {
+        await db.execute("ALTER TABLE employee_session ADD COLUMN org_code TEXT");
+      }
+    } catch (_) {}
+  }
+
   Future<Database> _initDatabase() async {
     String dbPath = join(await getDatabasesPath(), 'attendance_offline_v4.db');
     return await openDatabase(
@@ -77,6 +109,7 @@ class OfflineSyncService {
       version: 1,
       onOpen: (db) async {
         await _ensureMetaTable(db);
+        await _ensureEmployeeSessionColumns(db);
       },
       onCreate: (db, version) async {
         await _ensureMetaTable(db);
@@ -84,6 +117,9 @@ class OfflineSyncService {
         await db.execute('''
           CREATE TABLE employee_session (
             id TEXT PRIMARY KEY,
+            org_id TEXT,
+            org_name TEXT,
+            org_code TEXT,
             full_name TEXT NOT NULL,
             phone TEXT,
             role TEXT NOT NULL,
@@ -173,15 +209,32 @@ class OfflineSyncService {
       throw Exception("Veuillez renseigner un code d'activation.");
     }
 
+    final encodedToken = Uri.encodeQueryComponent(cleanToken);
     // 1. Recherche de l'employé dans Supabase avec établissement, organisation et planning
-    final Uri url = Uri.parse(
-      "$_supabaseUrl/rest/v1/pointage_employees?select=*,pointage_organizations(id,name,org_code),pointage_establishments(id,name,latitude,longitude,radius_meters),pointage_schedules(id,name,working_days,morning_start,morning_end,lunch_start,lunch_end,afternoon_start,afternoon_end,tolerance_minutes)&or=(enrollment_token.eq.$cleanToken,enrollment_token.ilike.%$cleanToken%)&limit=1"
+    Uri buildUrl() => Uri.parse(
+      "$_supabaseUrl/rest/v1/pointage_employees?select=*,pointage_organizations(id,name,org_code),pointage_establishments(id,name,latitude,longitude,radius_meters),pointage_schedules(id,name,working_days,morning_start,morning_end,lunch_start,lunch_end,afternoon_start,afternoon_end,tolerance_minutes)&or=(enrollment_token.eq.$encodedToken,enrollment_token.ilike.%25$encodedToken%25)&limit=1"
     );
 
-    final response = await http.get(url, headers: _headers);
+    late http.Response response;
+    try {
+      response = await http.get(buildUrl(), headers: _headers).timeout(const Duration(seconds: 10));
+      if (_shouldFailoverStatus(response.statusCode)) {
+        final switched = await _tryFailoverSupabase();
+        if (switched) {
+          response = await http.get(buildUrl(), headers: _headers).timeout(const Duration(seconds: 10));
+        }
+      }
+    } catch (_) {
+      final switched = await _tryFailoverSupabase();
+      if (switched) {
+        response = await http.get(buildUrl(), headers: _headers).timeout(const Duration(seconds: 10));
+      } else {
+        throw Exception("Connexion Internet requise pour contacter le serveur d'activation.");
+      }
+    }
 
     if (response.statusCode != 200) {
-      throw Exception("Impossible de contacter le serveur cloud (${response.statusCode}).");
+      throw Exception("Impossible de contacter le serveur cloud (${response.statusCode}). Vérifiez le code saisi ou votre connexion.");
     }
 
     final List<dynamic> data = jsonDecode(response.body);
@@ -282,32 +335,86 @@ class OfflineSyncService {
     return session;
   }
 
-  /// Enrôlement 2FA par Code Établissement + Matricule Officiel + Secret
+  /// Lecture légère de la politique d'admission d'un établissement depuis son code canonique
+  Future<Map<String, dynamic>?> fetchOrganizationAdmissionInfo(String rawOrgCode) async {
+    final cleanOrg = rawOrgCode.trim().toUpperCase();
+    if (cleanOrg.length < 3) return null;
+    try {
+      final encOrg = Uri.encodeQueryComponent(cleanOrg);
+      final Uri url = Uri.parse(
+        "$_supabaseUrl/rest/v1/pointage_organizations?select=id,name,org_code,security_config&org_code=ilike.$encOrg&limit=1"
+      );
+      var resp = await http.get(url, headers: _headers).timeout(const Duration(seconds: 7));
+      if (_shouldFailoverStatus(resp.statusCode)) {
+        final switched = await _tryFailoverSupabase();
+        if (switched) {
+          final retryUrl = Uri.parse(
+            "$_supabaseUrl/rest/v1/pointage_organizations?select=id,name,org_code,security_config&org_code=ilike.$encOrg&limit=1"
+          );
+          resp = await http.get(retryUrl, headers: _headers).timeout(const Duration(seconds: 7));
+        }
+      }
+      if (resp.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(resp.body);
+        if (data.isNotEmpty) {
+          final org = data.first;
+          final sc = (org['security_config'] is Map) ? Map<String, dynamic>.from(org['security_config']) : <String, dynamic>{};
+          return {
+            'id': org['id'],
+            'name': org['name'] ?? 'Établissement',
+            'org_code': org['org_code'] ?? cleanOrg,
+            'admission_policy': (sc['admission_policy'] as String?) ?? 'STRICT',
+          };
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Enrôlement par Code Établissement (avec Matricule optionnel selon politique STRICT / MODERATE / OPEN)
   Future<EmployeeSession> enrollWithOrganizationAndMatricule({
     required String rawOrgCode,
-    required String rawMatricule,
-    required String rawSecret,
+    String rawMatricule = '',
+    String rawFullName = '',
     required String deviceId,
     required String deviceModel,
   }) async {
     final cleanOrg = rawOrgCode.trim().toUpperCase();
     final cleanMat = rawMatricule.trim().toUpperCase();
-    final cleanSec = rawSecret.trim();
+    final cleanName = rawFullName.trim();
 
-    if (cleanOrg.isEmpty) throw Exception("Veuillez saisir le Code de votre Établissement (ex: ORG-8492).");
-    if (cleanMat.isEmpty) throw Exception("Veuillez renseigner votre Matricule officiel.");
+    if (cleanOrg.isEmpty) throw Exception("Veuillez saisir le Code de votre Établissement (ex: ORG-NTMHH-NB).");
 
+    final encOrg = Uri.encodeQueryComponent(cleanOrg);
     // 1. Recherche de l'organisation
-    final Uri orgUrl = Uri.parse(
-      "$_supabaseUrl/rest/v1/pointage_organizations?select=id,name,org_code,city,latitude,longitude,security_config&org_code=ilike.$cleanOrg&limit=1"
+    Uri buildOrgUrl() => Uri.parse(
+      "$_supabaseUrl/rest/v1/pointage_organizations?select=id,name,org_code,city,latitude,longitude,security_config&org_code=ilike.$encOrg&limit=1"
     );
-    final orgResp = await http.get(orgUrl, headers: _headers);
+
+    late http.Response orgResp;
+    try {
+      orgResp = await http.get(buildOrgUrl(), headers: _headers).timeout(const Duration(seconds: 10));
+      if (_shouldFailoverStatus(orgResp.statusCode)) {
+        final switched = await _tryFailoverSupabase();
+        if (switched) {
+          orgResp = await http.get(buildOrgUrl(), headers: _headers).timeout(const Duration(seconds: 10));
+        }
+      }
+    } catch (_) {
+      final switched = await _tryFailoverSupabase();
+      if (switched) {
+        orgResp = await http.get(buildOrgUrl(), headers: _headers).timeout(const Duration(seconds: 10));
+      } else {
+        throw Exception("Connexion Internet requise pour contacter le serveur cloud.");
+      }
+    }
+
     if (orgResp.statusCode != 200) {
-      throw Exception("Erreur de connexion cloud (${orgResp.statusCode}).");
+      throw Exception("Impossible de contacter le serveur cloud (${orgResp.statusCode}).");
     }
     final List<dynamic> orgData = jsonDecode(orgResp.body);
     if (orgData.isEmpty) {
-      throw Exception("Code Établissement '$cleanOrg' introuvable. Veuillez vérifier auprès de votre responsable.");
+      throw Exception("Code Établissement '$cleanOrg' introuvable ou désactivé. Vérifiez auprès de votre responsable.");
     }
     final org = orgData.first;
     final orgId = org['id'] as String;
@@ -315,22 +422,75 @@ class OfflineSyncService {
     final secCfg = (org['security_config'] is Map) ? Map<String, dynamic>.from(org['security_config']) : <String, dynamic>{};
     final admissionPolicy = (secCfg['admission_policy'] as String?) ?? 'STRICT';
 
-    // 2. Recherche du collaborateur ou élève rattaché à cet établissement
-    final Uri empUrl = Uri.parse(
-      "$_supabaseUrl/rest/v1/pointage_employees?select=*,pointage_establishments(id,name,latitude,longitude,radius_meters),pointage_schedules(id,name,working_days,morning_start,morning_end,lunch_start,lunch_end,afternoon_start,afternoon_end,tolerance_minutes)&org_id=eq.$orgId&or=(employee_matricule.ilike.$cleanMat,enrollment_token.ilike.$cleanMat)&limit=1"
-    );
-    final empResp = await http.get(empUrl, headers: _headers);
-    if (empResp.statusCode != 200) {
-      throw Exception("Erreur de recherche employé (${empResp.statusCode}).");
+    if (admissionPolicy == 'STRICT' && cleanMat.isEmpty) {
+      throw Exception("Cet établissement ($orgName) est en Mode Strict : veuillez saisir votre Matricule officiel ou scanner votre QR Code personnel.");
     }
-    List<dynamic> empList = jsonDecode(empResp.body);
+
+    // 2. Recherche du collaborateur/élève (par matricule/jeton, ou par appareil déjà enregistré)
+    const empSelect =
+        "*,pointage_establishments(id,name,latitude,longitude,radius_meters),pointage_schedules(id,name,working_days,morning_start,morning_end,lunch_start,lunch_end,afternoon_start,afternoon_end,tolerance_minutes)";
+    List<dynamic> empList = [];
+
+    if (cleanMat.isNotEmpty) {
+      final encMat = Uri.encodeQueryComponent(cleanMat);
+      final Uri empUrl = Uri.parse(
+        "$_supabaseUrl/rest/v1/pointage_employees?select=$empSelect&org_id=eq.$orgId&or=(employee_matricule.ilike.$encMat,enrollment_token.ilike.$encMat)&limit=1"
+      );
+      final empResp = await http.get(empUrl, headers: _headers).timeout(const Duration(seconds: 10));
+      if (empResp.statusCode != 200) {
+        throw Exception("Erreur de recherche employé (${empResp.statusCode}).");
+      }
+      empList = jsonDecode(empResp.body);
+    } else {
+      final encDev = Uri.encodeQueryComponent(deviceId);
+      final Uri devUrl = Uri.parse(
+        "$_supabaseUrl/rest/v1/pointage_employees?select=$empSelect&org_id=eq.$orgId&bound_device_id=eq.$encDev&is_active=eq.true&limit=1"
+      );
+      final devResp = await http.get(devUrl, headers: _headers).timeout(const Duration(seconds: 10));
+      if (devResp.statusCode == 200) {
+        empList = jsonDecode(devResp.body);
+      }
+    }
+
     if (empList.isEmpty) {
       if (admissionPolicy == 'STRICT') {
         throw Exception("Matricule '$cleanMat' introuvable chez $orgName (Mode Strict actif). Contactez la direction.");
       }
 
+      if (cleanName.length < 2 && cleanMat.isEmpty) {
+        throw Exception("Veuillez saisir votre Nom & Prénoms pour rejoindre $orgName.");
+      }
+
       // Mode MODERATE (approbation manuelle) ou OPEN (salons/événements)
       final bool isOpen = admissionPolicy == 'OPEN';
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final rand4 = 1000 + (nowMs % 9000);
+      final generatedMat = cleanMat.isNotEmpty ? cleanMat : "${isOpen ? 'EVT' : 'REQ'}-${DateTime.now().year}-$rand4";
+      final generatedToken = "PPRO-${100000 + (DateTime.now().microsecondsSinceEpoch % 900000)}";
+      final resolvedFullName = cleanName.length >= 2 ? cleanName : "Collaborateur $generatedMat";
+
+      // Récupérer site et planning par défaut de l'organisation
+      String? defaultSiteId;
+      String? defaultSchedId;
+      try {
+        final siteResp = await http.get(
+          Uri.parse("$_supabaseUrl/rest/v1/pointage_establishments?select=id&org_id=eq.$orgId&is_active=eq.true&order=created_at.asc&limit=1"),
+          headers: _headers,
+        ).timeout(const Duration(seconds: 6));
+        if (siteResp.statusCode == 200) {
+          final sList = jsonDecode(siteResp.body) as List<dynamic>;
+          if (sList.isNotEmpty) defaultSiteId = sList.first['id'] as String?;
+        }
+        final schedResp = await http.get(
+          Uri.parse("$_supabaseUrl/rest/v1/pointage_schedules?select=id&org_id=eq.$orgId&is_active=eq.true&order=created_at.asc&limit=1"),
+          headers: _headers,
+        ).timeout(const Duration(seconds: 6));
+        if (schedResp.statusCode == 200) {
+          final scList = jsonDecode(schedResp.body) as List<dynamic>;
+          if (scList.isNotEmpty) defaultSchedId = scList.first['id'] as String?;
+        }
+      } catch (_) {}
+
       final insertResp = await http.post(
         Uri.parse("$_supabaseUrl/rest/v1/pointage_employees"),
         headers: {
@@ -339,24 +499,42 @@ class OfflineSyncService {
         },
         body: jsonEncode({
           'org_id': orgId,
-          'full_name': 'Collaborateur $cleanMat',
-          'employee_matricule': cleanMat,
+          if (defaultSiteId != null) 'default_establishment_id': defaultSiteId,
+          if (defaultSchedId != null) 'schedule_id': defaultSchedId,
+          'full_name': resolvedFullName,
+          'employee_matricule': generatedMat,
+          'enrollment_token': generatedToken,
           'role': isOpen ? 'Participant' : 'Collaborateur',
           'bound_device_id': deviceId,
           'device_model': deviceModel,
           'is_enrolled': isOpen,
           'is_active': true,
         }),
-      );
+      ).timeout(const Duration(seconds: 10));
+
       if (insertResp.statusCode < 200 || insertResp.statusCode >= 300) {
         throw Exception("Impossible de créer votre profil (${insertResp.statusCode}).");
       }
+
       if (!isOpen) {
-        throw Exception("Demande d'accès enregistrée ($cleanMat) ! En attente de validation manuelle par votre responsable.");
+        throw PendingApprovalException(
+          orgName: orgName,
+          fullName: resolvedFullName,
+          matricule: generatedMat,
+        );
       }
 
-      // Recharger la fiche complète en Mode Ouvert
-      final retryResp = await http.get(empUrl, headers: _headers);
+      final createdRows = jsonDecode(insertResp.body) as List<dynamic>;
+      final createdId = createdRows.isNotEmpty ? createdRows.first['id'] as String? : null;
+      if (createdId == null) {
+        throw Exception("Profil créé mais identifiant manquant.");
+      }
+
+      // Recharger la fiche complète avec site & planning en Mode Ouvert
+      final retryResp = await http.get(
+        Uri.parse("$_supabaseUrl/rest/v1/pointage_employees?select=$empSelect&id=eq.$createdId&limit=1"),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 10));
       if (retryResp.statusCode != 200) {
         throw Exception("Profil créé mais erreur de rechargement.");
       }
@@ -369,36 +547,30 @@ class OfflineSyncService {
     final emp = empList.first;
     final empId = emp['id'] as String;
 
+    if (emp['is_active'] == false) {
+      throw Exception("Ce profil collaborateur a été archivé par la direction.");
+    }
+
     // Si en attente d'approbation manuelle (MODERATE)
-    if (admissionPolicy == 'MODERATE' && emp['is_enrolled'] != true && emp['bound_device_id'] == deviceId) {
-      throw Exception("Votre accès ($cleanMat) est en attente d'approbation manuelle par votre responsable.");
+    if (admissionPolicy == 'MODERATE' && emp['is_enrolled'] != true) {
+      // Lier l'appareil à la demande s'il n'était pas encore posé
+      if (emp['bound_device_id'] == null || emp['bound_device_id'].toString().isEmpty) {
+        try {
+          await http.patch(
+            Uri.parse("$_supabaseUrl/rest/v1/pointage_employees?id=eq.$empId"),
+            headers: _headers,
+            body: jsonEncode({"bound_device_id": deviceId, "device_model": deviceModel}),
+          );
+        } catch (_) {}
+      }
+      throw PendingApprovalException(
+        orgName: orgName,
+        fullName: emp['full_name']?.toString() ?? 'Collaborateur',
+        matricule: emp['employee_matricule']?.toString() ?? cleanMat,
+      );
     }
 
-    // 3. Double Vérification de Sécurité (Secret 2FA)
-    if (cleanSec.isNotEmpty) {
-      final dbSecret = (emp['security_secret'] as String?)?.trim() ?? '';
-      final dbDob = (emp['birth_date'] as String?)?.trim() ?? '';
-      final dbPhone = (emp['phone'] as String?)?.replaceAll(RegExp(r'\D'), '') ?? '';
-      final cleanSecDigits = cleanSec.replaceAll(RegExp(r'\D'), '');
-
-      bool isMatch = false;
-      if (dbSecret.isNotEmpty && dbSecret.toLowerCase() == cleanSec.toLowerCase()) {
-        isMatch = true;
-      } else if (dbDob.isNotEmpty && (dbDob.contains(cleanSec) || cleanSec == dbDob)) {
-        isMatch = true;
-      } else if (cleanSecDigits.length >= 4 && dbPhone.endsWith(cleanSecDigits)) {
-        isMatch = true;
-      } else if (dbSecret.isEmpty && dbDob.isEmpty) {
-        // Si aucun secret n'avait été défini dans le fichier importé
-        isMatch = true;
-      }
-
-      if (!isMatch) {
-        throw Exception("Vérification de sécurité échouée : le code secret, la date de naissance ou les 4 derniers chiffres du téléphone ne correspondent pas pour ce matricule.");
-      }
-    }
-
-    // 4. Contrôle Anti-Vol d'Appareil (Device Binding)
+    // 3. Contrôle Anti-Vol d'Appareil (Device Binding)
     final existingDeviceId = emp['bound_device_id'] as String?;
     final isEnrolled = emp['is_enrolled'] == true;
     if (isEnrolled && existingDeviceId != null && existingDeviceId.isNotEmpty && existingDeviceId != deviceId) {

@@ -10,6 +10,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:app_links/app_links.dart';
 import '../models/employee_session.dart';
 import '../services/offline_sync_service.dart';
+import '../services/push_notification_service.dart';
 import '../services/security_service.dart';
 import 'main_navigation_screen.dart';
 
@@ -25,13 +26,21 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   final SecurityService _securityService = SecurityService();
   final OfflineSyncService _syncService = OfflineSyncService();
 
-  int _selectedModeIndex = 0; // 0: Scanner, 1: Matricule/Organisation, 2: Mode Inverse
+  int _selectedModeIndex = 0; // 0: Scanner, 1: Mon Établissement, 2: Mode Inverse
   bool _isProcessing = false;
   final TextEditingController _tokenInputController = TextEditingController();
-  final TextEditingController _orgCodeController = TextEditingController(text: "ORG-8492");
+  final TextEditingController _orgCodeController = TextEditingController();
+  final TextEditingController _fullNameController = TextEditingController();
   final TextEditingController _matriculeController = TextEditingController();
-  final TextEditingController _secretController = TextEditingController();
   bool _showTokenFallback = false;
+
+  // Détection dynamique de l'organisation & politique d'admission
+  String? _detectedOrgName;
+  String? _detectedAdmissionPolicy;
+  bool _isCheckingOrgPolicy = false;
+  PendingApprovalException? _pendingApproval;
+  Timer? _orgLookupDebounce;
+  Timer? _approvalPollingTimer;
 
   // Mode Inverse
   String? _myDeviceId;
@@ -99,18 +108,66 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
           ),
         );
 
-        // Lancement immédiat de la vérification et de l'enrôlement
         _verifyAndEnroll(token);
       }
-    } else if (org != null && mat != null) {
+    } else if (org != null && org.isNotEmpty) {
       if (mounted) {
         setState(() {
           _selectedModeIndex = 1;
           _orgCodeController.text = org;
-          _matriculeController.text = mat;
+          if (mat != null && mat.isNotEmpty) _matriculeController.text = mat;
         });
+        _lookupOrgPolicy(org);
       }
     }
+  }
+
+  void _onOrgCodeChanged(String value) {
+    _orgLookupDebounce?.cancel();
+    final trimmed = value.trim();
+    if (trimmed.length < 4) {
+      if (_detectedOrgName != null || _detectedAdmissionPolicy != null) {
+        setState(() {
+          _detectedOrgName = null;
+          _detectedAdmissionPolicy = null;
+        });
+      }
+      return;
+    }
+    _orgLookupDebounce = Timer(const Duration(milliseconds: 550), () {
+      if (mounted) _lookupOrgPolicy(trimmed);
+    });
+  }
+
+  Future<void> _lookupOrgPolicy(String rawOrgCode) async {
+    final clean = rawOrgCode.trim();
+    if (clean.length < 3) return;
+    if (mounted) setState(() => _isCheckingOrgPolicy = true);
+    final info = await _syncService.fetchOrganizationAdmissionInfo(clean);
+    if (!mounted) return;
+    setState(() {
+      _isCheckingOrgPolicy = false;
+      if (info != null) {
+        _detectedOrgName = info['name']?.toString();
+        _detectedAdmissionPolicy = info['admission_policy']?.toString() ?? 'STRICT';
+      } else {
+        _detectedOrgName = null;
+        _detectedAdmissionPolicy = null;
+      }
+    });
+  }
+
+  void _startPendingApprovalPolling() {
+    _approvalPollingTimer?.cancel();
+    _approvalPollingTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
+      if (_pendingApproval == null || _myDeviceId == null || _isProcessing) return;
+      final session = await _syncService.checkReverseEnrollment(_myDeviceId!);
+      if (session != null && mounted) {
+        timer.cancel();
+        setState(() => _pendingApproval = null);
+        _showBindingSuccess(session, _myDeviceModel ?? "Smartphone");
+      }
+    });
   }
 
   Future<void> _loadDeviceMetadata() async {
@@ -144,10 +201,12 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   void dispose() {
     _linkSubscription?.cancel();
     _reverseEnrollPollingTimer?.cancel();
+    _orgLookupDebounce?.cancel();
+    _approvalPollingTimer?.cancel();
     _tokenInputController.dispose();
     _orgCodeController.dispose();
+    _fullNameController.dispose();
     _matriculeController.dispose();
-    _secretController.dispose();
     super.dispose();
   }
 
@@ -296,19 +355,69 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
     );
   }
 
-  /// Vérification et Scellement de l'Appareil
+  /// Vérification et Scellement de l'Appareil (décode QR JSON, URL /rejoindre?..., ou jeton brut PPRO-xxx)
   Future<void> _verifyAndEnroll(String rawToken) async {
+    String cleanToken = rawToken.trim();
+    String? extractedOrg;
+    String? extractedMat;
+
+    // 1. Décodage JSON éventuel
+    if (cleanToken.startsWith('{') && cleanToken.endsWith('}')) {
+      try {
+        final decoded = jsonDecode(cleanToken);
+        if (decoded is Map) {
+          if (decoded['token'] != null) cleanToken = decoded['token'].toString().trim();
+          if (decoded['org'] != null) extractedOrg = decoded['org'].toString().trim();
+          if (decoded['mat'] != null) extractedMat = decoded['mat'].toString().trim();
+        }
+      } catch (_) {}
+    }
+
+    // 2. Décodage URL QR Code (https://.../rejoindre?org=...&token=... ou pointagepro://join?...)
+    final lower = cleanToken.toLowerCase();
+    if (lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('pointagepro://')) {
+      final parsedUri = Uri.tryParse(cleanToken);
+      if (parsedUri != null) {
+        final qpToken = parsedUri.queryParameters['token']?.trim();
+        final qpOrg = parsedUri.queryParameters['org']?.trim();
+        final qpMat = parsedUri.queryParameters['mat']?.trim();
+
+        if (qpOrg != null && qpOrg.isNotEmpty) extractedOrg = qpOrg;
+        if (qpMat != null && qpMat.isNotEmpty) extractedMat = qpMat;
+
+        if (qpToken != null && qpToken.isNotEmpty) {
+          cleanToken = qpToken;
+        } else if (extractedOrg != null && extractedOrg.isNotEmpty) {
+          // QR Code d'établissement (Kit Enrôlement Flash / Affiche A4) sans jeton personnel
+          if (mounted) {
+            setState(() {
+              _selectedModeIndex = 1;
+              _orgCodeController.text = extractedOrg!;
+              if (extractedMat != null && extractedMat.isNotEmpty) {
+                _matriculeController.text = extractedMat;
+              }
+            });
+            await _lookupOrgPolicy(extractedOrg);
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Établissement détecté ($extractedOrg). Finalisez votre accès ci-dessous."),
+                backgroundColor: const Color(0xFF1D4ED8),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+          return;
+        } else {
+          _showError("Ce QR Code ne contient ni jeton d'activation ni code établissement valide.");
+          return;
+        }
+      }
+    }
+
     setState(() => _isProcessing = true);
 
     try {
-      String cleanToken = rawToken.trim();
-      if (cleanToken.startsWith('{') && cleanToken.endsWith('}')) {
-        try {
-          final decoded = jsonDecode(cleanToken);
-          if (decoded['token'] != null) cleanToken = decoded['token'];
-        } catch (_) {}
-      }
-
       final device = await _securityService.getDeviceMetadata();
       final session = await _syncService.enrollWithToken(cleanToken, device.deviceId, device.model);
 
@@ -324,34 +433,41 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
     }
   }
 
-  /// Enrôlement 2FA Sécurisé : Code Établissement + Matricule Officiel + Secret
+  /// Enrôlement par Code Établissement (+ Nom & Prénoms / Matricule optionnel selon politique)
   Future<void> _verifyAndEnrollWithOrgAndMatricule() async {
     final orgCode = _orgCodeController.text.trim();
+    final fullName = _fullNameController.text.trim();
     final matricule = _matriculeController.text.trim();
-    final secret = _secretController.text.trim();
 
     if (orgCode.isEmpty) {
-      _showError("Veuillez renseigner le Code de votre Établissement (ex: ORG-8492).");
-      return;
-    }
-    if (matricule.isEmpty) {
-      _showError("Veuillez renseigner votre Matricule officiel.");
+      _showError("Veuillez renseigner le Code de votre Établissement (ex: ORG-NTMHH-NB).");
       return;
     }
 
-    setState(() => _isProcessing = true);
+    setState(() {
+      _isProcessing = true;
+      _pendingApproval = null;
+    });
     try {
       final device = await _securityService.getDeviceMetadata();
       final session = await _syncService.enrollWithOrganizationAndMatricule(
         rawOrgCode: orgCode,
         rawMatricule: matricule,
-        rawSecret: secret,
+        rawFullName: fullName,
         deviceId: device.deviceId,
         deviceModel: device.model,
       );
 
       if (mounted) {
+        _approvalPollingTimer?.cancel();
         _showBindingSuccess(session, device.model);
+      }
+    } on PendingApprovalException catch (pending) {
+      if (mounted) {
+        setState(() {
+          _pendingApproval = pending;
+        });
+        _startPendingApprovalPolling();
       }
     } catch (e) {
       if (mounted) {
@@ -444,6 +560,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
         actions: [
           ElevatedButton(
             onPressed: () {
+              PushNotificationService().syncOrganizationSubscription(session.orgId);
               Navigator.pop(ctx);
               Navigator.pushReplacement(
                 context,
@@ -920,6 +1037,9 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
   }
 
   Widget _buildManualTokenTab() {
+    final policy = _detectedAdmissionPolicy;
+    final bool isStrict = policy == 'STRICT';
+
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
@@ -959,7 +1079,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
                       style: TextStyle(color: Color(0xFF0F172A), fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: -0.3),
                     ),
                     Text(
-                      "Enrôlement 2FA sans scan de QR Code",
+                      "Connexion directe par Code Entreprise",
                       style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
                     ),
                   ],
@@ -970,18 +1090,19 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
 
           const SizedBox(height: 18),
 
-          // 1. Code Établissement Multi-Tenant
+          // 1. Code Établissement Multi-Tenant (Seul champ toujours requis)
           const Text(
-            "CODE ÉTABLISSEMENT / ORGANISATION",
+            "CODE ÉTABLISSEMENT / ORGANISATION *",
             style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5),
           ),
           const SizedBox(height: 6),
           TextField(
             controller: _orgCodeController,
+            onChanged: _onOrgCodeChanged,
             textCapitalization: TextCapitalization.characters,
             style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w900, letterSpacing: 1.2, fontSize: 14),
             decoration: InputDecoration(
-              hintText: "ORG-8492",
+              hintText: "Ex : ORG-NTMHH-NB",
               hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
               filled: true,
               fillColor: const Color(0xFFF8FAFC),
@@ -999,15 +1120,119 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
                 borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.8),
               ),
               prefixIcon: const Icon(Icons.business_rounded, color: Color(0xFF2563EB), size: 20),
+              suffixIcon: _isCheckingOrgPolicy
+                  ? const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                    )
+                  : IconButton(
+                      icon: const Icon(Icons.search_rounded, color: Color(0xFF64748B), size: 20),
+                      onPressed: () => _lookupOrgPolicy(_orgCodeController.text),
+                      tooltip: "Vérifier l'établissement",
+                    ),
             ),
           ),
 
+          if (_detectedOrgName != null && policy != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: policy == 'OPEN'
+                    ? const Color(0xFFECFDF5)
+                    : policy == 'MODERATE'
+                        ? const Color(0xFFFFFBEB)
+                        : const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: policy == 'OPEN'
+                      ? const Color(0xFFA7F3D0)
+                      : policy == 'MODERATE'
+                          ? const Color(0xFFFDE68A)
+                          : const Color(0xFFBFDBFE),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    policy == 'OPEN'
+                        ? Icons.lock_open_rounded
+                        : policy == 'MODERATE'
+                            ? Icons.how_to_reg_rounded
+                            : Icons.verified_user_rounded,
+                    size: 16,
+                    color: policy == 'OPEN'
+                        ? const Color(0xFF059669)
+                        : policy == 'MODERATE'
+                            ? const Color(0xFFD97706)
+                            : const Color(0xFF1D4ED8),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      policy == 'OPEN'
+                          ? "$_detectedOrgName • Mode Ouvert (accès direct sans matricule requis)"
+                          : policy == 'MODERATE'
+                              ? "$_detectedOrgName • Approbation Gérant (matricule facultatif)"
+                              : "$_detectedOrgName • Mode Strict (matricule officiel requis)",
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: policy == 'OPEN'
+                            ? const Color(0xFF065F46)
+                            : policy == 'MODERATE'
+                                ? const Color(0xFF92400E)
+                                : const Color(0xFF1E40AF),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
           const SizedBox(height: 14),
 
-          // 2. Matricule Officiel
-          const Text(
-            "VOTRE MATRICULE OFFICIEL",
-            style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+          // 2. Nom & Prénoms (utile en Approbation / Mode Ouvert sans matricule)
+          if (!isStrict) ...[
+            const Text(
+              "VOTRE NOM & PRÉNOMS",
+              style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _fullNameController,
+              textCapitalization: TextCapitalization.words,
+              style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w700, fontSize: 14),
+              decoration: InputDecoration(
+                hintText: "Ex : OUEDRAOGO Moussa",
+                hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.8),
+                ),
+                prefixIcon: const Icon(Icons.person_rounded, color: Color(0xFF2563EB), size: 20),
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
+
+          // 3. Matricule (obligatoire uniquement en Mode Strict ; facultatif en Approbation / Ouvert)
+          Text(
+            isStrict ? "VOTRE MATRICULE OFFICIEL *" : "MATRICULE (FACULTATIF SI NON FOURNI)",
+            style: const TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5),
           ),
           const SizedBox(height: 6),
           TextField(
@@ -1015,7 +1240,7 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
             textCapitalization: TextCapitalization.characters,
             style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w800, letterSpacing: 1.0, fontSize: 14),
             decoration: InputDecoration(
-              hintText: "Ex : MAT-2026-001 ou OUA-2026-001",
+              hintText: isStrict ? "Ex : MAT-2026-001" : "Laissez vide si vous n'avez pas de matricule",
               hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
               filled: true,
               fillColor: const Color(0xFFF8FAFC),
@@ -1036,43 +1261,44 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
             ),
           ),
 
-          const SizedBox(height: 14),
-
-          // 3. Secret Personnel 2FA Anti-Usurpation
-          const Text(
-            "VÉRIFICATION D'IDENTITÉ PERSONNELLE (SECRET)",
-            style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5),
-          ),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _secretController,
-            style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w700, fontSize: 13),
-            decoration: InputDecoration(
-              hintText: "Date de naissance (JJ/MM/AAAA) ou 4 derniers chiffres tél",
-              hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
-              filled: true,
-              fillColor: const Color(0xFFF8FAFC),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+          if (_pendingApproval != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFFCD34D)),
               ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD97706)),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "En attente de validation — ${_pendingApproval!.orgName}",
+                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: Color(0xFF92400E)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "Votre demande (${_pendingApproval!.fullName} • ${_pendingApproval!.matricule}) a été envoyée au tableau de bord du Gérant. Ce téléphone sera débloqué automatiquement dès qu'il approuve.",
+                    style: const TextStyle(fontSize: 11.5, color: Color(0xFF78350F), height: 1.35),
+                  ),
+                ],
               ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.8),
-              ),
-              prefixIcon: const Icon(Icons.lock_person_rounded, color: Color(0xFF10B981), size: 20),
             ),
-          ),
-          const SizedBox(height: 5),
-          const Text(
-            "* Protège votre compte contre toute tentative de liaison par un tiers.",
-            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5, fontStyle: FontStyle.italic),
-          ),
+          ],
 
           const SizedBox(height: 20),
 
@@ -1088,12 +1314,21 @@ class _EnrollmentScreenState extends State<EnrollmentScreen> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 elevation: 0,
               ),
-              child: const Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.verified_user_rounded, size: 18),
-                  SizedBox(width: 8),
-                  Text("Vérifier & Lier ce Smartphone", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                  const Icon(Icons.verified_user_rounded, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    _pendingApproval != null
+                        ? "Vérifier l'Approbation"
+                        : policy == 'OPEN'
+                            ? "Rejoindre Maintenant"
+                            : policy == 'MODERATE'
+                                ? "Envoyer ma Demande d'Accès"
+                                : "Vérifier & Lier ce Smartphone",
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                  ),
                 ],
               ),
             ),
