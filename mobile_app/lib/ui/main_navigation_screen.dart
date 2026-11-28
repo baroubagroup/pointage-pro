@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/employee_session.dart';
 import '../services/offline_sync_service.dart';
+import '../services/push_notification_service.dart';
 import '../services/update_service.dart';
 import 'clock_in_screen.dart';
 import 'stats_tab.dart';
@@ -21,6 +22,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
   late final List<Widget> _pages;
   Timer? _broadcastPollTimer;
+  StreamSubscription<Map<String, dynamic>>? _fcmSub;
   bool _isShowingBroadcastDialog = false;
   Map<String, dynamic>? _activeBroadcastBanner;
 
@@ -33,6 +35,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       ProfileTab(session: widget.session),
     ];
 
+    // Abonnement FCM au canal de l'organisation pour recevoir les notifications même app fermée
+    PushNotificationService().syncOrganizationSubscription(widget.session.orgId);
+    _fcmSub = PushNotificationService().foregroundBroadcastStream.listen((broadcast) {
+      if (mounted) {
+        _presentBroadcastAlert(broadcast);
+      }
+    });
+
     // Vérification discrète des mises à jour en arrière-plan au lancement
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
@@ -40,7 +50,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       }
     });
 
-    // Vérification immédiate puis périodique des alertes push de la direction (Supabase)
+    // Vérification immédiate puis périodique des alertes push de la direction (Supabase fallback)
     Future.delayed(const Duration(milliseconds: 1200), () {
       if (mounted) {
         _checkForEmergencyBroadcast();
@@ -56,6 +66,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   @override
   void dispose() {
     _broadcastPollTimer?.cancel();
+    _fcmSub?.cancel();
     super.dispose();
   }
 
@@ -63,6 +74,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     if (_isShowingBroadcastDialog) return;
     final broadcast = await OfflineSyncService().fetchUnseenBroadcast(widget.session.orgId);
     if (!mounted || broadcast == null) return;
+    await _presentBroadcastAlert(broadcast);
+  }
+
+  Future<void> _presentBroadcastAlert(Map<String, dynamic> broadcast) async {
+    if (!mounted || _isShowingBroadcastDialog) return;
 
     final broadcastId = broadcast['id']?.toString() ?? '';
     final message = broadcast['message']?.toString() ?? '';
@@ -70,6 +86,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final sentAtRaw = broadcast['sent_at']?.toString();
 
     if (message.isEmpty) return;
+
+    if (broadcastId.isNotEmpty) {
+      final seenId = await OfflineSyncService().getMetaValue('last_seen_broadcast_id');
+      if (!mounted || seenId == broadcastId) return;
+    }
 
     HapticFeedback.heavyImpact();
     setState(() {

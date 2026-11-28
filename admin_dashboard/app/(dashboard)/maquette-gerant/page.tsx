@@ -2631,7 +2631,11 @@ export default function MaquetteGerantPage() {
         message_preview: msg.slice(0, 120)
       });
       setShowBroadcastModal(false);
-      triggerToast('📢 Annonce enregistrée sur le cloud et diffusée aux applications ouvertes !');
+      if (data.fcm?.sent) {
+        triggerToast('🔔 Notification Push FCM envoyée à tous les smartphones (même fermés) !');
+      } else {
+        triggerToast('📢 Annonce enregistrée sur le cloud et diffusée aux applications ouvertes !');
+      }
       setIslandMessage(`📢 Alerte diffusée : "${msg.slice(0, 22)}..."`);
       setShowDynamicIslandAlert(true);
       setBroadcastText('');

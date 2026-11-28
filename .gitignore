@@ -23,3 +23,7 @@ Desktop.ini
 # Logs
 *.log
 *.ndjson
+
+# Firebase Private Service Account Keys (NEVER COMMIT)
+*firebase-adminsdk*.json
+.firebase-service-account.json

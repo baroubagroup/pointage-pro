@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createClient } from '@/lib/supabase/server';
+import { sendFcmTopicNotification } from '@/lib/firebase-fcm';
 
 export const dynamic = 'force-dynamic';
 
@@ -132,9 +133,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: updateError.message }, { status: 500 });
     }
 
+    const fcmResult = await sendFcmTopicNotification({
+      orgId,
+      title: `📢 ${orgData.name || 'PointagePro'} — Annonce Direction`,
+      body: message,
+      data: {
+        type: 'EMERGENCY_BROADCAST',
+        broadcast_id: announcement.id,
+        org_id: orgId,
+        sender,
+        sent_at: announcement.sent_at,
+        message,
+      },
+    });
+
     return NextResponse.json({
       success: true,
-      delivery_mode: 'supabase_live_sync',
+      delivery_mode: fcmResult.sent ? 'fcm_push_and_supabase' : 'supabase_live_sync',
+      fcm: fcmResult,
       broadcast: announcement,
       history: nextConfig.broadcast_history,
     });
