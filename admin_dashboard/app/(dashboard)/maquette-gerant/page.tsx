@@ -1951,7 +1951,7 @@ export default function MaquetteGerantPage() {
           )}
 
           {/* BARRE D'ÉTAT SYSTÈME */}
-          <div className="pt-2.5 px-6 pb-1.5 flex items-center justify-between text-xs font-semibold text-slate-700 z-30 shrink-0 bg-white/80 backdrop-blur-md">
+          <div className="pt-2.5 px-6 pb-1.5 flex items-center justify-between text-xs font-semibold text-slate-700 z-30 shrink-0 bg-[#F8FAFC]">
             <span className="font-extrabold tracking-tight text-[11px] text-slate-900">{currentTime}</span>
             <div className="flex items-center space-x-2 text-slate-700">
               <Signal className="w-3 h-3" />
@@ -1963,8 +1963,9 @@ export default function MaquetteGerantPage() {
             </div>
           </div>
 
-          {/* EN-TÊTE ÉPURÉ AVEC MENU SANDWICH */}
-          <div className="px-4 py-2.5 border-b border-slate-200/80 bg-white/95 backdrop-blur-md flex items-center justify-between shrink-0 z-20 shadow-xs">
+          {/* EN-TÊTE FLOTTANT À BORDURES ARRONDIES VISIBLES */}
+          <div className="px-3 pt-1 pb-1 bg-[#F8FAFC] shrink-0 z-20">
+            <div className="px-3 py-2 rounded-[24px] border border-slate-200/90 bg-white flex items-center justify-between shadow-sm">
             <div className="flex items-center space-x-2.5">
               <button
                 type="button"
@@ -2020,6 +2021,7 @@ export default function MaquetteGerantPage() {
                   </span>
                 )}
               </button>
+            </div>
             </div>
           </div>
 
