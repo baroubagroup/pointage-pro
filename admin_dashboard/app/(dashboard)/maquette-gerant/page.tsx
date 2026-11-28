@@ -1969,11 +1969,11 @@ export default function MaquetteGerantPage() {
               <button
                 type="button"
                 onClick={() => setIsSandwichOpen(true)}
-                className="w-9 h-9 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition active:scale-95 cursor-pointer border border-slate-200"
+                className="w-9 h-9 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-slate-200"
                 title="Menu complet de direction"
                 aria-label="Menu principal"
               >
-                <Menu className="w-4 h-4 text-slate-800" />
+                <Menu className={`w-4 h-4 text-slate-800 transition-transform duration-300 ${isSandwichOpen ? 'rotate-90 scale-95' : 'rotate-0 scale-100'}`} />
               </button>
 
               <div className="flex items-center space-x-2">
@@ -2023,15 +2023,25 @@ export default function MaquetteGerantPage() {
             </div>
           </div>
 
-          {/* TIROIR COULISSANT MENU SANDWICH */}
-          {isSandwichOpen && (
-            <div className="absolute inset-0 z-50 flex animate-fadeIn">
-              <div
-                className="absolute inset-0 bg-slate-950/40 backdrop-blur-xs transition-opacity"
-                onClick={() => setIsSandwichOpen(false)}
-              />
+          {/* TIROIR COULISSANT MENU SANDWICH FLUIDE (GPU SLIDE-IN / SLIDE-OUT) */}
+          <div
+            aria-hidden={!isSandwichOpen}
+            className={`absolute inset-0 z-50 flex ${
+              isSandwichOpen ? 'pointer-events-auto' : 'pointer-events-none'
+            }`}
+          >
+            <div
+              className={`absolute inset-0 bg-slate-950/45 transition-opacity duration-[350ms] ease-out ${
+                isSandwichOpen ? 'opacity-100' : 'opacity-0'
+              }`}
+              onClick={() => setIsSandwichOpen(false)}
+            />
 
-              <div className="relative w-4/5 max-w-[290px] bg-white border-r border-slate-200 h-full flex flex-col justify-between p-4 z-10 shadow-2xl">
+            <div
+              className={`relative w-4/5 max-w-[290px] bg-white border-r border-slate-200 h-full flex flex-col justify-between p-4 z-10 transform-gpu transition-transform duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform ${
+                isSandwichOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full shadow-none'
+              }`}
+            >
                 <div className="space-y-4 overflow-y-auto pr-1">
                   <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                     <div className="flex items-center space-x-2.5">
@@ -2220,9 +2230,8 @@ export default function MaquetteGerantPage() {
                     <span>Déconnexion Gérant</span>
                   </button>
                 </div>
-              </div>
             </div>
-          )}
+          </div>
 
           {/* CONTENU PRINCIPAL DE L'APPLICATION */}
           <div className="flex-1 overflow-y-auto px-4 py-3.5 space-y-4 scrollbar-none bg-[#F8FAFC]">
