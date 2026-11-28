@@ -29,10 +29,11 @@ import {
   RefreshCw,
   HelpCircle,
   Lock,
-  Scan
+  Scan,
+  Camera
 } from 'lucide-react';
 
-type EmpTab = 'pointage' | 'activite' | 'demandes' | 'profil';
+type EmpTab = 'pointage' | 'activite' | 'profil';
 type WorkPhase = 'notArrived' | 'working' | 'onBreak' | 'completed';
 
 export default function MaquetteEmployePage() {
@@ -230,7 +231,7 @@ export default function MaquetteEmployePage() {
     ]);
     setJustifText('');
     setShowJustifModal(false);
-    setActiveTab('demandes');
+    setActiveTab('activite');
     showToast('📩 Justification transmise à votre Gérant (visible dans Arbitrage)');
   };
 
@@ -736,53 +737,55 @@ export default function MaquetteEmployePage() {
                               : 'Journée Terminée • Réinitialiser'}
                     </h3>
 
-                    {/* GRAND CAPTEUR EMPREINTE VIVANT DANS LA ZONE DU POUCE */}
-                    <div className="relative my-4 flex items-center justify-center w-44 h-44">
-                      {/* Onde radar externe pulsante */}
+                    {/* GRAND CAPTEUR EMPREINTE VIVANT BLEU ROYAL DANS LA ZONE DU POUCE */}
+                    <div className="relative my-3 flex items-center justify-center w-48 h-48">
+                      {/* Onde radar externe pulsante bleue */}
                       <span
-                        className={`absolute inset-1 rounded-full animate-ping opacity-20 ${
-                          workPhase === 'notArrived'
-                            ? 'bg-emerald-500'
-                            : workPhase === 'working'
-                              ? 'bg-[#2563EB]'
-                              : workPhase === 'onBreak'
-                                ? 'bg-indigo-500'
-                                : 'bg-slate-400'
+                        className={`absolute inset-0 rounded-full animate-ping opacity-25 ${
+                          !isInZone
+                            ? 'bg-rose-500'
+                            : workPhase === 'completed'
+                              ? 'bg-slate-400'
+                              : 'bg-[#2563EB]'
                         }`}
-                        style={{ animationDuration: '2.4s' }}
+                        style={{ animationDuration: '2.2s' }}
                       />
-                      {/* Anneau intermédiaire respirant */}
+                      {/* Anneau intermédiaire bleu respirant */}
                       <span
-                        className={`absolute inset-3.5 rounded-full animate-pulse border-2 ${
-                          workPhase === 'notArrived'
-                            ? 'border-emerald-300/80 bg-emerald-50/70'
-                            : workPhase === 'working'
-                              ? 'border-blue-300/80 bg-blue-50/70'
-                              : workPhase === 'onBreak'
-                                ? 'border-indigo-300/80 bg-indigo-50/70'
-                                : 'border-slate-300 bg-slate-100/70'
+                        className={`absolute inset-3 rounded-full animate-pulse border-2 ${
+                          !isInZone
+                            ? 'border-rose-300 bg-rose-50/80'
+                            : workPhase === 'completed'
+                              ? 'border-slate-300 bg-slate-100/80'
+                              : 'border-[#60A5FA] bg-[#DBEAFE]/70'
                         }`}
                       />
-                      {/* Bouton Empreinte Tactile Géant */}
+                      {/* Bouton Empreinte Tactile Géant Bleu PointagePro */}
                       <button
                         type="button"
                         onClick={handleSimulatePunch}
                         aria-label="Poser le pouce pour pointer"
-                        className={`relative z-10 w-32 h-32 rounded-full flex flex-col items-center justify-center text-white shadow-2xl transition-all duration-200 hover:scale-105 active:scale-90 cursor-pointer ring-4 ring-white ${
+                        className={`relative z-10 w-36 h-36 rounded-full flex flex-col items-center justify-center transition-all duration-200 hover:scale-105 active:scale-90 cursor-pointer border-4 shadow-2xl ${
                           !isInZone
-                            ? 'bg-linear-to-br from-rose-500 to-rose-600 shadow-rose-500/35'
-                            : workPhase === 'notArrived'
-                              ? 'bg-linear-to-br from-emerald-500 via-emerald-600 to-teal-600 shadow-emerald-500/40'
-                              : workPhase === 'working'
-                                ? 'bg-linear-to-br from-[#1D4ED8] via-[#2563EB] to-[#3B82F6] shadow-blue-500/40'
-                                : workPhase === 'onBreak'
-                                  ? 'bg-linear-to-br from-indigo-500 to-blue-700 shadow-indigo-500/40'
-                                  : 'bg-linear-to-br from-slate-600 to-slate-700 shadow-slate-500/30'
+                            ? 'bg-linear-to-br from-rose-50 to-rose-100 border-rose-500 text-rose-600 shadow-rose-500/25'
+                            : workPhase === 'completed'
+                              ? 'bg-linear-to-br from-slate-100 to-slate-200 border-slate-500 text-slate-600 shadow-slate-500/20'
+                              : 'bg-linear-to-br from-[#EFF6FF] via-[#DBEAFE] to-[#BFDBFE] border-[#1D4ED8] text-[#1D4ED8] shadow-[0_14px_34px_rgba(29,78,216,0.32)]'
                         }`}
                       >
-                        <Fingerprint className="w-16 h-16 stroke-[1.75] drop-shadow-sm" />
-                        <span className="text-[9px] font-black uppercase tracking-widest mt-1 text-white/90">
-                          Toucher
+                        <Fingerprint className="w-20 h-20 stroke-[2] drop-shadow-xs" />
+                        <span className="text-[9.5px] font-black uppercase tracking-widest mt-0.5">
+                          {!isInZone
+                            ? 'Hors Zone'
+                            : workPhase === 'notArrived'
+                              ? 'Pointer'
+                              : workPhase === 'working' && dayTimeline.breakEnd
+                                ? 'Sortie'
+                                : workPhase === 'working'
+                                  ? 'Pause'
+                                  : workPhase === 'onBreak'
+                                    ? 'Reprise'
+                                    : 'Terminé'}
                         </span>
                       </button>
                     </div>
@@ -856,83 +859,108 @@ export default function MaquetteEmployePage() {
                       </div>
                     )}
                   </div>
-                </div>
-              )}
 
-              {/* ONGLET 3 : DEMANDES / JUSTIFICATIFS (NOUVEAUTÉ PROPOSITION) */}
-              {activeTab === 'demandes' && (
-                <div className="space-y-3 animate-fadeIn">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="font-black text-sm text-slate-900 block">Mes Demandes & Justificatifs</span>
-                      <span className="text-[10px] text-slate-500">
-                        Suivi en temps réel des réponses de votre Gérant
+                  {/* Historique des justifications envoyées directement intégré à Activité */}
+                  <div className="bg-white border border-slate-200 rounded-3xl p-3.5 space-y-2 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-black text-xs text-slate-900">
+                        Mes Justificatifs Envoyés ({justifications.length})
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowJustifModal(true)}
+                        className="px-2.5 py-1 rounded-xl bg-blue-50 text-[#1D4ED8] font-bold text-[10px] cursor-pointer"
+                      >
+                        + Justifier
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowJustifModal(true)}
-                      className="px-3 py-1.5 rounded-xl bg-[#1D4ED8] text-white font-bold text-[11px] cursor-pointer"
-                    >
-                      + Nouveau
-                    </button>
-                  </div>
-
-                  <div className="space-y-2">
                     {justifications.length === 0 ? (
-                      <div className="bg-white border border-slate-200 rounded-3xl p-6 text-center text-[11px] text-slate-500">
-                        Aucune demande envoyée pour l&apos;instant.
-                      </div>
+                      <p className="text-[11px] text-slate-400 py-2 text-center">
+                        Aucun justificatif envoyé récemment.
+                      </p>
                     ) : (
-                      justifications.map((j) => (
-                        <div
-                          key={j.id}
-                          className="bg-white border border-slate-200 rounded-2xl p-3 space-y-1.5 shadow-2xs"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              {new Date(j.created_at).toLocaleDateString('fr-FR')}
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold ${
-                                j.status === 'APPROVED'
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      <div className="space-y-1.5">
+                        {justifications.slice(0, 5).map((j) => (
+                          <div
+                            key={j.id}
+                            className="p-2.5 rounded-2xl bg-slate-50 border border-slate-100 space-y-1"
+                          >
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                              <span className="text-slate-400 font-mono">
+                                {new Date(j.created_at).toLocaleDateString('fr-FR')}
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold ${
+                                  j.status === 'APPROVED'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : j.status === 'REJECTED'
+                                      ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                      : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                }`}
+                              >
+                                {j.status === 'APPROVED'
+                                  ? 'Approuvé'
                                   : j.status === 'REJECTED'
-                                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                    : 'bg-amber-50 text-amber-700 border border-amber-200'
-                              }`}
-                            >
-                              {j.status === 'APPROVED'
-                                ? 'Approuvé'
-                                : j.status === 'REJECTED'
-                                  ? 'Refusé'
-                                  : 'En attente'}
-                            </span>
+                                    ? 'Refusé'
+                                    : 'Transmis'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] font-semibold text-slate-800">{j.reason_text}</p>
                           </div>
-                          <p className="text-xs font-semibold text-slate-800">{j.reason_text}</p>
-                        </div>
-                      ))
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
               )}
 
-              {/* ONGLET 4 : PROFIL & SÉCURITÉ */}
+              {/* ONGLET 3 : PROFIL & SÉCURITÉ BIOMÉTRIQUE LIVE */}
               {activeTab === 'profil' && (
                 <div className="space-y-3 animate-fadeIn">
                   <div className="bg-white border border-slate-200 rounded-3xl p-4 space-y-3 shadow-xs">
                     <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-2xl bg-[#1D4ED8] text-white font-black flex items-center justify-center">
-                        {initials}
+                      <div className="relative">
+                        <div className="w-14 h-14 rounded-2xl bg-[#1D4ED8] text-white font-black flex items-center justify-center text-base shadow-sm">
+                          {initials}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            showToast(
+                              '📸 Caméra Live uniquement (galerie bloquée) : photo affichée localement, vecteur biométrique seul envoyé au cloud !'
+                            )
+                          }
+                          title="Prendre ma photo de profil en direct"
+                          className="absolute -bottom-1.5 -right-1.5 w-6 h-6 rounded-full bg-emerald-600 text-white border-2 border-white flex items-center justify-center shadow cursor-pointer"
+                        >
+                          <Camera className="w-3 h-3" />
+                        </button>
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <span className="font-black text-sm text-slate-900 block truncate">
                           {currentEmp.full_name}
                         </span>
                         <span className="text-[11px] text-slate-500 block">
                           {currentEmp.employee_matricule || 'SANS MATRICULE'} • {orgName}
                         </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            showToast(
+                              '📸 Caméra Live uniquement : indispensable pour activer l’assistance collègue Face ID.'
+                            )
+                          }
+                          className="mt-1 text-[10px] font-extrabold text-[#1D4ED8] hover:underline cursor-pointer flex items-center gap-1"
+                        >
+                          <Camera className="w-3 h-3" />
+                          <span>Capturer ma photo de profil en direct</span>
+                        </button>
                       </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-2xl bg-blue-50/70 border border-blue-200 text-[10.5px] text-slate-700 leading-snug">
+                      <strong className="text-[#1D4ED8]">Confidentialité Face ID :</strong> Photo prise{' '}
+                      <strong>en direct uniquement</strong> (aucun import galerie). La photo reste sur votre téléphone ; seule l&apos;empreinte mathématique faciale est sauvegardée pour authentifier le dépannage entre collègues.
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 text-[11px]">
@@ -945,7 +973,7 @@ export default function MaquetteEmployePage() {
                       <div className="p-2.5 rounded-2xl bg-slate-50 border border-slate-100">
                         <span className="text-[9px] text-slate-400 font-bold uppercase block">Biométrie Face</span>
                         <span className="font-bold text-emerald-700 block">
-                          {currentEmp.face_update_count || 0}/2 utilisations
+                          {currentEmp.face_update_count || 0}/2 captures live
                         </span>
                       </div>
                     </div>
@@ -986,18 +1014,12 @@ export default function MaquetteEmployePage() {
               )}
             </div>
 
-            {/* BARRE DE NAVIGATION FLOTTANTE BLEUE UNIE À BORDS ARRONDIS (100% IDENTIQUE MAQUETTE GÉRANT) */}
+            {/* BARRE DE NAVIGATION FLOTTANTE BLEUE UNIE À 3 ONGLETS (POINTAGE • ACTIVITÉ • PROFIL) */}
             <div className="px-3 pt-1.5 pb-2 bg-[#F8FAFC] shrink-0 z-30">
-              <div className="bg-[#1D4ED8] border-2 border-[#60A5FA]/70 rounded-[26px] px-1.5 py-1.5 flex items-center justify-between gap-0.5 shadow-[0_10px_28px_rgba(29,78,216,0.35)]">
+              <div className="bg-[#1D4ED8] border-2 border-[#60A5FA]/70 rounded-[26px] px-2 py-1.5 flex items-center justify-between gap-1 shadow-[0_10px_28px_rgba(29,78,216,0.35)]">
                 {([
                   { id: 'pointage', label: 'Pointage', Icon: Fingerprint, badge: 0 },
                   { id: 'activite', label: 'Activité', Icon: Activity, badge: 0 },
-                  {
-                    id: 'demandes',
-                    label: 'Demandes',
-                    Icon: FileCheck2,
-                    badge: justifications.filter((j) => j.status === 'PENDING').length
-                  },
                   { id: 'profil', label: 'Profil', Icon: User, badge: 0 }
                 ] as const).map(({ id, label, Icon, badge }) => {
                   const isActive = activeTab === id;
