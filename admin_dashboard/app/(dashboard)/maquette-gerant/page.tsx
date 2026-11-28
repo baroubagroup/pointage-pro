@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { RealQrCode } from '@/components/real-qr-code';
+import { downloadQrCodePng, downloadA4EnrollmentPosterPdf } from '@/lib/qr-poster-export';
 import * as XLSX from 'xlsx';
 import {
   Smartphone,
@@ -287,6 +288,11 @@ export default function MaquetteGerantPage() {
   // Politique d'admission & Kit Enrôlement Flash
   const [orgAdmissionPolicy, setOrgAdmissionPolicy] = useState<'STRICT' | 'MODERATE' | 'OPEN'>('STRICT');
   const [copiedFlashUrl, setCopiedFlashUrl] = useState(false);
+  const [lastCodeRegenAt, setLastCodeRegenAt] = useState<string | null>(null);
+  const [showRegenCodeConfirm, setShowRegenCodeConfirm] = useState(false);
+  const [downloadingPosterMode, setDownloadingPosterMode] = useState<'png' | 'pdf' | null>(null);
+  const [showDownloadChoice, setShowDownloadChoice] = useState(false);
+  const [publicBaseUrl, setPublicBaseUrl] = useState<string>(() => process.env.NEXT_PUBLIC_APP_URL || '');
 
   // Journal d'Audit Inviolable
   const [auditEntries, setAuditEntries] = useState<any[]>([]);
@@ -401,8 +407,12 @@ export default function MaquetteGerantPage() {
   const [secWifiMandatory, setSecWifiMandatory] = useState(false);
   const [savingSecurity, setSavingSecurity] = useState(false);
 
-  // Détection écran mobile réel
+  // Détection écran mobile réel + hydratation URL publique HTTPS optionnelle
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedPub = localStorage.getItem('pointage_public_base_url');
+      if (savedPub) setPublicBaseUrl(savedPub);
+    }
     const checkScreen = () => {
       const isMob = /iphone|ipad|ipod|android/i.test(navigator.userAgent) || window.innerWidth < 768;
       setIsMobileScreen(isMob);
@@ -415,13 +425,23 @@ export default function MaquetteGerantPage() {
     return () => window.removeEventListener('resize', checkScreen);
   }, []);
 
+  const isLocalHostOrigin =
+    typeof window !== 'undefined' &&
+    (window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1'));
+
   const getPublicUrl = (path: string) => {
     if (typeof window !== 'undefined') {
       const origin = window.location.origin;
       if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
         return `${origin}${path}`;
       }
+      if (publicBaseUrl.trim().startsWith('http')) {
+        return `${publicBaseUrl.trim().replace(/\/+$/, '')}${path}`;
+      }
       return `http://${localNetworkIp || '192.168.11.103'}:3000${path}`;
+    }
+    if (publicBaseUrl.trim().startsWith('http')) {
+      return `${publicBaseUrl.trim().replace(/\/+$/, '')}${path}`;
     }
     return `http://192.168.11.103:3000${path}`;
   };
@@ -488,6 +508,7 @@ export default function MaquetteGerantPage() {
           if (sc.timezone) setOrgTimezone(sc.timezone);
           if (sc.currency) setOrgCurrency(sc.currency);
           if (sc.admission_policy) setOrgAdmissionPolicy(sc.admission_policy);
+          if (sc.last_code_regenerated_at) setLastCodeRegenAt(sc.last_code_regenerated_at);
           if (sc.schedule_day_overrides && typeof sc.schedule_day_overrides === 'object') {
             setScheduleOverridesMap(sc.schedule_day_overrides);
           } else if (typeof window !== 'undefined') {
@@ -1959,23 +1980,57 @@ export default function MaquetteGerantPage() {
 
   // F2. Kit d'Enrôlement Flash & Politique d'Admission (Strict / Modéré / Ouvert)
   const flashJoinUrl = `${getPublicUrl('/rejoindre')}?org=${encodeURIComponent(orgCode)}`;
+  const CODE_REGEN_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+  const getCodeRegenCooldownRemaining = (): string | null => {
+    if (!lastCodeRegenAt) return null;
+    const elapsed = Date.now() - new Date(lastCodeRegenAt).getTime();
+    if (elapsed >= CODE_REGEN_COOLDOWN_MS) return null;
+    const remMs = CODE_REGEN_COOLDOWN_MS - elapsed;
+    const h = Math.floor(remMs / (60 * 60 * 1000));
+    const m = Math.ceil((remMs % (60 * 60 * 1000)) / (60 * 1000));
+    return `${h}h ${String(m).padStart(2, '0')}m`;
+  };
 
   const handleGenerateCanonicalOrgCode = async () => {
+    const cooldownRem = getCodeRegenCooldownRemaining();
+    if (cooldownRem) {
+      triggerToast(`⏳ Limite anti-abus : prochaine régénération possible dans ${cooldownRem}.`);
+      setShowRegenCodeConfirm(false);
+      return;
+    }
+
+    const oldCode = orgCode;
     const newCode = generateCanonicalOrgCode(orgName);
+    const nowIso = new Date().toISOString();
+    const updatedConfig = {
+      ...orgSecurityConfigRaw,
+      last_code_regenerated_at: nowIso,
+      org_logo: orgLogo || undefined
+    };
+
     setOrgCode(newCode);
+    setLastCodeRegenAt(nowIso);
+    setOrgSecurityConfigRaw(updatedConfig);
+    setShowRegenCodeConfirm(false);
+
     if (typeof window !== 'undefined') {
       localStorage.setItem('pointage_org_code', newCode);
+      localStorage.setItem('pointage_security_config', JSON.stringify(updatedConfig));
       window.dispatchEvent(new Event('pointage_org_updated'));
     }
     const targetOrgId = orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
     if (targetOrgId) {
       try {
         const supabase = createClient();
-        await supabase.from('pointage_organizations').update({ org_code: newCode }).eq('id', targetOrgId);
+        await supabase
+          .from('pointage_organizations')
+          .update({ org_code: newCode, security_config: updatedConfig })
+          .eq('id', targetOrgId);
       } catch {}
     }
-    recordAuditEvent('ORG_CANONICAL_CODE_GENERATED', 'WARNING', { org_code: newCode });
-    triggerToast(`✓ Code Canonique généré : ${newCode}`);
+    recordAuditEvent('ORG_CANONICAL_CODE_GENERATED', 'WARNING', { old_code: oldCode, new_code: newCode });
+    triggerToast(`✓ Nouveau Code Canonique : ${newCode} (l'ancien est désactivé)`);
   };
 
   const handleSaveAdmissionPolicy = async (policy: 'STRICT' | 'MODERATE' | 'OPEN') => {
@@ -4082,7 +4137,7 @@ export default function MaquetteGerantPage() {
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-[10px] font-extrabold uppercase text-slate-500">
-                        Code Entreprise (Multi-Tenant)
+                        Code Entreprise Canonique (Unique & Verrouillé)
                       </label>
                       <button
                         type="button"
@@ -4100,11 +4155,13 @@ export default function MaquetteGerantPage() {
                     </div>
                     <input
                       type="text"
-                      required
+                      readOnly
                       value={orgCode}
-                      onChange={(e) => setOrgCode(e.target.value.toUpperCase())}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-blue-600"
+                      className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-700 cursor-not-allowed select-all"
                     />
+                    <span className="text-[9px] text-slate-400 block mt-1">
+                      Ce code identifie de façon unique votre entreprise (régénération sécurisée limitée à 1× / 24h via Kit Flash).
+                    </span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -5234,7 +5291,7 @@ export default function MaquetteGerantPage() {
 
                 <div className="p-3 bg-white rounded-2xl border-2 border-dashed border-blue-500 inline-flex mx-auto shadow-md">
                   <RealQrCode
-                    value={`${getPublicUrl('/apk')}?org=${orgCode}&mat=${showQrModal.employee_matricule}`}
+                    value={`${getPublicUrl('/rejoindre')}?org=${encodeURIComponent(orgCode)}&mat=${encodeURIComponent(showQrModal.employee_matricule || '')}`}
                     size={170}
                   />
                 </div>
@@ -5243,20 +5300,35 @@ export default function MaquetteGerantPage() {
                   <span className="font-extrabold text-sm text-slate-900 block">{showQrModal.full_name}</span>
                   <span className="text-[11px] font-mono text-blue-600 font-bold block">{showQrModal.employee_matricule}</span>
                   <p className="text-[10px] text-slate-500 mt-1">
-                    L&apos;employé doit viser ce QR code avec son application mobile pour lier son téléphone.
+                    L&apos;employé scanne ce QR code avec son téléphone ou son application mobile.
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleOpenWhatsApp(showQrModal);
-                    setShowQrModal(null);
-                  }}
-                  className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition cursor-pointer"
-                >
-                  Envoyer également par WhatsApp
-                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const empUrl = `${getPublicUrl('/rejoindre')}?org=${encodeURIComponent(orgCode)}&mat=${encodeURIComponent(showQrModal.employee_matricule || '')}`;
+                      await downloadQrCodePng(empUrl, `QR_${showQrModal.employee_matricule || 'Employe'}`);
+                      triggerToast('✓ QR Code PNG téléchargé !');
+                    }}
+                    className="py-2 bg-[#1D4ED8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Télécharger QR</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleOpenWhatsApp(showQrModal);
+                      setShowQrModal(null);
+                    }}
+                    className="py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    <span>WhatsApp</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -6386,17 +6458,23 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
 
-                {/* Code Canonique */}
+                {/* Code Canonique Verrouillé + Régénération contrôlée */}
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-extrabold uppercase text-[#1D4ED8]">Code Entreprise Canonique</span>
-                    <button
-                      type="button"
-                      onClick={handleGenerateCanonicalOrgCode}
-                      className="text-[10px] font-extrabold text-[#1D4ED8] hover:underline cursor-pointer"
-                    >
-                      ↻ Régénérer code sécurisé
-                    </button>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-extrabold uppercase text-[#1D4ED8]">Code Canonique Unique</span>
+                    {getCodeRegenCooldownRemaining() ? (
+                      <span className="text-[9px] font-bold text-amber-800 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full">
+                        ⏳ Limite : {getCodeRegenCooldownRemaining()}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setShowRegenCodeConfirm(v => !v)}
+                        className="text-[10px] font-extrabold text-[#1D4ED8] hover:underline cursor-pointer"
+                      >
+                        ↻ Régénérer code
+                      </button>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="flex-1 font-mono font-black text-xs text-slate-900 bg-white border border-blue-200 rounded-xl px-3 py-1.5 select-all">
@@ -6409,20 +6487,128 @@ export default function MaquetteGerantPage() {
                         triggerToast('Code canonique copié !');
                       }}
                       className="p-2 bg-[#1D4ED8] text-white rounded-xl cursor-pointer"
+                      title="Copier le code"
                     >
                       <Copy className="w-3.5 h-3.5" />
                     </button>
                   </div>
+
+                  {showRegenCodeConfirm && (
+                    <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl space-y-2 text-[10px] text-amber-950 animate-fadeIn">
+                      <p className="font-bold leading-snug">
+                        ⚠️ Attention : si vous générez un nouveau code, <strong>l&apos;ancien code ({orgCode}) sera immédiatement désactivé</strong>. Toutes les anciennes affiches A4, QR codes et liens WhatsApp ne fonctionneront plus (limite : 1 changement / 24h).
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setShowRegenCodeConfirm(false)}
+                          className="flex-1 py-1.5 bg-white border border-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer"
+                        >
+                          Annuler
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleGenerateCanonicalOrgCode}
+                          className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg cursor-pointer"
+                        >
+                          Confirmer & Désactiver l&apos;ancien
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {/* QR Flash + Lien Direct */}
+                {/* Configuration URL publique HTTPS si testé en localhost */}
+                {isLocalHostOrigin && (
+                  <div className="p-2.5 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-1.5">
+                    <label className="text-[9px] font-extrabold uppercase text-amber-900 block">
+                      Domaine HTTPS public pour scan caméra (Vercel)
+                    </label>
+                    <input
+                      type="url"
+                      value={publicBaseUrl}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setPublicBaseUrl(v);
+                        if (typeof window !== 'undefined') {
+                          localStorage.setItem('pointage_public_base_url', v);
+                        }
+                      }}
+                      placeholder="https://votre-app.vercel.app"
+                      className="w-full bg-white border border-amber-200 rounded-xl px-2.5 py-1.5 text-[11px] font-mono text-slate-900 focus:outline-none focus:border-[#1D4ED8]"
+                    />
+                    <span className="text-[9px] text-amber-800 block leading-snug">
+                      Sur réseau local (<code>http://192.168...</code>), certains téléphones affichent l&apos;IP en texte. En <code>https://</code> (Vercel), le scan ouvre le navigateur automatiquement.
+                    </span>
+                  </div>
+                )}
+
+                {/* QR Flash + Lien Direct + Téléchargement QR PNG / Affiche A4 PDF */}
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-center space-y-2.5">
                   <div className="p-2.5 bg-white rounded-2xl border-2 border-dashed border-[#1D4ED8] inline-flex mx-auto">
                     <RealQrCode value={flashJoinUrl} size={140} />
                   </div>
-                  <p className="text-[10px] text-slate-600 leading-snug">
-                    Tout salarié qui scanne ce QR ou ouvre le lien ci-dessous rejoint directement <strong>{orgName}</strong>.
+                  <p className="text-[10px] font-mono text-slate-500 break-all bg-white border border-slate-200 rounded-lg px-2 py-1">
+                    {flashJoinUrl}
                   </p>
+
+                  {/* Bouton Télécharger (2 formats : QR seul PNG ou Affiche A4 PDF prête à imprimer) */}
+                  <div className="space-y-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowDownloadChoice(v => !v)}
+                      className="w-full py-2.5 bg-[#1D4ED8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Télécharger (QR Code ou Affiche A4 PDF)</span>
+                    </button>
+
+                    {showDownloadChoice && (
+                      <div className="grid grid-cols-2 gap-1.5 p-2 bg-white border border-blue-200 rounded-2xl animate-fadeIn">
+                        <button
+                          type="button"
+                          disabled={downloadingPosterMode !== null}
+                          onClick={async () => {
+                            setDownloadingPosterMode('png');
+                            try {
+                              await downloadQrCodePng(flashJoinUrl, `QR_Enrolement_${orgCode}.png`);
+                              triggerToast('✓ Code QR PNG HD téléchargé !');
+                            } finally {
+                              setDownloadingPosterMode(null);
+                            }
+                          }}
+                          className="py-2 px-2 bg-slate-100 hover:bg-blue-50 text-slate-900 font-bold text-[10px] rounded-xl border border-slate-200 flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <QrCode className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                          <span>{downloadingPosterMode === 'png' ? 'Création...' : 'QR seul (.PNG)'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={downloadingPosterMode !== null}
+                          onClick={async () => {
+                            setDownloadingPosterMode('pdf');
+                            try {
+                              await downloadA4EnrollmentPosterPdf({
+                                orgName,
+                                orgCode,
+                                joinUrl: flashJoinUrl,
+                                orgLogo,
+                                supportContact: orgSupportContact
+                              });
+                              triggerToast('✓ Affiche A4 prête à imprimer (.PDF) téléchargée !');
+                            } finally {
+                              setDownloadingPosterMode(null);
+                            }
+                          }}
+                          className="py-2 px-2 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] font-extrabold text-[10px] rounded-xl border border-blue-200 flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>{downloadingPosterMode === 'pdf' ? 'Création...' : 'Affiche A4 (.PDF)'}</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-1.5">
                     <button
                       type="button"

@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { Header } from '@/components/header';
 import { createClient } from '@/lib/supabase/client';
 import { RealQrCode } from '@/components/real-qr-code';
+import { downloadQrCodePng, downloadA4EnrollmentPosterPdf } from '@/lib/qr-poster-export';
 import { 
   Building2, 
   Shield, 
@@ -131,6 +132,7 @@ interface SecurityConfig {
   support_contact?: string;
   org_logo?: string;
   holidays?: HolidayExemption[];
+  last_code_regenerated_at?: string;
 }
 
 // Générateur canonique de code d'organisation anti-collision et anti-devinette
@@ -309,6 +311,8 @@ function ParametresContent() {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
   const [showPosterModal, setShowPosterModal] = useState(false);
+  const [showRegenCodeConfirm, setShowRegenCodeConfirm] = useState(false);
+  const [downloadingPdfPoster, setDownloadingPdfPoster] = useState(false);
   const [timezone, setTimezone] = useState('Africa/Abidjan (GMT 0)');
   const [sectorProfile, setSectorProfile] = useState<'ENTERPRISE' | 'SCHOOL' | 'EVENT'>('ENTERPRISE');
   const [admissionPolicy, setAdmissionPolicy] = useState<'STRICT' | 'MODERATE' | 'OPEN'>('STRICT');
@@ -352,10 +356,29 @@ function ParametresContent() {
     setTimeout(() => setCopiedWhatsApp(false), 2500);
   };
 
-  // Helper téléchargement du QR code HD basé sur le lien d'onboarding réel
-  const handleDownloadQrCode = () => {
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=15&data=${encodeURIComponent(liveJoinUrl)}`;
-    window.open(qrUrl, '_blank');
+  // Helper téléchargement du QR code HD local basé sur le lien d'onboarding réel
+  const handleDownloadQrCode = async () => {
+    await downloadQrCodePng(liveJoinUrl, `QR_Enrolement_${orgCode}.png`);
+    setToastMsg('✓ Code QR PNG HD téléchargé !');
+    setTimeout(() => setToastMsg(null), 3000);
+  };
+
+  const handleDownloadA4Pdf = async () => {
+    setDownloadingPdfPoster(true);
+    try {
+      await downloadA4EnrollmentPosterPdf({
+        orgName: orgName || 'ENTREPRISE',
+        orgCode,
+        joinUrl: liveJoinUrl,
+        orgLogo,
+        supportContact,
+        sectorLabel: sectorProfile === 'SCHOOL' ? 'ÉTABLISSEMENT SCOLAIRE' : sectorProfile === 'EVENT' ? 'ÉVÉNEMENT CERTIFIÉ' : 'ORGANISATION ENTREPRISE'
+      });
+      setToastMsg('✓ Affiche A4 prête à imprimer (.PDF) téléchargée !');
+      setTimeout(() => setToastMsg(null), 3500);
+    } finally {
+      setDownloadingPdfPoster(false);
+    }
   };
 
   // State Sites & Radar
@@ -595,16 +618,49 @@ function ParametresContent() {
     return sites.find(s => s.id === selectedSiteId) || sites[0] || null;
   }, [sites, selectedSiteId]);
 
-  // Handlers pour Code Canonique Haute Entropie
-  const handleGenerateSecureCode = () => {
+  // Handlers pour Code Canonique Haute Entropie (verrouillé + cooldown 24h)
+  const getCodeCooldownRemaining = (): string | null => {
+    const ts = securityConfig.last_code_regenerated_at;
+    if (!ts) return null;
+    const elapsed = Date.now() - new Date(ts).getTime();
+    const limit = 24 * 60 * 60 * 1000;
+    if (elapsed >= limit) return null;
+    const rem = limit - elapsed;
+    const h = Math.floor(rem / (60 * 60 * 1000));
+    const m = Math.ceil((rem % (60 * 60 * 1000)) / (60 * 1000));
+    return `${h}h ${String(m).padStart(2, '0')}m`;
+  };
+
+  const handleGenerateSecureCode = async () => {
+    const rem = getCodeCooldownRemaining();
+    if (rem) {
+      setToastMsg(`⏳ Limite anti-abus : prochaine régénération possible dans ${rem}.`);
+      setShowRegenCodeConfirm(false);
+      setTimeout(() => setToastMsg(null), 4000);
+      return;
+    }
     const newCode = generateCanonicalOrgCode(orgName);
+    const nowIso = new Date().toISOString();
+    const nextCfg: SecurityConfig = { ...securityConfig, last_code_regenerated_at: nowIso };
     setOrgCode(newCode);
+    setSecurityConfig(nextCfg);
+    setShowRegenCodeConfirm(false);
     if (typeof window !== 'undefined') {
       localStorage.setItem('pointage_org_code', newCode);
+      localStorage.setItem('pointage_security_config', JSON.stringify(nextCfg));
       window.dispatchEvent(new Event('pointage_org_updated'));
     }
-    setToastMsg(`Code Canonique Sécurisé généré : ${newCode}`);
-    setTimeout(() => setToastMsg(null), 3500);
+    if (currentOrgId) {
+      try {
+        const supabase = createClient();
+        await supabase
+          .from('pointage_organizations')
+          .update({ org_code: newCode, security_config: nextCfg })
+          .eq('id', currentOrgId);
+      } catch {}
+    }
+    setToastMsg(`✓ Nouveau Code Canonique : ${newCode} (l'ancien est désormais désactivé)`);
+    setTimeout(() => setToastMsg(null), 4500);
   };
 
   // Handlers pour Logo & Image de Marque
@@ -1477,28 +1533,34 @@ function ParametresContent() {
                 </span>
               </div>
 
-              {/* Champ & Boutons d'action - Parfaitement proportionnés sans flex squash */}
+              {/* Champ verrouillé & Boutons d'action */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <div className="relative flex-1">
                   <input
                     type="text"
+                    readOnly
                     value={orgCode}
-                    onChange={(e) => setOrgCode(e.target.value.toUpperCase().trim())}
                     placeholder="ORG-XXXXX-INIT"
-                    className="w-full text-base sm:text-lg font-mono font-black tracking-widest text-blue-700 bg-white border-2 border-slate-300 focus:border-blue-600 rounded-2xl px-4 py-3.5 text-center sm:text-left shadow-inner uppercase transition focus:outline-none focus:ring-4 focus:ring-blue-500/10 select-all"
+                    className="w-full text-base sm:text-lg font-mono font-black tracking-widest text-blue-700 bg-slate-100 border-2 border-slate-300 rounded-2xl px-4 py-3.5 text-center sm:text-left shadow-inner uppercase cursor-not-allowed select-all"
                   />
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={handleGenerateSecureCode}
-                    title="Générer un format canonique aléatoire haute entropie"
-                    className="flex-1 sm:flex-none px-4 py-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-2xl transition flex items-center justify-center gap-2 cursor-pointer border border-indigo-200 shadow-2xs hover:shadow-xs active:scale-[0.98]"
-                  >
-                    <Sparkles className="w-4 h-4 text-indigo-600" />
-                    <span>⚡ Générer Code Sécurisé</span>
-                  </button>
+                  {getCodeCooldownRemaining() ? (
+                    <span className="px-3.5 py-3.5 bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold rounded-2xl">
+                      ⏳ Limite : {getCodeCooldownRemaining()}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowRegenCodeConfirm(v => !v)}
+                      title="Générer un format canonique aléatoire haute entropie (1× / 24h)"
+                      className="flex-1 sm:flex-none px-4 py-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-2xl transition flex items-center justify-center gap-2 cursor-pointer border border-indigo-200 shadow-2xs hover:shadow-xs active:scale-[0.98]"
+                    >
+                      <Sparkles className="w-4 h-4 text-indigo-600" />
+                      <span>⚡ Régénérer Code</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -1523,6 +1585,30 @@ function ParametresContent() {
                   </button>
                 </div>
               </div>
+
+              {showRegenCodeConfirm && (
+                <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-2xl space-y-2.5 text-xs text-amber-950 animate-fadeIn">
+                  <p className="font-bold leading-snug">
+                    ⚠️ Attention : si vous régénérez le Code Entreprise Canonique, <strong>l&apos;ancien code ({orgCode}) sera immédiatement désactivé</strong>. Toutes les anciennes affiches A4, QR codes et liens d&apos;enrôlement ne fonctionneront plus (limite : 1 changement / 24h).
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowRegenCodeConfirm(false)}
+                      className="px-4 py-2 bg-white border border-slate-300 text-slate-700 font-bold rounded-xl cursor-pointer"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleGenerateSecureCode}
+                      className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl cursor-pointer"
+                    >
+                      Confirmer & Désactiver l&apos;ancien code
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Évaluation Cryptographique Anti-Collision & Anti-Devinette */}
               {isCanonicalCode(orgCode) ? (
@@ -1569,11 +1655,21 @@ function ParametresContent() {
                 <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
                   <button
                     type="button"
-                    onClick={() => setShowPosterModal(true)}
+                    onClick={handleDownloadA4Pdf}
+                    disabled={downloadingPdfPoster}
                     className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/25 cursor-pointer transition active:scale-[0.98]"
                   >
-                    <Printer className="w-4 h-4" />
-                    <span>Affiche A4 Imprimable</span>
+                    <Download className="w-4 h-4" />
+                    <span>{downloadingPdfPoster ? 'Génération PDF...' : 'Télécharger Affiche A4 (.PDF)'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPosterModal(true)}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 rounded-xl text-xs font-bold cursor-pointer transition"
+                  >
+                    <Printer className="w-4 h-4 text-blue-600" />
+                    <span>Aperçu / Imprimer A4</span>
                   </button>
 
                   <button
@@ -1602,11 +1698,7 @@ function ParametresContent() {
                 
                 {/* Visualisation QR Code Haute Résolution */}
                 <div className="relative shrink-0 p-3 bg-white rounded-2xl border-2 border-slate-200 shadow-sm flex flex-col items-center">
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(liveJoinUrl)}`}
-                    alt="QR Code d'enrôlement établissement"
-                    className="w-36 h-36 object-contain"
-                  />
+                  <RealQrCode value={liveJoinUrl} size={144} />
                   <span className="text-[11px] font-mono font-black text-blue-700 mt-2 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-lg tracking-wider">
                     {orgCode}
                   </span>
@@ -1616,7 +1708,7 @@ function ParametresContent() {
                     className="mt-2 text-[10px] font-bold text-slate-500 hover:text-blue-600 flex items-center gap-1 cursor-pointer transition"
                   >
                     <Download className="w-3 h-3" />
-                    <span>Télécharger PNG HD</span>
+                    <span>Télécharger QR (.PNG)</span>
                   </button>
                 </div>
 
@@ -3445,6 +3537,15 @@ function ParametresContent() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  onClick={handleDownloadA4Pdf}
+                  disabled={downloadingPdfPoster}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{downloadingPdfPoster ? 'Génération...' : 'Télécharger PDF A4'}</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => window.print()}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-blue-500/20"
                 >
@@ -3498,11 +3599,7 @@ function ParametresContent() {
               {/* Cadre Central avec QR Code Géant */}
               <div className="bg-slate-50 border-2 border-dashed border-blue-300 rounded-3xl p-6 sm:p-8 flex flex-col items-center justify-center space-y-4 text-center">
                 <div className="bg-white p-4 rounded-2xl shadow-md border border-slate-200 inline-block">
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=10&data=${encodeURIComponent(liveJoinUrl)}`}
-                    alt="QR Code Enrôlement"
-                    className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
-                  />
+                  <RealQrCode value={liveJoinUrl} size={220} />
                 </div>
 
                 <div className="space-y-1.5">

@@ -285,6 +285,8 @@ class OfflineSyncService {
     final org = orgData.first;
     final orgId = org['id'] as String;
     final orgName = org['name'] as String? ?? 'Établissement';
+    final secCfg = (org['security_config'] is Map) ? Map<String, dynamic>.from(org['security_config']) : <String, dynamic>{};
+    final admissionPolicy = (secCfg['admission_policy'] as String?) ?? 'STRICT';
 
     // 2. Recherche du collaborateur ou élève rattaché à cet établissement
     final Uri empUrl = Uri.parse(
@@ -294,13 +296,56 @@ class OfflineSyncService {
     if (empResp.statusCode != 200) {
       throw Exception("Erreur de recherche employé (${empResp.statusCode}).");
     }
-    final List<dynamic> empList = jsonDecode(empResp.body);
+    List<dynamic> empList = jsonDecode(empResp.body);
     if (empList.isEmpty) {
-      throw Exception("Matricule '$cleanMat' introuvable chez $orgName. Vérifiez l'orthographe du matricule.");
+      if (admissionPolicy == 'STRICT') {
+        throw Exception("Matricule '$cleanMat' introuvable chez $orgName (Mode Strict actif). Contactez la direction.");
+      }
+
+      // Mode MODERATE (approbation manuelle) ou OPEN (salons/événements)
+      final bool isOpen = admissionPolicy == 'OPEN';
+      final insertResp = await http.post(
+        Uri.parse("$_supabaseUrl/rest/v1/pointage_employees"),
+        headers: {
+          ..._headers,
+          'Prefer': 'return=representation',
+        },
+        body: jsonEncode({
+          'org_id': orgId,
+          'full_name': 'Collaborateur $cleanMat',
+          'employee_matricule': cleanMat,
+          'role': isOpen ? 'Participant' : 'Collaborateur',
+          'bound_device_id': deviceId,
+          'device_model': deviceModel,
+          'is_enrolled': isOpen,
+          'is_active': true,
+        }),
+      );
+      if (insertResp.statusCode < 200 || insertResp.statusCode >= 300) {
+        throw Exception("Impossible de créer votre profil (${insertResp.statusCode}).");
+      }
+      if (!isOpen) {
+        throw Exception("Demande d'accès enregistrée ($cleanMat) ! En attente de validation manuelle par votre responsable.");
+      }
+
+      // Recharger la fiche complète en Mode Ouvert
+      final retryResp = await http.get(empUrl, headers: _headers);
+      if (retryResp.statusCode != 200) {
+        throw Exception("Profil créé mais erreur de rechargement.");
+      }
+      empList = jsonDecode(retryResp.body);
+      if (empList.isEmpty) {
+        throw Exception("Profil créé introuvable après activation.");
+      }
     }
 
     final emp = empList.first;
     final empId = emp['id'] as String;
+
+    // Si en attente d'approbation manuelle (MODERATE)
+    if (admissionPolicy == 'MODERATE' && emp['is_enrolled'] != true && emp['bound_device_id'] == deviceId) {
+      throw Exception("Votre accès ($cleanMat) est en attente d'approbation manuelle par votre responsable.");
+    }
 
     // 3. Double Vérification de Sécurité (Secret 2FA)
     if (cleanSec.isNotEmpty) {
