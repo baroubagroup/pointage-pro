@@ -50,7 +50,11 @@ import {
   Calendar,
   Upload,
   RefreshCw,
-  CalendarX
+  CalendarX,
+  Camera,
+  Scan,
+  Zap,
+  ExternalLink
 } from 'lucide-react';
 
 const DynamicSiteGeofenceMap = dynamic(
@@ -109,6 +113,17 @@ const DEFAULT_HOLIDAY_PRESETS: Omit<HolidayExemption, 'id' | 'created_at'>[] = [
   { date: '2026-12-25', name: 'Noël', category: 'FERIE_LEGAL', is_paid: true, applies_to_all: true }
 ];
 
+interface ScheduleDayOverride {
+  dayId: number; // 1=Lun .. 7=Dim
+  morning_start: string;
+  afternoon_end: string;
+  has_break: boolean;
+  lunch_start?: string;
+  lunch_end?: string;
+  track_arrival?: boolean;
+  track_departure?: boolean;
+}
+
 interface DisplayJustif {
   id: string;
   name: string;
@@ -161,6 +176,26 @@ function getDateDaysAgo(daysAgo: number): string {
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
   return toDateInputString(d);
+}
+
+function generateCanonicalOrgCode(orgName: string): string {
+  const words = (orgName || 'POINTAGE')
+    .trim()
+    .replace(/[^a-zA-Z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter(w => !['DE', 'DU', 'DES', 'LE', 'LA', 'LES', 'ET', 'AU', 'AUX', 'OF', 'THE', 'AND', 'SARL', 'SA', 'SAS', 'ONG'].includes(w.toUpperCase()));
+  let initials = words.length === 0 ? 'PRO' : words.length === 1 ? words[0].slice(0, 3).toUpperCase() : words.map(w => w[0]).join('').slice(0, 4).toUpperCase();
+  if (initials.length < 2) initials = (initials + 'PRO').slice(0, 3);
+  const charset = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+  let entropy = '';
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+    const bytes = new Uint8Array(5);
+    window.crypto.getRandomValues(bytes);
+    for (let i = 0; i < 5; i++) entropy += charset[bytes[i] % charset.length];
+  } else {
+    for (let i = 0; i < 5; i++) entropy += charset[Math.floor(Math.random() * charset.length)];
+  }
+  return `ORG-${entropy}-${initials}`;
 }
 
 function parseHHMMToMinutes(hhmm?: string | null): number | null {
@@ -224,6 +259,34 @@ export default function MaquetteGerantPage() {
   const [showSecurityDrawer, setShowSecurityDrawer] = useState(false);
   const [showAuditDrawer, setShowAuditDrawer] = useState(false);
   const [showPhoneQrModal, setShowPhoneQrModal] = useState(false);
+  const [showMassImportModal, setShowMassImportModal] = useState(false);
+  const [showCameraScanModal, setShowCameraScanModal] = useState(false);
+  const [showFlashKitModal, setShowFlashKitModal] = useState(false);
+
+  // Import en masse Excel / CSV (parité /employes web)
+  const [massStep, setMassStep] = useState<'upload' | 'preview' | 'importing' | 'done'>('upload');
+  const [massFileName, setMassFileName] = useState('');
+  const [massValidRows, setMassValidRows] = useState<any[]>([]);
+  const [massInvalidRows, setMassInvalidRows] = useState<{ row: number; matricule: string; name: string; error: string }[]>([]);
+  const [massImportProgress, setMassImportProgress] = useState(0);
+  const [massGeneratedList, setMassGeneratedList] = useState<any[]>([]);
+  const [massSiteId, setMassSiteId] = useState('');
+  const [massScheduleId, setMassScheduleId] = useState('');
+
+  // Enrôlement par Scan Caméra Mode Inversé (parité /employes web + décodage QR auto)
+  const [scanTargetEmpId, setScanTargetEmpId] = useState('');
+  const [scannedDeviceId, setScannedDeviceId] = useState('');
+  const [scannedDeviceModel, setScannedDeviceModel] = useState('');
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraStatusNote, setCameraStatusNote] = useState<string | null>(null);
+  const [bindingInProgress, setBindingInProgress] = useState(false);
+  const scanVideoRef = useRef<HTMLVideoElement | null>(null);
+  const scanStreamRef = useRef<MediaStream | null>(null);
+  const scanIntervalRef = useRef<number | null>(null);
+
+  // Politique d'admission & Kit Enrôlement Flash
+  const [orgAdmissionPolicy, setOrgAdmissionPolicy] = useState<'STRICT' | 'MODERATE' | 'OPEN'>('STRICT');
+  const [copiedFlashUrl, setCopiedFlashUrl] = useState(false);
 
   // Journal d'Audit Inviolable
   const [auditEntries, setAuditEntries] = useState<any[]>([]);
@@ -268,7 +331,7 @@ export default function MaquetteGerantPage() {
   const [isDetectingWifi, setIsDetectingWifi] = useState(false);
   const [wifiDetectNote, setWifiDetectNote] = useState<string | null>(null);
 
-  // Formulaire Couloir Horaire (Création + Édition + Pause optionnelle + Jours)
+  // Formulaire Couloir Horaire (Création + Édition + Pause optionnelle + Jours + Jours Spéciaux)
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [newSchedName, setNewSchedName] = useState('');
   const [schedTrackArrival, setSchedTrackArrival] = useState<boolean>(true);
@@ -280,6 +343,15 @@ export default function MaquetteGerantPage() {
   const [newSchedBreakEnd, setNewSchedBreakEnd] = useState('13:30');
   const [newSchedTolerance, setNewSchedTolerance] = useState<number>(15);
   const [newSchedDays, setNewSchedDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  const [schedDayOverrides, setSchedDayOverrides] = useState<Record<number, ScheduleDayOverride>>({});
+  const [scheduleOverridesMap, setScheduleOverridesMap] = useState<Record<string, Record<number, ScheduleDayOverride>>>({});
+  const [showOverrideEditor, setShowOverrideEditor] = useState(false);
+  const [overrideDayId, setOverrideDayId] = useState<number>(6);
+  const [overrideStart, setOverrideStart] = useState<string>('07:30');
+  const [overrideEnd, setOverrideEnd] = useState<string>('14:00');
+  const [overrideHasBreak, setOverrideHasBreak] = useState<boolean>(false);
+  const [overrideBreakStart, setOverrideBreakStart] = useState<string>('12:00');
+  const [overrideBreakEnd, setOverrideBreakEnd] = useState<string>('13:00');
 
   // Relevés & Synthèse RH (7 jours, 1 mois, ou plage libre Du/Au)
   const [hrPreset, setHrPreset] = useState<'7d' | '30d' | 'custom'>('30d');
@@ -415,6 +487,15 @@ export default function MaquetteGerantPage() {
           if (sc.support_contact) setOrgSupportContact(sc.support_contact);
           if (sc.timezone) setOrgTimezone(sc.timezone);
           if (sc.currency) setOrgCurrency(sc.currency);
+          if (sc.admission_policy) setOrgAdmissionPolicy(sc.admission_policy);
+          if (sc.schedule_day_overrides && typeof sc.schedule_day_overrides === 'object') {
+            setScheduleOverridesMap(sc.schedule_day_overrides);
+          } else if (typeof window !== 'undefined') {
+            try {
+              const rawOv = localStorage.getItem('pointage_schedule_overrides');
+              if (rawOv) setScheduleOverridesMap(JSON.parse(rawOv));
+            } catch {}
+          }
           if (Array.isArray(sc.holidays)) {
             setOrgHolidays(sc.holidays);
           } else if (typeof window !== 'undefined') {
@@ -768,13 +849,14 @@ export default function MaquetteGerantPage() {
     return dbEmployees.map((emp) => {
       const sched = dbSchedules.find(s => s.id === emp.schedule_id) || dbSchedules[0] || null;
       const schedCategory = sched?.category || 'Continu';
-      const expectedStartMin = parseHHMMToMinutes(sched?.morning_start) ?? 8 * 60;
+      const defaultExpectedStartMin = parseHHMMToMinutes(sched?.morning_start) ?? 8 * 60;
       const toleranceMin = sched?.tolerance_minutes ?? 15;
+      const schedOverrides = (sched?.id && scheduleOverridesMap[sched.id]) ? scheduleOverridesMap[sched.id] : {};
 
       // Durée de pause prévue si présente
       const lStart = parseHHMMToMinutes(sched?.lunch_start);
       const lEnd = parseHHMMToMinutes(sched?.lunch_end);
-      const breakDurationMin = (lStart !== null && lEnd !== null && lEnd > lStart) ? (lEnd - lStart) : 0;
+      const defaultBreakDurationMin = (lStart !== null && lEnd !== null && lEnd > lStart) ? (lEnd - lStart) : 0;
 
       const empLogs = hrLogs.filter(l => l.employee_id === emp.id);
 
@@ -802,6 +884,18 @@ export default function MaquetteGerantPage() {
           const firstTime = firstDt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
           const firstMin = firstDt.getHours() * 60 + firstDt.getMinutes();
 
+          // Règle spécifique du jour de la semaine ("Jour spécial" ex: Samedi 07:30-14:00)
+          const schedDayId = firstDt.getDay() === 0 ? 7 : firstDt.getDay();
+          const dayOv = schedOverrides[schedDayId] || null;
+          const dayExpectedStartMin = dayOv
+            ? (parseHHMMToMinutes(dayOv.morning_start) ?? defaultExpectedStartMin)
+            : defaultExpectedStartMin;
+          const dayBreakDurationMin = dayOv
+            ? (dayOv.has_break && dayOv.lunch_start && dayOv.lunch_end
+                ? Math.max(0, (parseHHMMToMinutes(dayOv.lunch_end) ?? 0) - (parseHHMMToMinutes(dayOv.lunch_start) ?? 0))
+                : 0)
+            : defaultBreakDurationMin;
+
           let lastTime: string | null = null;
           let workedMinutes = 0;
 
@@ -811,16 +905,16 @@ export default function MaquetteGerantPage() {
             const lastMin = lastDt.getHours() * 60 + lastDt.getMinutes();
             if (lastMin > firstMin) {
               const rawDur = lastMin - firstMin;
-              workedMinutes = rawDur > 240 && breakDurationMin > 0
-                ? Math.max(0, rawDur - breakDurationMin)
+              workedMinutes = rawDur > 240 && dayBreakDurationMin > 0
+                ? Math.max(0, rawDur - dayBreakDurationMin)
                 : rawDur;
             }
           }
 
-          // Calcul du retard réel ce jour-là
+          // Calcul du retard réel ce jour-là (tenant compte des jours spéciaux)
           let lateMinutes = 0;
           if (schedCategory !== 'Départ seul') {
-            const diffFromStart = firstMin - expectedStartMin;
+            const diffFromStart = firstMin - dayExpectedStartMin;
             const isExplicitLate = dayLogs.some(l =>
               l.status === 'LATE' ||
               (Array.isArray(l.flag_reasons) && l.flag_reasons.some((r: string) => r.includes('RETARD') || r.includes('LATE')))
@@ -1461,6 +1555,7 @@ export default function MaquetteGerantPage() {
     const updatedConfig = {
       ...orgSecurityConfigRaw,
       sector_profile: orgSectorProfile,
+      admission_policy: orgAdmissionPolicy,
       support_contact: orgSupportContact.trim(),
       timezone: orgTimezone,
       currency: orgCurrency,
@@ -1645,6 +1740,7 @@ export default function MaquetteGerantPage() {
       setNewSchedBreakEnd(hasBrk ? sched.lunch_end : '13:30');
       setNewSchedTolerance(sched.tolerance_minutes ?? 15);
       setNewSchedDays(Array.isArray(sched.working_days) && sched.working_days.length > 0 ? sched.working_days : [1, 2, 3, 4, 5]);
+      setSchedDayOverrides(scheduleOverridesMap[sched.id] || {});
     } else {
       setEditingScheduleId(null);
       setNewSchedName('');
@@ -1657,8 +1753,55 @@ export default function MaquetteGerantPage() {
       setNewSchedBreakEnd('13:30');
       setNewSchedTolerance(15);
       setNewSchedDays([1, 2, 3, 4, 5]);
+      setSchedDayOverrides({});
     }
+    setShowOverrideEditor(false);
     setShowAddScheduleModal(true);
+  };
+
+  // Helper pour sauvegarder les exceptions par jour ("Jours Spéciaux") d'un couloir dans security_config
+  const persistScheduleOverrides = async (schedId: string, overrides: Record<number, ScheduleDayOverride>) => {
+    const nextMap = { ...scheduleOverridesMap };
+    if (Object.keys(overrides).length > 0) {
+      nextMap[schedId] = overrides;
+    } else {
+      delete nextMap[schedId];
+    }
+    setScheduleOverridesMap(nextMap);
+    const updatedConfig = {
+      ...orgSecurityConfigRaw,
+      schedule_day_overrides: nextMap,
+      org_logo: orgLogo || undefined
+    };
+    setOrgSecurityConfigRaw(updatedConfig);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pointage_schedule_overrides', JSON.stringify(nextMap));
+      localStorage.setItem('pointage_security_config', JSON.stringify(updatedConfig));
+    }
+    const targetOrgId = orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+    if (!targetOrgId) return;
+    try {
+      const supabase = createClient();
+      await supabase.from('pointage_organizations').update({ security_config: updatedConfig }).eq('id', targetOrgId);
+    } catch {}
+  };
+
+  const handleAddOrUpdateDayOverride = () => {
+    const ov: ScheduleDayOverride = {
+      dayId: overrideDayId,
+      morning_start: overrideStart,
+      afternoon_end: overrideEnd,
+      has_break: overrideHasBreak,
+      lunch_start: overrideHasBreak ? overrideBreakStart : undefined,
+      lunch_end: overrideHasBreak ? overrideBreakEnd : undefined
+    };
+    setSchedDayOverrides(prev => ({ ...prev, [overrideDayId]: ov }));
+    if (!newSchedDays.includes(overrideDayId)) {
+      setNewSchedDays(prev => [...prev, overrideDayId].sort((a, b) => a - b));
+    }
+    setShowOverrideEditor(false);
+    const lbl = DAY_LABELS.find(d => d.id === overrideDayId)?.full || `Jour ${overrideDayId}`;
+    triggerToast(`✓ Horaire spécial défini pour ${lbl} (${overrideStart} - ${overrideEnd})`);
   };
 
   const handleSaveSchedule = async (e: React.FormEvent) => {
@@ -1737,8 +1880,13 @@ export default function MaquetteGerantPage() {
 
         if (error) throw error;
         if (updatedSched) {
+          await persistScheduleOverrides(updatedSched.id, schedDayOverrides);
           setDbSchedules(prev => prev.map(s => (s.id === editingScheduleId ? updatedSched : s)));
-          recordAuditEvent('SCHEDULE_UPDATED', 'INFO', { schedule_name: updatedSched.name, category });
+          recordAuditEvent('SCHEDULE_UPDATED', 'INFO', {
+            schedule_name: updatedSched.name,
+            category,
+            day_overrides_count: Object.keys(schedDayOverrides).length
+          });
           triggerToast(`✓ Couloir "${updatedSched.name}" mis à jour !`);
         }
       } else {
@@ -1754,14 +1902,20 @@ export default function MaquetteGerantPage() {
 
         if (error) throw error;
         if (newSched) {
+          await persistScheduleOverrides(newSched.id, schedDayOverrides);
           setDbSchedules(prev => [...prev, newSched]);
-          recordAuditEvent('SCHEDULE_CREATED', 'INFO', { schedule_name: newSched.name, category });
+          recordAuditEvent('SCHEDULE_CREATED', 'INFO', {
+            schedule_name: newSched.name,
+            category,
+            day_overrides_count: Object.keys(schedDayOverrides).length
+          });
           triggerToast(`✓ Couloir "${newSched.name}" (${category}) créé !`);
         }
       }
 
       setShowAddScheduleModal(false);
       setEditingScheduleId(null);
+      setSchedDayOverrides({});
       setNewSchedName('');
     } catch (err: any) {
       triggerToast(`Erreur planning: ${err.message}`);
@@ -1800,6 +1954,359 @@ export default function MaquetteGerantPage() {
       triggerToast(`✓ Téléphone de ${name} délié.`);
     } catch (err: any) {
       triggerToast(`Erreur: ${err.message}`);
+    }
+  };
+
+  // F2. Kit d'Enrôlement Flash & Politique d'Admission (Strict / Modéré / Ouvert)
+  const flashJoinUrl = `${getPublicUrl('/rejoindre')}?org=${encodeURIComponent(orgCode)}`;
+
+  const handleGenerateCanonicalOrgCode = async () => {
+    const newCode = generateCanonicalOrgCode(orgName);
+    setOrgCode(newCode);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pointage_org_code', newCode);
+      window.dispatchEvent(new Event('pointage_org_updated'));
+    }
+    const targetOrgId = orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+    if (targetOrgId) {
+      try {
+        const supabase = createClient();
+        await supabase.from('pointage_organizations').update({ org_code: newCode }).eq('id', targetOrgId);
+      } catch {}
+    }
+    recordAuditEvent('ORG_CANONICAL_CODE_GENERATED', 'WARNING', { org_code: newCode });
+    triggerToast(`✓ Code Canonique généré : ${newCode}`);
+  };
+
+  const handleSaveAdmissionPolicy = async (policy: 'STRICT' | 'MODERATE' | 'OPEN') => {
+    setOrgAdmissionPolicy(policy);
+    const updatedConfig = {
+      ...orgSecurityConfigRaw,
+      admission_policy: policy,
+      org_logo: orgLogo || undefined
+    };
+    setOrgSecurityConfigRaw(updatedConfig);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pointage_security_config', JSON.stringify(updatedConfig));
+    }
+    const targetOrgId = orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+    if (targetOrgId) {
+      try {
+        const supabase = createClient();
+        await supabase.from('pointage_organizations').update({ security_config: updatedConfig }).eq('id', targetOrgId);
+      } catch {}
+    }
+    recordAuditEvent('ADMISSION_POLICY_UPDATED', policy === 'OPEN' ? 'WARNING' : 'INFO', { admission_policy: policy });
+    triggerToast(
+      policy === 'STRICT'
+        ? '✓ Mode Strict activé (matricule obligatoire)'
+        : policy === 'MODERATE'
+          ? '✓ Approbation manuelle activée'
+          : '⚡ Mode Ouvert activé (Salons / Événements)'
+    );
+  };
+
+  const handleCopyFlashInvite = () => {
+    const text = `Bonjour l'équipe ${orgName} !\n\nRejoignez notre espace PointagePro sur votre téléphone :\n1️⃣ Ouvrez : ${flashJoinUrl}\n2️⃣ Code Entreprise : ${orgCode}\n\nÀ tout de suite sur site !`;
+    if (typeof window !== 'undefined') {
+      navigator.clipboard.writeText(text);
+    }
+    triggerToast("Annonce d'enrôlement copiée !");
+  };
+
+  const handleApprovePendingEmployee = async (emp: any) => {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('pointage_employees')
+        .update({ is_enrolled: true, is_active: true })
+        .eq('id', emp.id);
+      if (error) throw error;
+      setDbEmployees(prev => prev.map(e => (e.id === emp.id ? { ...e, is_enrolled: true, is_active: true } : e)));
+      recordAuditEvent('EMPLOYEE_APPROVED', 'INFO', { employee_name: emp.full_name, matricule: emp.employee_matricule });
+      triggerToast(`✓ Accès validé pour ${emp.full_name} !`);
+    } catch (err: any) {
+      triggerToast(`Erreur validation : ${err.message}`);
+    }
+  };
+
+  // F3. Import en Masse Excel / CSV + Téléchargement Modèle (parité 100% /employes web)
+  const downloadMassTemplateXlsx = () => {
+    const templateData = [
+      { Matricule: 'MAT-2026-001', Nom: 'TRAORE', Prenom: 'Amadou', Telephone: '+226 70 12 34 56', Classe_ou_Service: 'Direction', Date_Naissance_ou_Secret: '14/05/1992', Role: 'Collaborateur' },
+      { Matricule: 'MAT-2026-002', Nom: 'SAWADOGO', Prenom: 'Fatou', Telephone: '+226 76 98 76 54', Classe_ou_Service: 'Commercial', Date_Naissance_ou_Secret: '22/11/1995', Role: 'Collaborateur' },
+      { Matricule: 'MAT-2026-003', Nom: 'KABORE', Prenom: 'Ibrahim', Telephone: '+226 78 55 44 33', Classe_ou_Service: 'Technique', Date_Naissance_ou_Secret: '08/02/1990', Role: 'Technicien' }
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Effectif_A_Importer');
+    XLSX.writeFile(wb, 'modele_import_pointagepro.xlsx');
+    triggerToast('✓ Modèle Excel (.xlsx) téléchargé !');
+  };
+
+  const downloadMassTemplateCsv = () => {
+    const csvContent =
+      'data:text/csv;charset=utf-8,' +
+      'Matricule,Nom,Prenom,Telephone,Classe_ou_Service,Date_Naissance_ou_Secret,Role\n' +
+      'MAT-2026-001,TRAORE,Amadou,+226 70 12 34 56,Direction,14/05/1992,Collaborateur\n' +
+      'MAT-2026-002,SAWADOGO,Fatou,+226 76 98 76 54,Commercial,22/11/1995,Collaborateur\n';
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', 'modele_import_pointagepro.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    triggerToast('✓ Modèle CSV téléchargé !');
+  };
+
+  const handleMassFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setMassFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rawJson: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        if (!rawJson || rawJson.length === 0) {
+          triggerToast("Fichier vide ou illisible.");
+          return;
+        }
+        const valid: any[] = [];
+        const invalid: { row: number; matricule: string; name: string; error: string }[] = [];
+        const seen = new Set<string>();
+        const existingMats = new Set(dbEmployees.map(em => (em.employee_matricule || '').toUpperCase().trim()).filter(Boolean));
+
+        rawJson.forEach((row, idx) => {
+          const rowNum = idx + 2;
+          const getVal = (keys: string[]) => {
+            for (const key of Object.keys(row)) {
+              const clean = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+              for (const k of keys) {
+                if (clean === k.toLowerCase().replace(/[^a-z0-9]/g, '')) return String(row[key] || '').trim();
+              }
+            }
+            return '';
+          };
+          const matricule = getVal(['matricule', 'id', 'identifiant', 'code']);
+          const nom = getVal(['nom', 'nomfamille', 'lastname', 'nomcomplet']);
+          const prenom = getVal(['prenom', 'prénom', 'firstname']);
+          const tel = getVal(['telephone', 'téléphone', 'tel', 'phone', 'contact', 'whatsapp']);
+          const classe = getVal(['classe_ou_service', 'classe', 'service', 'departement', 'section']);
+          const secret = getVal(['date_naissance_ou_secret', 'secret', 'date_naissance', 'dob']);
+          const role = getVal(['role', 'fonction', 'statut']) || 'Collaborateur';
+          const fullName = [nom, prenom].filter(Boolean).join(' ');
+
+          if (!nom) {
+            invalid.push({ row: rowNum, matricule: matricule || '---', name: 'Inconnu', error: 'Nom manquant' });
+            return;
+          }
+          const finalMat = matricule || `MAT-${new Date().getFullYear()}-${String(100 + idx).padStart(3, '0')}`;
+          const upper = finalMat.toUpperCase();
+          if (seen.has(upper)) {
+            invalid.push({ row: rowNum, matricule: finalMat, name: fullName, error: 'Doublon dans le fichier' });
+            return;
+          }
+          seen.add(upper);
+          if (existingMats.has(upper)) {
+            invalid.push({ row: rowNum, matricule: finalMat, name: fullName, error: 'Matricule déjà existant' });
+            return;
+          }
+          valid.push({
+            matricule: finalMat,
+            fullName,
+            telephone: tel || '',
+            classe: classe || 'Général',
+            secret: secret || '1234',
+            role
+          });
+        });
+
+        setMassValidRows(valid);
+        setMassInvalidRows(invalid);
+        setMassSiteId(activeEstablishment?.id || '');
+        setMassScheduleId(dbSchedules[0]?.id || '');
+        setMassStep('preview');
+      } catch (err: any) {
+        triggerToast(`Erreur analyse Excel : ${err.message}`);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const executeMobileBatchImport = async () => {
+    if (massValidRows.length === 0) return;
+    setMassStep('importing');
+    setMassImportProgress(0);
+    const supabase = createClient();
+    const targetOrgId = orgId || '53055b65-de5a-40af-9f1c-d27bd83e7c68';
+    const siteId = massSiteId || activeEstablishment?.id || null;
+    const schedId = massScheduleId || dbSchedules[0]?.id || null;
+    const createdSummary: any[] = [];
+    const batchSize = 25;
+
+    try {
+      for (let i = 0; i < massValidRows.length; i += batchSize) {
+        const batch = massValidRows.slice(i, i + batchSize);
+        const records = batch.map((r) => {
+          const token = `PPRO-${Math.floor(100000 + Math.random() * 900000)}`;
+          createdSummary.push({
+            Matricule: r.matricule,
+            Nom_Complet: r.fullName,
+            Telephone: r.telephone,
+            Service: r.classe,
+            Token_Activation: token,
+            Lien_Activation: `${getPublicUrl('/rejoindre')}?token=${token}&org=${orgCode}&mat=${encodeURIComponent(r.matricule)}`
+          });
+          return {
+            org_id: targetOrgId,
+            default_establishment_id: siteId,
+            schedule_id: schedId,
+            full_name: r.fullName,
+            employee_matricule: r.matricule,
+            email: `${r.matricule.toLowerCase().replace(/[^a-z0-9]/g, '')}@pointagepro.bf`,
+            phone: r.telephone || null,
+            role: r.role,
+            department: r.classe,
+            birth_date: r.secret,
+            security_secret: r.secret,
+            enrollment_token: token,
+            is_enrolled: false,
+            is_active: true
+          };
+        });
+        const { error } = await supabase.from('pointage_employees').insert(records);
+        if (error) throw error;
+        setMassImportProgress(Math.round((Math.min(i + batchSize, massValidRows.length) / massValidRows.length) * 100));
+      }
+
+      setMassGeneratedList(createdSummary);
+      setMassStep('done');
+      await loadLiveSupabaseData();
+      recordAuditEvent('MASS_EMPLOYEES_IMPORTED', 'INFO', { count: createdSummary.length, file: massFileName });
+      triggerToast(`✓ ${createdSummary.length} collaborateurs importés !`);
+    } catch (err: any) {
+      setMassStep('preview');
+      triggerToast(`Erreur import : ${err.message}`);
+    }
+  };
+
+  // F4. Enrôlement par Scan Caméra (Mode Inversé avec décodage QR réel)
+  const stopCameraStream = () => {
+    if (scanIntervalRef.current !== null) {
+      window.clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    if (scanStreamRef.current) {
+      scanStreamRef.current.getTracks().forEach(t => t.stop());
+      scanStreamRef.current = null;
+    }
+    setCameraActive(false);
+  };
+
+  const applyScannedQrPayload = (rawPayload: string) => {
+    const raw = rawPayload.trim();
+    if (!raw) return;
+    let parsedId = raw;
+    let parsedModel = '';
+    try {
+      if (raw.startsWith('{')) {
+        const obj = JSON.parse(raw);
+        parsedId = obj.device_id || obj.deviceId || obj.id || raw;
+        parsedModel = obj.device_model || obj.model || '';
+      } else if (raw.includes('device=')) {
+        const u = new URL(raw.startsWith('http') ? raw : `https://dummy.local/${raw.replace(/^\?/, '?')}`);
+        parsedId = u.searchParams.get('device') || u.searchParams.get('device_id') || raw;
+        parsedModel = u.searchParams.get('model') || '';
+      }
+    } catch {}
+    setScannedDeviceId(parsedId);
+    if (parsedModel) setScannedDeviceModel(parsedModel);
+    setCameraStatusNote(`✓ QR décodé (${parsedId.slice(0, 18)})`);
+    triggerToast("✓ QR du smartphone détecté !");
+  };
+
+  const openCameraScanModal = async (preselectedEmp?: any) => {
+    const firstPending = dbEmployees.find(e => !e.bound_device_id && !e.device_model);
+    setScanTargetEmpId(preselectedEmp?.id || firstPending?.id || dbEmployees[0]?.id || '');
+    setScannedDeviceId('');
+    setScannedDeviceModel('');
+    setCameraStatusNote('Initialisation de la caméra...');
+    setShowCameraScanModal(true);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      scanStreamRef.current = stream;
+      setCameraActive(true);
+      setTimeout(() => {
+        if (scanVideoRef.current) scanVideoRef.current.srcObject = stream;
+      }, 150);
+
+      const BarcodeDet = typeof window !== 'undefined' ? (window as any).BarcodeDetector : null;
+      if (BarcodeDet) {
+        const detector = new BarcodeDet({ formats: ['qr_code'] });
+        setCameraStatusNote('Pointez la caméra vers le QR affiché sur le téléphone salarié.');
+        scanIntervalRef.current = window.setInterval(async () => {
+          if (!scanVideoRef.current || scanVideoRef.current.readyState < 2) return;
+          try {
+            const codes = await detector.detect(scanVideoRef.current);
+            if (codes && codes.length > 0 && codes[0].rawValue) {
+              applyScannedQrPayload(codes[0].rawValue);
+            }
+          } catch {}
+        }, 450);
+      } else {
+        setCameraStatusNote('Caméra active. Décodage auto non supporté sur ce navigateur : collez l’ID ou le QR ci-dessous.');
+      }
+    } catch {
+      setCameraActive(false);
+      setCameraStatusNote('Caméra indisponible ou refusée : saisissez directement l’identifiant du smartphone.');
+    }
+  };
+
+  const closeCameraScanModal = () => {
+    stopCameraStream();
+    setShowCameraScanModal(false);
+  };
+
+  const handleCameraScanBind = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scanTargetEmpId || !scannedDeviceId.trim()) {
+      triggerToast("Sélectionnez un collaborateur et renseignez l'identifiant matériel.");
+      return;
+    }
+    setBindingInProgress(true);
+    try {
+      const supabase = createClient();
+      const model = scannedDeviceModel.trim() || 'Smartphone Enrôlé (Scan Caméra)';
+      const { error } = await supabase
+        .from('pointage_employees')
+        .update({
+          bound_device_id: scannedDeviceId.trim(),
+          device_model: model,
+          is_enrolled: true
+        })
+        .eq('id', scanTargetEmpId);
+
+      if (error) throw error;
+      const emp = dbEmployees.find(em => em.id === scanTargetEmpId);
+      setDbEmployees(prev =>
+        prev.map(em =>
+          em.id === scanTargetEmpId ? { ...em, bound_device_id: scannedDeviceId.trim(), device_model: model, is_enrolled: true } : em
+        )
+      );
+      recordAuditEvent('DEVICE_BOUND_CAMERA_SCAN', 'INFO', {
+        employee_name: emp?.full_name || 'Collaborateur',
+        device_id: scannedDeviceId.trim(),
+        device_model: model
+      });
+      closeCameraScanModal();
+      triggerToast(`✓ Smartphone lié à ${emp?.full_name || 'l’employé'} par Scan Caméra !`);
+    } catch (err: any) {
+      triggerToast(`Erreur liaison caméra : ${err.message}`);
+    } finally {
+      setBindingInProgress(false);
     }
   };
 
@@ -3113,6 +3620,59 @@ export default function MaquetteGerantPage() {
                   />
                 </div>
 
+                {/* Barre Enrôlement Rapide & Import Massif (Parité 100% Web) */}
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMassStep('upload');
+                      setMassValidRows([]);
+                      setMassInvalidRows([]);
+                      setShowMassImportModal(true);
+                    }}
+                    className="py-2 px-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-[10px] font-extrabold transition flex items-center justify-center gap-1 shadow-xs cursor-pointer active:scale-95"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">Import Excel</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openCameraScanModal()}
+                    className="py-2 px-2 bg-[#1D4ED8] hover:bg-blue-700 text-white rounded-2xl text-[10px] font-extrabold transition flex items-center justify-center gap-1 shadow-xs cursor-pointer active:scale-95"
+                  >
+                    <Scan className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">Scan Caméra</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowFlashKitModal(true)}
+                    className="py-2 px-2 bg-amber-600 hover:bg-amber-500 text-white rounded-2xl text-[10px] font-extrabold transition flex items-center justify-center gap-1 shadow-xs cursor-pointer active:scale-95"
+                  >
+                    <Zap className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">Kit Flash</span>
+                  </button>
+                </div>
+
+                {/* Bandeau Politique d'Admission active */}
+                <button
+                  type="button"
+                  onClick={() => setShowFlashKitModal(true)}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-2xl flex items-center justify-between text-[11px] shadow-xs hover:border-blue-300 transition cursor-pointer"
+                >
+                  <span className="font-bold text-slate-600 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                    <span>Admission :</span>
+                    <strong className="text-slate-900">
+                      {orgAdmissionPolicy === 'STRICT'
+                        ? 'Mode Strict'
+                        : orgAdmissionPolicy === 'MODERATE'
+                          ? 'Approbation Manuelle'
+                          : 'Mode Ouvert (Salons)'}
+                    </strong>
+                  </span>
+                  <span className="text-[10px] font-extrabold text-[#1D4ED8]">Régler →</span>
+                </button>
+
                 <div className="space-y-2.5">
                   {filteredEmployees.map((emp) => {
                     const isBound = !!emp.bound_device_id || !!emp.device_model;
@@ -3191,6 +3751,17 @@ export default function MaquetteGerantPage() {
                             📱 {emp.device_model || 'Aucun appareil'}
                           </span>
                         </div>
+
+                        {!emp.is_enrolled && isBound && (
+                          <button
+                            type="button"
+                            onClick={() => handleApprovePendingEmployee(emp)}
+                            className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Approuver cet appareil (Admission manuelle)</span>
+                          </button>
+                        )}
 
                         <div className="grid grid-cols-3 gap-2 pt-1">
                           <button
@@ -3338,6 +3909,22 @@ export default function MaquetteGerantPage() {
                               {sched.weekly_hours ? `${sched.weekly_hours}h / sem` : '✓ Actif'}
                             </span>
                           </div>
+
+                          {scheduleOverridesMap[sched.id] && Object.keys(scheduleOverridesMap[sched.id]).length > 0 && (
+                            <div className="pt-2 border-t border-slate-100 flex flex-wrap gap-1.5">
+                              {Object.values(scheduleOverridesMap[sched.id]).map((ov) => {
+                                const dayName = DAY_LABELS.find(d => d.id === ov.dayId)?.full || `J${ov.dayId}`;
+                                return (
+                                  <span
+                                    key={ov.dayId}
+                                    className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200"
+                                  >
+                                    {dayName} : {ov.morning_start}-{ov.afternoon_end} {ov.has_break ? `(Pause ${ov.lunch_start}-${ov.lunch_end})` : '(Sans pause)'}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -3701,6 +4288,46 @@ export default function MaquetteGerantPage() {
                   )}
                 </div>
 
+                {/* Code Canonique, Kit Enrôlement Flash & Politiques d'Admission (Parité Web) */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-4 space-y-3 shadow-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-900 block">Kit Enrôlement Flash & Admission</span>
+                      <span className="text-[10px] text-slate-500">Code canonique, QR global et filtrage d&apos;accès</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowFlashKitModal(true)}
+                      className="px-2.5 py-1.5 bg-[#1D4ED8] hover:bg-blue-700 text-white font-bold text-[10px] rounded-xl transition cursor-pointer flex items-center gap-1"
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>Ouvrir Kit</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1.5 text-[10px] font-bold">
+                    {([
+                      { id: 'STRICT', label: 'Strict', desc: 'Matricule requis' },
+                      { id: 'MODERATE', label: 'Approbation', desc: 'Validation RH' },
+                      { id: 'OPEN', label: 'Ouvert', desc: 'Salons / Événements' }
+                    ] as const).map((pol) => (
+                      <button
+                        key={pol.id}
+                        type="button"
+                        onClick={() => handleSaveAdmissionPolicy(pol.id)}
+                        className={`p-2 rounded-2xl border text-left transition cursor-pointer ${
+                          orgAdmissionPolicy === pol.id
+                            ? 'bg-blue-50 border-[#1D4ED8] text-[#1D4ED8] ring-1 ring-blue-300'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="font-extrabold block">{pol.label}</span>
+                        <span className="text-[9px] text-slate-500 font-normal block leading-tight mt-0.5">{pol.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Raccourcis Gouvernance & Sécurité */}
                 <div className="bg-white border border-slate-200 rounded-3xl p-3.5 space-y-2 shadow-xs">
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-1 block">
@@ -3754,8 +4381,7 @@ export default function MaquetteGerantPage() {
                   { id: 'sites', label: 'Sites', Icon: Building2, badge: 0 },
                   { id: 'equipe', label: 'Personnel', Icon: Users, badge: 0 },
                   { id: 'plannings', label: 'Couloirs', Icon: CalendarDays, badge: 0 },
-                  { id: 'justifs', label: 'Arbitrage', Icon: CheckCircle2, badge: pendingCount },
-                  { id: 'parametres', label: 'Paramètres', Icon: Settings, badge: 0 }
+                  { id: 'justifs', label: 'Arbitrage', Icon: CheckCircle2, badge: pendingCount }
                 ] as const
               ).map(({ id, label, Icon, badge }) => {
                 const isActive = activeTab === id;
@@ -3764,7 +4390,7 @@ export default function MaquetteGerantPage() {
                     key={id}
                     type="button"
                     onClick={() => setActiveTab(id)}
-                    className={`flex-1 min-w-0 flex flex-col items-center py-1.5 px-1 rounded-2xl cursor-pointer relative transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] active:scale-90 ${
+                    className={`flex-1 min-w-0 flex flex-col items-center py-1.5 px-1.5 rounded-2xl cursor-pointer relative transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] active:scale-90 ${
                       isActive
                         ? 'bg-white text-[#1D4ED8] font-extrabold scale-105 -translate-y-0.5 shadow-md'
                         : 'text-blue-100 hover:text-white hover:bg-white/10 scale-95 hover:scale-100'
@@ -3778,7 +4404,7 @@ export default function MaquetteGerantPage() {
                         </span>
                       )}
                     </div>
-                    <span className={`text-[9px] tracking-tighter truncate max-w-full transition-all duration-300 ${isActive ? 'font-extrabold' : 'font-medium'}`}>
+                    <span className={`text-[10px] tracking-tight truncate max-w-full transition-all duration-300 ${isActive ? 'font-extrabold' : 'font-medium'}`}>
                       {label}
                     </span>
                   </button>
@@ -4447,6 +5073,127 @@ export default function MaquetteGerantPage() {
                         );
                       })}
                     </div>
+                  </div>
+
+                  {/* Jours Spéciaux / Exceptions par Jour (ex: Samedi 07:30 - 14:00 sans pause) */}
+                  <div className="p-3 rounded-2xl border border-amber-200 bg-amber-50/40 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <span className="text-[11px] font-extrabold text-slate-900 block">Jours Spéciaux (ex: Samedi / Jeudi)</span>
+                        <span className="text-[9px] text-slate-500 block">Horaires différents pour un jour précis de la semaine</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowOverrideEditor(v => !v)}
+                        className="px-2.5 py-1 bg-[#1D4ED8] hover:bg-blue-700 text-white font-bold text-[10px] rounded-xl transition cursor-pointer shrink-0"
+                      >
+                        {showOverrideEditor ? 'Fermer' : '+ Jour spécial'}
+                      </button>
+                    </div>
+
+                    {Object.values(schedDayOverrides).length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {Object.values(schedDayOverrides).map((ov) => {
+                          const dayLabel = DAY_LABELS.find(d => d.id === ov.dayId)?.full || `J${ov.dayId}`;
+                          return (
+                            <div
+                              key={ov.dayId}
+                              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-xl bg-white border border-amber-300 text-[10px] font-bold text-slate-800 shadow-2xs"
+                            >
+                              <span>
+                                {dayLabel} : {ov.morning_start}-{ov.afternoon_end} {ov.has_break ? `(Pause ${ov.lunch_start}-${ov.lunch_end})` : '• Sans pause'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSchedDayOverrides(prev => {
+                                    const copy = { ...prev };
+                                    delete copy[ov.dayId];
+                                    return copy;
+                                  })
+                                }
+                                className="text-rose-500 hover:text-rose-700 cursor-pointer"
+                                title="Retirer cette exception"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {showOverrideEditor && (
+                      <div className="p-2.5 bg-white border border-amber-200 rounded-xl space-y-2 animate-fadeIn">
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <div>
+                            <label className="text-[9px] font-bold uppercase text-slate-500 block mb-0.5">Jour</label>
+                            <select
+                              value={overrideDayId}
+                              onChange={(e) => setOverrideDayId(Number(e.target.value))}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-bold text-slate-900"
+                            >
+                              {DAY_LABELS.map(d => (
+                                <option key={d.id} value={d.id}>{d.full}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-bold uppercase text-slate-500 block mb-0.5">Arrivée</label>
+                            <input
+                              type="time"
+                              value={overrideStart}
+                              onChange={(e) => setOverrideStart(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-bold uppercase text-slate-500 block mb-0.5">Départ</label>
+                            <input
+                              type="time"
+                              value={overrideEnd}
+                              onChange={(e) => setOverrideEnd(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-900"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-0.5">
+                          <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-700 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={overrideHasBreak}
+                              onChange={(e) => setOverrideHasBreak(e.target.checked)}
+                            />
+                            <span>Pause incluse</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleAddOrUpdateDayOverride}
+                            className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] rounded-lg cursor-pointer"
+                          >
+                            Appliquer ce jour
+                          </button>
+                        </div>
+
+                        {overrideHasBreak && (
+                          <div className="grid grid-cols-2 gap-1.5 pt-1">
+                            <input
+                              type="time"
+                              value={overrideBreakStart}
+                              onChange={(e) => setOverrideBreakStart(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono"
+                            />
+                            <input
+                              type="time"
+                              value={overrideBreakEnd}
+                              onChange={(e) => setOverrideBreakEnd(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Résumé automatique */}
@@ -5331,6 +6078,423 @@ export default function MaquetteGerantPage() {
                     <MessageCircle className="w-3.5 h-3.5" />
                     <span>WhatsApp</span>
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* BOTTOM SHEET 10 : IMPORT EN MASSE EXCEL / CSV + MODÈLE PRÉ-REMPLI */}
+          {showMassImportModal && (
+            <div
+              onClick={(e) => { if (e.target === e.currentTarget) setShowMassImportModal(false); }}
+              className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end justify-center p-0 animate-fadeIn"
+            >
+              <div className="bg-white border-t border-slate-200 w-full rounded-t-[28px] px-4 pt-2.5 pb-6 space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-1" />
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                      <FileSpreadsheet className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-900 block">Import en Masse (Excel / CSV)</span>
+                      <span className="text-[10px] text-slate-500 block">Modèle officiel + import par lots dans Supabase</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowMassImportModal(false)}
+                    aria-label="Fermer"
+                    className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
+                  >
+                    <X className="w-4 h-4 text-white" />
+                  </button>
+                </div>
+
+                {massStep === 'upload' && (
+                  <div className="space-y-3">
+                    <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-2">
+                      <span className="text-[10px] font-extrabold uppercase text-[#1D4ED8] block">
+                        1. Télécharger un modèle à pré-remplir
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={downloadMassTemplateXlsx}
+                          className="py-2 bg-white hover:bg-blue-50 text-[#1D4ED8] font-bold text-[11px] rounded-xl border border-blue-200 flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Modèle .xlsx</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={downloadMassTemplateCsv}
+                          className="py-2 bg-white hover:bg-slate-50 text-slate-700 font-bold text-[11px] rounded-xl border border-slate-200 flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Modèle .csv</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <label className="block p-5 border-2 border-dashed border-emerald-400 bg-emerald-50/30 hover:bg-emerald-50/60 rounded-2xl text-center cursor-pointer transition space-y-1.5">
+                      <Upload className="w-7 h-7 text-emerald-600 mx-auto" />
+                      <span className="font-extrabold text-xs text-slate-900 block">
+                        2. Importer votre fichier Excel / CSV rempli
+                      </span>
+                      <span className="text-[10px] text-slate-500 block">
+                        Formats supportés : .xlsx, .xls, .csv
+                      </span>
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        onChange={handleMassFileSelected}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {massStep === 'preview' && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2 text-center">
+                      <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-2xl">
+                        <span className="text-base font-black text-emerald-700 block">{massValidRows.length}</span>
+                        <span className="text-[10px] font-bold text-emerald-800">Valides à importer</span>
+                      </div>
+                      <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-2xl">
+                        <span className="text-base font-black text-rose-700 block">{massInvalidRows.length}</span>
+                        <span className="text-[10px] font-bold text-rose-800">Ignorés / Erreurs</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] font-extrabold uppercase text-slate-500 block mb-0.5">Site assigné</label>
+                        <select
+                          value={massSiteId}
+                          onChange={(e) => setMassSiteId(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-[11px] text-slate-900"
+                        >
+                          {dbEstablishments.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-extrabold uppercase text-slate-500 block mb-0.5">Couloir assigné</label>
+                        <select
+                          value={massScheduleId}
+                          onChange={(e) => setMassScheduleId(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-[11px] text-slate-900"
+                        >
+                          {dbSchedules.map(sc => <option key={sc.id} value={sc.id}>{sc.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    {massValidRows.length > 0 && (
+                      <div className="max-h-36 overflow-y-auto space-y-1 bg-slate-50 p-2 rounded-2xl border border-slate-200 text-[11px]">
+                        {massValidRows.slice(0, 15).map((r, i) => (
+                          <div key={i} className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-xl border border-slate-100">
+                            <span className="font-bold text-slate-900 truncate">{r.fullName}</span>
+                            <span className="font-mono text-[10px] text-[#1D4ED8]">{r.matricule}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setMassStep('upload')}
+                        className="py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
+                      >
+                        Retour
+                      </button>
+                      <button
+                        type="button"
+                        disabled={massValidRows.length === 0}
+                        onClick={executeMobileBatchImport}
+                        className="py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl cursor-pointer disabled:opacity-50"
+                      >
+                        Importer ({massValidRows.length})
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {massStep === 'importing' && (
+                  <div className="p-6 text-center space-y-2">
+                    <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-[#1D4ED8] transition-all" style={{ width: `${massImportProgress}%` }} />
+                    </div>
+                    <span className="text-xs font-extrabold text-slate-900 block">Importation en cours ({massImportProgress}%)...</span>
+                  </div>
+                )}
+
+                {massStep === 'done' && (
+                  <div className="space-y-3 text-center">
+                    <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                    <div>
+                      <span className="font-extrabold text-sm text-slate-900 block">{massGeneratedList.length} collaborateurs créés !</span>
+                      <span className="text-[11px] text-slate-500 block">Chaque fiche dispose maintenant de son matricule et lien d&apos;activation.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const ws = XLSX.utils.json_to_sheet(massGeneratedList);
+                        const wb = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wb, ws, 'Tokens_Activation');
+                        XLSX.writeFile(wb, `Acces_PointagePro_${orgCode}.xlsx`);
+                        triggerToast('✓ Fichier des accès téléchargé !');
+                      }}
+                      className="w-full py-2.5 bg-[#1D4ED8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Télécharger la liste & liens (.xlsx)</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* BOTTOM SHEET 11 : ENRÔLEMENT PAR SCAN CAMÉRA (MODE INVERSÉ) */}
+          {showCameraScanModal && (
+            <div
+              onClick={(e) => { if (e.target === e.currentTarget) closeCameraScanModal(); }}
+              className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end justify-center p-0 animate-fadeIn"
+            >
+              <div className="bg-white border-t border-slate-200 w-full rounded-t-[28px] px-4 pt-2.5 pb-6 space-y-3 shadow-2xl max-h-[92vh] overflow-y-auto">
+                <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-1" />
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 text-[#1D4ED8] flex items-center justify-center">
+                      <Camera className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-900 block">Enrôler par Scan Caméra</span>
+                      <span className="text-[10px] text-slate-500 block">Mode inversé : scannez le QR affiché par le salarié</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeCameraScanModal}
+                    aria-label="Fermer"
+                    className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
+                  >
+                    <X className="w-4 h-4 text-white" />
+                  </button>
+                </div>
+
+                {/* Aperçu Caméra Vidéo */}
+                <div className="relative aspect-video bg-slate-950 rounded-2xl overflow-hidden border-2 border-[#1D4ED8] flex items-center justify-center">
+                  <video
+                    ref={scanVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                  {!cameraActive && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-white/80 text-[11px] p-4 text-center">
+                      <Camera className="w-6 h-6 mb-1 opacity-70" />
+                      <span>Caméra non active sur cet appareil</span>
+                    </div>
+                  )}
+                  <div className="absolute inset-3 border-2 border-dashed border-blue-400/70 rounded-xl pointer-events-none" />
+                </div>
+
+                {cameraStatusNote && (
+                  <div className="p-2 rounded-xl bg-blue-50 border border-blue-200 text-[10px] font-semibold text-blue-900">
+                    {cameraStatusNote}
+                  </div>
+                )}
+
+                <form onSubmit={handleCameraScanBind} className="space-y-2.5">
+                  <div>
+                    <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Collaborateur à lier</label>
+                    <select
+                      value={scanTargetEmpId}
+                      onChange={(e) => setScanTargetEmpId(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-900"
+                    >
+                      {dbEmployees.map(emp => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.full_name} {emp.bound_device_id ? '(Déjà lié)' : '• En attente'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Identifiant Smartphone (Device ID)</label>
+                    <input
+                      type="text"
+                      required
+                      value={scannedDeviceId}
+                      onChange={(e) => applyScannedQrPayload(e.target.value)}
+                      placeholder="Auto-rempli par caméra ou collez le code QR..."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Modèle détecté (optionnel)</label>
+                    <input
+                      type="text"
+                      value={scannedDeviceModel}
+                      onChange={(e) => setScannedDeviceModel(e.target.value)}
+                      placeholder="Ex: Samsung Galaxy A54 / TECNO"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={bindingInProgress}
+                    className="w-full py-2.5 bg-[#1D4ED8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition cursor-pointer disabled:opacity-60 shadow-sm"
+                  >
+                    {bindingInProgress ? 'Liaison en cours...' : 'Lier & Activer ce Smartphone'}
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* BOTTOM SHEET 12 : KIT D'ENRÔLEMENT FLASH, CODE CANONIQUE & POLITIQUES D'ADMISSION */}
+          {showFlashKitModal && (
+            <div
+              onClick={(e) => { if (e.target === e.currentTarget) setShowFlashKitModal(false); }}
+              className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end justify-center p-0 animate-fadeIn"
+            >
+              <div className="bg-white border-t border-slate-200 w-full rounded-t-[28px] px-4 pt-2.5 pb-6 space-y-3.5 shadow-2xl max-h-[92vh] overflow-y-auto">
+                <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-1" />
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                      <Zap className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-900 block">Kit d&apos;Enrôlement Flash & Admission</span>
+                      <span className="text-[10px] text-slate-500 block">Enrôlez 5 à 500+ salariés sans tout saisir</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowFlashKitModal(false)}
+                    aria-label="Fermer"
+                    className="w-8 h-8 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm shrink-0"
+                  >
+                    <X className="w-4 h-4 text-white" />
+                  </button>
+                </div>
+
+                {/* Code Canonique */}
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-extrabold uppercase text-[#1D4ED8]">Code Entreprise Canonique</span>
+                    <button
+                      type="button"
+                      onClick={handleGenerateCanonicalOrgCode}
+                      className="text-[10px] font-extrabold text-[#1D4ED8] hover:underline cursor-pointer"
+                    >
+                      ↻ Régénérer code sécurisé
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="flex-1 font-mono font-black text-xs text-slate-900 bg-white border border-blue-200 rounded-xl px-3 py-1.5 select-all">
+                      {orgCode}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (typeof window !== 'undefined') navigator.clipboard.writeText(orgCode);
+                        triggerToast('Code canonique copié !');
+                      }}
+                      className="p-2 bg-[#1D4ED8] text-white rounded-xl cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* QR Flash + Lien Direct */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-center space-y-2.5">
+                  <div className="p-2.5 bg-white rounded-2xl border-2 border-dashed border-[#1D4ED8] inline-flex mx-auto">
+                    <RealQrCode value={flashJoinUrl} size={140} />
+                  </div>
+                  <p className="text-[10px] text-slate-600 leading-snug">
+                    Tout salarié qui scanne ce QR ou ouvre le lien ci-dessous rejoint directement <strong>{orgName}</strong>.
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (typeof window !== 'undefined') navigator.clipboard.writeText(flashJoinUrl);
+                        setCopiedFlashUrl(true);
+                        triggerToast('Lien /rejoindre copié !');
+                        setTimeout(() => setCopiedFlashUrl(false), 2500);
+                      }}
+                      className="py-2 bg-white border border-slate-200 text-slate-800 font-bold text-[11px] rounded-xl flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>{copiedFlashUrl ? 'Copié !' : 'Copier Lien'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyFlashInvite}
+                      className="py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-xl flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      <span>Texte WhatsApp</span>
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => window.open(flashJoinUrl, '_blank')}
+                    className="w-full py-1.5 bg-blue-50 text-[#1D4ED8] font-bold text-[11px] rounded-xl border border-blue-200 flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Tester le portail d&apos;onboarding (/rejoindre)</span>
+                  </button>
+                </div>
+
+                {/* Politique d'Admission */}
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-extrabold uppercase text-slate-500 block px-0.5">
+                    Politique d&apos;Admission & Filtrage
+                  </span>
+                  {([
+                    {
+                      id: 'STRICT',
+                      title: '🛡️ Mode Strict (Recommandé)',
+                      desc: 'Seuls les matricules déjà importés/créés peuvent se lier.'
+                    },
+                    {
+                      id: 'MODERATE',
+                      title: '⚖️ Approbation Manuelle',
+                      desc: 'Enrôlement libre via le Kit Flash, puis validation en 1 clic par vous.'
+                    },
+                    {
+                      id: 'OPEN',
+                      title: '⚡ Mode Ouvert (Salons & Événements)',
+                      desc: 'Accès immédiat sans pré-création de matricule.'
+                    }
+                  ] as const).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => handleSaveAdmissionPolicy(item.id)}
+                      className={`w-full p-2.5 rounded-2xl border text-left transition cursor-pointer flex items-start justify-between gap-2 ${
+                        orgAdmissionPolicy === item.id
+                          ? 'bg-blue-50 border-[#1D4ED8] ring-1 ring-blue-300'
+                          : 'bg-white border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div>
+                        <span className="font-extrabold text-xs text-slate-900 block">{item.title}</span>
+                        <span className="text-[10px] text-slate-500 block leading-snug mt-0.5">{item.desc}</span>
+                      </div>
+                      {orgAdmissionPolicy === item.id && <CheckCircle2 className="w-4 h-4 text-[#1D4ED8] shrink-0 mt-0.5" />}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>

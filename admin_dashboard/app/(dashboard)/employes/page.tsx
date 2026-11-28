@@ -92,6 +92,7 @@ export default function EmployeesPage() {
   const [bindingInProgress, setBindingInProgress] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const scanIntervalRef = useRef<number | null>(null);
 
   // Helpers pour le Lien Magique
   const getMagicLink = (emp: Employee) => {
@@ -572,12 +573,45 @@ export default function EmployeesPage() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
+
+      const BarcodeDet = typeof window !== 'undefined' ? (window as any).BarcodeDetector : null;
+      if (BarcodeDet) {
+        const detector = new BarcodeDet({ formats: ['qr_code'] });
+        scanIntervalRef.current = window.setInterval(async () => {
+          if (!videoRef.current || videoRef.current.readyState < 2) return;
+          try {
+            const codes = await detector.detect(videoRef.current);
+            if (codes && codes.length > 0 && codes[0].rawValue) {
+              const raw = String(codes[0].rawValue).trim();
+              let devId = raw;
+              let devModel = '';
+              try {
+                if (raw.startsWith('{')) {
+                  const obj = JSON.parse(raw);
+                  devId = obj.device_id || obj.deviceId || obj.id || raw;
+                  devModel = obj.device_model || obj.model || '';
+                } else if (raw.includes('device=')) {
+                  const u = new URL(raw.startsWith('http') ? raw : `https://dummy.local/${raw.replace(/^\?/, '?')}`);
+                  devId = u.searchParams.get('device') || u.searchParams.get('device_id') || raw;
+                  devModel = u.searchParams.get('model') || '';
+                }
+              } catch {}
+              setScannedDeviceId(devId);
+              if (devModel) setScannedDeviceModel(devModel);
+            }
+          } catch {}
+        }, 450);
+      }
     } catch (err) {
       console.warn("Impossible d'accéder à la webcam:", err);
     }
   };
 
   const stopCamera = () => {
+    if (scanIntervalRef.current !== null) {
+      window.clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
