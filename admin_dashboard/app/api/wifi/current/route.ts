@@ -115,48 +115,10 @@ export async function GET(req: Request) {
       } catch {}
     }
 
-    // 3. Fallback automatique : Récupérer le Wi-Fi certifié de l'établissement de CETTE entreprise
-    try {
-      const cookieHeader = req.headers.get('cookie') || '';
-      const orgMatch = cookieHeader.match(/pointage_active_org_id=([^;]+)/);
-      const activeOrgId = orgMatch ? orgMatch[1].trim() : null;
-
-      const supabase = createClient();
-      let query = supabase
-        .from('pointage_establishments')
-        .select('wifi_ssid, wifi_bssids')
-        .not('wifi_ssid', 'is', null);
-
-      if (activeOrgId) {
-        query = query.eq('org_id', activeOrgId);
-      }
-
-      const { data: estData } = await query
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (estData && estData.wifi_ssid) {
-        const regSsid = estData.wifi_ssid;
-        const regBssid = (estData.wifi_bssids && estData.wifi_bssids[0]) || null;
-        cachedWifi = { ssid: regSsid, bssid: regBssid, timestamp: Date.now() };
-        return NextResponse.json({
-          success: true,
-          ssid: regSsid,
-          bssid: regBssid,
-          verified: true,
-          source: 'registered_establishment',
-          message: `Box Wi-Fi configurée : ${regSsid}`
-        });
-      }
-    } catch (dbErr) {
-      console.warn('Fallback base Wi-Fi error:', dbErr);
-    }
-
-    // 4. Si aucun Wi-Fi matériel n'a pu être scanné
+    // 3. Si aucun Wi-Fi matériel n'a pu être scanné en direct sur cette machine
     return NextResponse.json({
       success: false,
-      error: "Aucun réseau Wi-Fi connecté n'a pu être scanné sur cette machine. Vous pouvez renseigner manuellement le nom de votre Box (SSID)."
+      error: "Aucun réseau Wi-Fi n'est connecté en direct sur cette machine."
     });
   } catch (e: any) {
     return NextResponse.json({
