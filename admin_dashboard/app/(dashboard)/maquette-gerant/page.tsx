@@ -1970,11 +1970,11 @@ export default function MaquetteGerantPage() {
               <button
                 type="button"
                 onClick={() => setIsSandwichOpen(true)}
-                className="w-9 h-9 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-slate-200"
+                className="w-9 h-9 rounded-2xl bg-[#1D4ED8] hover:bg-blue-700 text-white flex items-center justify-center transition-all duration-200 ease-out active:scale-90 cursor-pointer border border-blue-500/40 shadow-sm"
                 title="Menu complet de direction"
                 aria-label="Menu principal"
               >
-                <Menu className={`w-4 h-4 text-slate-800 transition-transform duration-300 ${isSandwichOpen ? 'rotate-90 scale-95' : 'rotate-0 scale-100'}`} />
+                <Menu className={`w-4 h-4 text-white transition-transform duration-300 ${isSandwichOpen ? 'rotate-90 scale-95' : 'rotate-0 scale-100'}`} />
               </button>
 
               <div className="flex items-center space-x-2">
