@@ -2020,27 +2020,32 @@ export default function MaquetteGerantPage() {
             {activeTab === 'cockpit' && (
               <div className="space-y-4 animate-fadeIn">
 
-                <div className="bg-white border border-slate-200/80 rounded-3xl p-4 shadow-sm relative overflow-hidden">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-[11px] font-extrabold text-slate-700 flex items-center gap-1.5">
-                      <Building2 className="w-3.5 h-3.5 text-blue-600" />
-                      <span>{activeEstablishment?.name || 'Siège Principal'}</span>
+                {/* Carte Hero Premium Bleu Vitre Dépolie (Frosted Glass Royal Blue) */}
+                <div className="bg-gradient-to-br from-blue-600/95 via-blue-700/95 to-indigo-800/95 backdrop-blur-xl border border-white/25 rounded-3xl p-4 shadow-xl shadow-blue-600/25 relative overflow-hidden text-white">
+                  {/* Reflets vitre lumineuse subtils */}
+                  <div className="absolute -top-12 -right-10 w-36 h-36 bg-white/15 rounded-full blur-2xl pointer-events-none" />
+                  <div className="absolute -bottom-12 -left-10 w-32 h-32 bg-cyan-300/15 rounded-full blur-2xl pointer-events-none" />
+
+                  <div className="relative z-10 flex items-center justify-between mb-3">
+                    <span className="text-[11px] font-extrabold text-white/95 flex items-center gap-1.5 min-w-0 pr-2">
+                      <Building2 className="w-3.5 h-3.5 text-blue-100 shrink-0" />
+                      <span className="truncate">{activeEstablishment?.name || 'Siège Principal'}</span>
                     </span>
-                    <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-[10px] font-black text-white bg-white/15 backdrop-blur-md border border-white/25 px-2.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
                       Télémétrie Live
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between gap-4 py-1">
+                  <div className="relative z-10 flex items-center justify-between gap-3 py-1">
                     <div className="flex items-center space-x-3">
-                      <div className="relative w-16 h-16 flex items-center justify-center">
+                      <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
                         <svg className="w-16 h-16 -rotate-90">
                           <circle
                             cx="32"
                             cy="32"
                             r="26"
-                            className="text-slate-100 stroke-current"
+                            className="text-white/20 stroke-current"
                             strokeWidth="5"
                             fill="transparent"
                           />
@@ -2048,7 +2053,7 @@ export default function MaquetteGerantPage() {
                             cx="32"
                             cy="32"
                             r="26"
-                            className="text-emerald-500 stroke-current transition-all duration-1000 ease-out"
+                            className="text-emerald-300 stroke-current transition-all duration-1000 ease-out drop-shadow-[0_0_6px_rgba(110,231,183,0.6)]"
                             strokeWidth="5"
                             strokeDasharray={163.36}
                             strokeDashoffset={163.36 - (163.36 * attendanceRate) / 100}
@@ -2057,29 +2062,29 @@ export default function MaquetteGerantPage() {
                           />
                         </svg>
                         <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                          <span className="text-sm font-black text-slate-900 leading-none">{attendanceRate}%</span>
+                          <span className="text-sm font-black text-white leading-none">{attendanceRate}%</span>
                         </div>
                       </div>
                       <div>
-                        <span className="text-xs font-black text-slate-900 block">Taux Présence</span>
-                        <span className="text-[11px] text-slate-500 font-medium">
+                        <span className="text-xs font-black text-white block">Taux Présence</span>
+                        <span className="text-[11px] text-blue-100/90 font-medium">
                           {presentCount} sur {totalEmployees} sur site
                         </span>
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2">
-                      <div className="bg-emerald-50/70 border border-emerald-100 px-2.5 py-2 rounded-2xl text-center min-w-[54px]">
-                        <span className="text-base font-black text-emerald-700 leading-none block">{presentCount}</span>
-                        <span className="text-[9px] text-emerald-600 font-bold block mt-0.5">Présents</span>
+                    <div className="flex items-center space-x-1.5">
+                      <div className="bg-white/15 backdrop-blur-md border border-white/20 px-2 py-2 rounded-2xl text-center min-w-[50px]">
+                        <span className="text-base font-black text-white leading-none block">{presentCount}</span>
+                        <span className="text-[9px] text-emerald-200 font-bold block mt-0.5">Présents</span>
                       </div>
-                      <div className="bg-amber-50/70 border border-amber-100 px-2.5 py-2 rounded-2xl text-center min-w-[54px]">
-                        <span className="text-base font-black text-amber-700 leading-none block">{lateCount}</span>
-                        <span className="text-[9px] text-amber-600 font-bold block mt-0.5">Retards</span>
+                      <div className="bg-white/15 backdrop-blur-md border border-white/20 px-2 py-2 rounded-2xl text-center min-w-[50px]">
+                        <span className="text-base font-black text-amber-200 leading-none block">{lateCount}</span>
+                        <span className="text-[9px] text-amber-100 font-bold block mt-0.5">Retards</span>
                       </div>
-                      <div className="bg-rose-50/70 border border-rose-100 px-2.5 py-2 rounded-2xl text-center min-w-[54px]">
-                        <span className="text-base font-black text-rose-700 leading-none block">{alertCount}</span>
-                        <span className="text-[9px] text-rose-600 font-bold block mt-0.5">Alertes</span>
+                      <div className="bg-white/15 backdrop-blur-md border border-white/20 px-2 py-2 rounded-2xl text-center min-w-[50px]">
+                        <span className="text-base font-black text-rose-200 leading-none block">{alertCount}</span>
+                        <span className="text-[9px] text-rose-100 font-bold block mt-0.5">Alertes</span>
                       </div>
                     </div>
                   </div>
@@ -2652,69 +2657,43 @@ export default function MaquetteGerantPage() {
 
           </div>
 
-          {/* BARRE DE NAVIGATION INFÉRIEURE WHATSAPP STYLE */}
+          {/* BARRE DE NAVIGATION INFÉRIEURE AVEC ZOOM FLUIDE AU CLIC */}
           <div className="border-t border-slate-200/80 bg-white/95 backdrop-blur-md px-2 py-1.5 flex items-center justify-around shrink-0 z-30 shadow-lg">
-            <button
-              type="button"
-              onClick={() => setActiveTab('cockpit')}
-              className={`flex flex-col items-center py-1 px-2.5 rounded-2xl transition cursor-pointer ${
-                activeTab === 'cockpit' ? 'text-blue-600 font-extrabold scale-105' : 'text-slate-400 hover:text-slate-700'
-              }`}
-            >
-              <Activity className="w-4 h-4 mb-0.5" />
-              <span className="text-[10px]">Cockpit</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('sites')}
-              className={`flex flex-col items-center py-1 px-2.5 rounded-2xl transition cursor-pointer ${
-                activeTab === 'sites' ? 'text-blue-600 font-extrabold scale-105' : 'text-slate-400 hover:text-slate-700'
-              }`}
-            >
-              <Building2 className="w-4 h-4 mb-0.5" />
-              <span className="text-[10px]">Sites</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('equipe')}
-              className={`flex flex-col items-center py-1 px-2.5 rounded-2xl transition cursor-pointer ${
-                activeTab === 'equipe' ? 'text-blue-600 font-extrabold scale-105' : 'text-slate-400 hover:text-slate-700'
-              }`}
-            >
-              <Users className="w-4 h-4 mb-0.5" />
-              <span className="text-[10px]">Personnel</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('plannings')}
-              className={`flex flex-col items-center py-1 px-2.5 rounded-2xl transition cursor-pointer ${
-                activeTab === 'plannings' ? 'text-blue-600 font-extrabold scale-105' : 'text-slate-400 hover:text-slate-700'
-              }`}
-            >
-              <CalendarDays className="w-4 h-4 mb-0.5" />
-              <span className="text-[10px]">Couloirs</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('justifs')}
-              className={`flex flex-col items-center py-1 px-2.5 rounded-2xl transition cursor-pointer relative ${
-                activeTab === 'justifs' ? 'text-blue-600 font-extrabold scale-105' : 'text-slate-400 hover:text-slate-700'
-              }`}
-            >
-              <div className="relative">
-                <CheckCircle2 className="w-4 h-4 mb-0.5" />
-                {pendingCount > 0 && (
-                  <span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full bg-rose-500 text-white text-[8px] font-black flex items-center justify-center">
-                    {pendingCount}
+            {(
+              [
+                { id: 'cockpit', label: 'Cockpit', Icon: Activity, badge: 0 },
+                { id: 'sites', label: 'Sites', Icon: Building2, badge: 0 },
+                { id: 'equipe', label: 'Personnel', Icon: Users, badge: 0 },
+                { id: 'plannings', label: 'Couloirs', Icon: CalendarDays, badge: 0 },
+                { id: 'justifs', label: 'Arbitrage', Icon: CheckCircle2, badge: pendingCount }
+              ] as const
+            ).map(({ id, label, Icon, badge }) => {
+              const isActive = activeTab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setActiveTab(id)}
+                  className={`flex flex-col items-center py-1.5 px-2.5 rounded-2xl cursor-pointer relative transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] active:scale-90 ${
+                    isActive
+                      ? 'bg-blue-50/95 text-blue-600 font-extrabold scale-110 -translate-y-0.5 shadow-xs ring-1 ring-blue-200/70'
+                      : 'text-slate-400 hover:text-slate-700 scale-95 hover:scale-100'
+                  }`}
+                >
+                  <div className={`relative transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isActive ? 'scale-110' : ''}`}>
+                    <Icon className="w-4 h-4 mb-0.5" />
+                    {badge > 0 && (
+                      <span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full bg-rose-500 text-white text-[8px] font-black flex items-center justify-center">
+                        {badge}
+                      </span>
+                    )}
+                  </div>
+                  <span className={`text-[10px] tracking-tight transition-all duration-300 ${isActive ? 'font-extrabold' : 'font-medium'}`}>
+                    {label}
                   </span>
-                )}
-              </div>
-              <span className="text-[10px]">Arbitrage</span>
-            </button>
+                </button>
+              );
+            })}
           </div>
 
           <div className="h-3.5 bg-white flex items-center justify-center shrink-0">
