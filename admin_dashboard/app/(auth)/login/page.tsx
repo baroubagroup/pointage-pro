@@ -47,6 +47,17 @@ export default function LoginPage() {
       });
 
       if (!matchedOrg) {
+        fetch('/api/audit/log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event_type: 'LOGIN_FAILED',
+            severity: 'WARNING',
+            actor_identifier: cleanId,
+            details: { reason: 'Identifiant ou code organisation introuvable' }
+          })
+        }).catch(() => {});
+
         setError("Identifiant introuvable. Veuillez vérifier votre adresse email professionnelle ou votre code organisation.");
         setLoading(false);
         return;
@@ -71,10 +82,39 @@ export default function LoginPage() {
       }
 
       if (!isAuthenticated) {
+        fetch('/api/audit/log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            org_id: matchedOrg.id,
+            org_code: matchedOrg.org_code,
+            event_type: 'LOGIN_FAILED',
+            severity: 'CRITICAL',
+            actor_name: matchedOrg.security_config?.manager_name || null,
+            actor_identifier: cleanId,
+            details: { reason: 'Mot de passe incorrect', org_name: matchedOrg.name }
+          })
+        }).catch(() => {});
+
         setError("Mot de passe incorrect pour cet espace entreprise. Veuillez réessayer.");
         setLoading(false);
         return;
       }
+
+      // Journaliser la connexion réussie dans le registre d'audit immuable
+      await fetch('/api/audit/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: matchedOrg.id,
+          org_code: matchedOrg.org_code,
+          event_type: 'LOGIN_SUCCESS',
+          severity: 'INFO',
+          actor_name: matchedOrg.security_config?.manager_name || 'Dirigeant',
+          actor_identifier: matchedOrg.security_config?.manager_email || cleanId,
+          details: { org_name: matchedOrg.name }
+        })
+      }).catch(() => {});
 
       // 3. Mémorisation stricte et isolée de l'organisation connectée
       if (typeof window !== 'undefined') {

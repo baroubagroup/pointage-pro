@@ -184,7 +184,16 @@ export default function MaquetteGerantPage() {
   const [showQrModal, setShowQrModal] = useState<any | null>(null);
   const [showRelevesDrawer, setShowRelevesDrawer] = useState(false);
   const [showSecurityDrawer, setShowSecurityDrawer] = useState(false);
+  const [showAuditDrawer, setShowAuditDrawer] = useState(false);
   const [showPhoneQrModal, setShowPhoneQrModal] = useState(false);
+
+  // Journal d'Audit Inviolable
+  const [auditEntries, setAuditEntries] = useState<any[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditChainIntact, setAuditChainIntact] = useState<boolean>(true);
+  const [auditStorageMode, setAuditStorageMode] = useState<'supabase_immutable' | 'local_ledger'>('local_ledger');
+  const [auditNeedsSql, setAuditNeedsSql] = useState<boolean>(false);
+  const [auditFilter, setAuditFilter] = useState<'ALL' | 'AUTH' | 'SITES_SEC' | 'OPS'>('ALL');
 
   // Formulaires Employé
   const [broadcastText, setBroadcastText] = useState('');
@@ -196,6 +205,7 @@ export default function MaquetteGerantPage() {
 
   // Formulaire Site & Géofencing (2 modes GPS + Vue Satellite + Multi-Wi-Fi)
   const [editingSiteId, setEditingSiteId] = useState<string | null>(null);
+  const [confirmDeleteSiteId, setConfirmDeleteSiteId] = useState<string | null>(null);
   const [newSiteName, setNewSiteName] = useState('');
   const [newSiteCity, setNewSiteCity] = useState('Bobo-Dioulasso');
   const [newSiteRadius, setNewSiteRadius] = useState<number>(80);
@@ -204,6 +214,7 @@ export default function MaquetteGerantPage() {
   const [newSiteLon, setNewSiteLon] = useState<string>('-4.291915');
   const [gpsAccuracyMeters, setGpsAccuracyMeters] = useState<number | null>(null);
   const [gpsStatusNote, setGpsStatusNote] = useState<string | null>(null);
+  const [mapResolvedAddress, setMapResolvedAddress] = useState<string | null>(null);
   const [mapsLinkInput, setMapsLinkInput] = useState<string>('');
   const [isResolvingMapsLink, setIsResolvingMapsLink] = useState(false);
   const gpsWatchRef = useRef<number | null>(null);
@@ -782,11 +793,63 @@ export default function MaquetteGerantPage() {
     setSiteWifiList(prev => prev.filter((_, i) => i !== index));
   };
 
+  // Journal d'Audit Inviolable (lecture & enregistrement SHA-256 côté serveur)
+  const recordAuditEvent = (
+    event_type: string,
+    severity: 'INFO' | 'WARNING' | 'CRITICAL',
+    details: Record<string, any> = {}
+  ) => {
+    const targetOrgId = orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+    const mgrName = typeof window !== 'undefined' ? localStorage.getItem('pointage_manager_name') : null;
+    const mgrEmail = typeof window !== 'undefined' ? localStorage.getItem('pointage_manager_email') : null;
+
+    fetch('/api/audit/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        org_id: targetOrgId,
+        org_code: orgCode,
+        event_type,
+        severity,
+        actor_name: mgrName || 'Gérant Mobile',
+        actor_identifier: mgrEmail || orgCode,
+        details
+      })
+    }).catch(() => {});
+  };
+
+  const loadAuditLogs = async () => {
+    setAuditLoading(true);
+    try {
+      const targetOrgId = orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+      const url = targetOrgId ? `/api/audit/log?org_id=${encodeURIComponent(targetOrgId)}` : '/api/audit/log';
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data && data.success) {
+        setAuditEntries(data.entries || []);
+        setAuditChainIntact(data.chainIntact !== false);
+        setAuditStorageMode(data.storage === 'supabase_immutable' ? 'supabase_immutable' : 'local_ledger');
+        setAuditNeedsSql(!!data.needsSqlMigration);
+      }
+    } catch {
+      triggerToast("Impossible de charger le journal d'audit.");
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showAuditDrawer) {
+      loadAuditLogs();
+    }
+  }, [showAuditDrawer, orgId]);
+
   // Ouvrir modale création / édition de site
   const openSiteModal = (siteToEdit?: any) => {
     setWifiDetectNote(null);
     setGpsStatusNote(null);
     setGpsAccuracyMeters(null);
+    setMapResolvedAddress(null);
     setMapsLinkInput('');
     setWifiAddMode('detect');
     setManualWifiSsid('');
@@ -864,6 +927,11 @@ export default function MaquetteGerantPage() {
         if (updated) {
           setDbEstablishments(prev => prev.map(s => s.id === editingSiteId ? updated : s));
           setShowAddSiteModal(false);
+          recordAuditEvent('SITE_UPDATED', 'INFO', {
+            site_name: updated.name,
+            radius_meters: updated.radius_meters,
+            wifi_ssid: cleanSsid || 'Aucun'
+          });
           triggerToast(`✓ Site "${updated.name}" mis à jour !`);
         }
       } else {
@@ -888,11 +956,39 @@ export default function MaquetteGerantPage() {
           setDbEstablishments(prev => [...prev, newSite]);
           setShowAddSiteModal(false);
           setNewSiteName('');
+          recordAuditEvent('SITE_CREATED', 'INFO', {
+            site_name: newSite.name,
+            city: newSite.city,
+            radius_meters: newSite.radius_meters
+          });
           triggerToast(`✓ Site "${newSite.name}" (${newSite.radius_meters}m) créé avec succès !`);
         }
       }
     } catch (err: any) {
       triggerToast(`Erreur site: ${err.message}`);
+    }
+  };
+
+  // C2. Supprimer (désactiver) un site existant
+  const handleDeleteSite = async (site: any) => {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('pointage_establishments')
+        .update({ is_active: false })
+        .eq('id', site.id);
+
+      if (error) throw error;
+
+      setDbEstablishments(prev => prev.filter(s => s.id !== site.id));
+      setConfirmDeleteSiteId(null);
+      recordAuditEvent('SITE_DELETED', 'WARNING', {
+        site_name: site.name,
+        city: site.city
+      });
+      triggerToast(`🗑️ Site "${site.name}" supprimé.`);
+    } catch (err: any) {
+      triggerToast(`Erreur suppression site : ${err.message}`);
     }
   };
 
@@ -1039,6 +1135,12 @@ export default function MaquetteGerantPage() {
         .eq('id', targetOrgId);
 
       if (error) throw error;
+      recordAuditEvent('SECURITY_POLICY_UPDATED', 'WARNING', {
+        require_biometrics: secBiometricsRequired,
+        hard_block_mock_gps: secMockGpsBlocked,
+        require_device_binding: secDeviceBindingStrict,
+        require_wifi_bssid: secWifiMandatory
+      });
       if (closeAfter) setShowSecurityDrawer(false);
       triggerToast("✓ Règles anti-triche appliquées en direct sur tous les téléphones !");
     } catch (err: any) {
@@ -1168,6 +1270,7 @@ export default function MaquetteGerantPage() {
         setDbSchedules(prev => [...prev, newSched]);
         setShowAddScheduleModal(false);
         setNewSchedName('');
+        recordAuditEvent('SCHEDULE_CREATED', 'INFO', { schedule_name: newSched.name, category });
         triggerToast(`✓ Couloir "${newSched.name}" (${category}) créé !`);
       }
     } catch (err: any) {
@@ -1184,6 +1287,7 @@ export default function MaquetteGerantPage() {
         .eq('id', schedId);
       if (error) throw error;
       setDbSchedules(prev => prev.filter(s => s.id !== schedId));
+      recordAuditEvent('SCHEDULE_DELETED', 'WARNING', { schedule_name: name });
       triggerToast(`Couloir "${name}" supprimé.`);
     } catch (err: any) {
       triggerToast(`Erreur: ${err.message}`);
@@ -1202,6 +1306,7 @@ export default function MaquetteGerantPage() {
       if (error) throw error;
 
       setDbEmployees(prev => prev.map(e => e.id === empId ? { ...e, bound_device_id: null, device_model: null, is_enrolled: false } : e));
+      recordAuditEvent('DEVICE_UNBOUND', 'WARNING', { employee_name: name });
       triggerToast(`✓ Téléphone de ${name} délié.`);
     } catch (err: any) {
       triggerToast(`Erreur: ${err.message}`);
@@ -1224,6 +1329,7 @@ export default function MaquetteGerantPage() {
       if (error) throw error;
 
       setDbJustifications(prev => prev.map(j => j.id === id ? { ...j, status: 'APPROVED' } : j));
+      recordAuditEvent('JUSTIF_APPROVED', 'INFO', { employee_name: name });
       triggerToast(`✓ Retard de ${name} validé et excusé.`);
       setIslandMessage(`✓ ${name} excusé`);
       setShowDynamicIslandAlert(true);
@@ -1248,6 +1354,7 @@ export default function MaquetteGerantPage() {
       if (error) throw error;
 
       setDbJustifications(prev => prev.map(j => j.id === id ? { ...j, status: 'REJECTED' } : j));
+      recordAuditEvent('JUSTIF_REJECTED', 'INFO', { employee_name: name });
       triggerToast(`✕ Justification de ${name} rejetée.`);
       setIslandMessage(`✕ Retard non excusé : ${name}`);
       setShowDynamicIslandAlert(true);
@@ -1865,6 +1972,14 @@ export default function MaquetteGerantPage() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => { setIsSandwichOpen(false); setShowAuditDrawer(true); }}
+                      className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-slate-700 hover:bg-slate-100 text-xs font-bold transition text-left cursor-pointer"
+                    >
+                      <Radio className="w-4 h-4 text-purple-600" />
+                      <span>Journal d&apos;Audit Inviolable</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => { setIsSandwichOpen(false); setShowBroadcastModal(true); }}
                       className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-slate-700 hover:bg-slate-100 text-xs font-bold transition text-left cursor-pointer"
                     >
@@ -2195,19 +2310,47 @@ export default function MaquetteGerantPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => openSiteModal(site)}
-                          className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <Edit3 className="w-3 h-3 text-blue-600" />
-                          <span>Calibrer GPS / Wi-Fi</span>
-                        </button>
-                        <span className="px-3 py-1.5 bg-blue-50 text-blue-700 font-bold text-[11px] rounded-xl border border-blue-100">
-                          ±1m
-                        </span>
-                      </div>
+                      {confirmDeleteSiteId === site.id ? (
+                        <div className="bg-rose-50 border border-rose-200 p-2.5 rounded-2xl flex items-center justify-between gap-2 text-[11px]">
+                          <span className="font-bold text-rose-800">Supprimer ce site ?</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSite(site)}
+                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg cursor-pointer"
+                            >
+                              Confirmer
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteSiteId(null)}
+                              className="px-2 py-1 bg-white border border-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer"
+                            >
+                              Annuler
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => openSiteModal(site)}
+                            className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Edit3 className="w-3 h-3 text-blue-600" />
+                            <span>Modifier / Calibrer</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteSiteId(site.id)}
+                            className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[11px] rounded-xl border border-rose-200 transition flex items-center justify-center gap-1 cursor-pointer"
+                            title="Supprimer ce site"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Supprimer</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2861,17 +3004,19 @@ export default function MaquetteGerantPage() {
                       </p>
                     )}
 
-                    {/* Aperçu Carte Satellite Interactive Gratuite */}
-                    <div className="space-y-1">
+                    {/* Aperçu Carte Satellite Interactive Gratuite (Épurée, 0 texte par-dessus la zone) */}
+                    <div className="space-y-1.5">
                       <DynamicSiteGeofenceMap
-                        name={newSiteName || 'Nouveau Site'}
+                        name={newSiteName || 'Site'}
                         city={newSiteCity || 'Site'}
                         lat={parseFloat(newSiteLat) || 11.247051}
                         lon={parseFloat(newSiteLon) || -4.291915}
                         radiusMeters={newSiteRadius}
                         mode="picker"
                         defaultStyle="googleHybrid"
-                        heightClassName="h-52"
+                        heightClassName="h-56"
+                        compact={true}
+                        onAddressChange={(addr) => setMapResolvedAddress(addr)}
                         onCoordinatesChange={(lat, lon) => {
                           setNewSiteLat(lat.toFixed(6));
                           setNewSiteLon(lon.toFixed(6));
@@ -2879,9 +3024,14 @@ export default function MaquetteGerantPage() {
                           setGpsStatusNote("✓ Repère ajusté visuellement sur la vue satellite (précision 1m).");
                         }}
                       />
-                      <span className="text-[9px] text-slate-500 block text-center">
-                        Touchez directement votre bâtiment sur la vue satellite pour ajuster au mètre près.
-                      </span>
+                      <div className="flex items-center justify-between text-[10px] px-1 text-slate-600 gap-2">
+                        <span className="truncate font-medium">
+                          {mapResolvedAddress ? `📍 ${mapResolvedAddress}` : 'Touchez la carte pour déplacer le point'}
+                        </span>
+                        <span className="font-mono text-slate-500 shrink-0">
+                          {Number(newSiteLat || 0).toFixed(5)}, {Number(newSiteLon || 0).toFixed(5)}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -3697,6 +3847,222 @@ export default function MaquetteGerantPage() {
                 >
                   {savingSecurity ? 'Enregistrement en cours...' : 'Appliquer les Règles de Sécurité'}
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setShowSecurityDrawer(false); setShowAuditDrawer(true); }}
+                  className="w-full py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-[11px] rounded-xl border border-purple-200 transition cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Radio className="w-3.5 h-3.5" />
+                  <span>Consulter le Journal d&apos;Audit Inviolable</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TIROIR MODAL 8 : JOURNAL D'AUDIT INVIOLABLE (APPEND-ONLY + SHA-256) */}
+          {showAuditDrawer && (
+            <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-2 sm:p-3 animate-fadeIn">
+              <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3 shadow-2xl h-[92%] flex flex-col">
+
+                {/* En-tête */}
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Radio className="w-4 h-4 text-purple-600" />
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-900 block">Journal d&apos;Audit Inviolable</span>
+                      <span className="text-[9px] text-slate-500 block">Lecture seule • Chaînage SHA-256 anti-falsification</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAuditDrawer(false)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Bandeau d'intégrité cryptographique & mode de stockage */}
+                <div className="space-y-1.5 shrink-0">
+                  <div className={`p-2.5 rounded-2xl border flex items-center justify-between text-[11px] ${
+                    auditChainIntact
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-rose-50 border-rose-200 text-rose-800'
+                  }`}>
+                    <span className="font-extrabold flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 shrink-0" />
+                      {auditChainIntact
+                        ? `Intégrité SHA-256 vérifiée (${auditEntries.length} entrée${auditEntries.length > 1 ? 's' : ''})`
+                        : '⚠️ Alerte : rupture dans la chaîne cryptographique !'}
+                    </span>
+                    <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/80 border border-current/20">
+                      {auditStorageMode === 'supabase_immutable' ? 'Cloud SQL' : 'Serveur Local'}
+                    </span>
+                  </div>
+
+                  {auditNeedsSql && (
+                    <div className="p-2 rounded-xl bg-amber-50 border border-amber-200 text-[10px] text-amber-900 flex items-center justify-between gap-2">
+                      <span className="leading-snug">
+                        Table cloud non activée : exécutez <code className="font-mono font-bold">audit_logs_immutable.sql</code> dans Supabase pour verrouiller le cloud PostgreSQL.
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Filtres par catégorie */}
+                  <div className="grid grid-cols-4 gap-1 bg-slate-100 p-1 rounded-xl text-[10px] font-bold">
+                    {[
+                      { id: 'ALL', label: 'Tous' },
+                      { id: 'AUTH', label: 'Connexions' },
+                      { id: 'SITES_SEC', label: 'Sites/Séc.' },
+                      { id: 'OPS', label: 'RH' }
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setAuditFilter(f.id as any)}
+                        className={`py-1 rounded-lg transition cursor-pointer ${
+                          auditFilter === f.id ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Liste immuable des événements */}
+                <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">
+                  {auditLoading ? (
+                    <div className="p-8 text-center text-xs text-slate-500">
+                      <div className="w-5 h-5 border-2 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                      Vérification de la chaîne d&apos;audit...
+                    </div>
+                  ) : auditEntries.filter((ev) => {
+                      if (auditFilter === 'ALL') return true;
+                      if (auditFilter === 'AUTH') return ev.event_type?.startsWith('LOGIN_');
+                      if (auditFilter === 'SITES_SEC') return ev.event_type?.startsWith('SITE_') || ev.event_type?.startsWith('SECURITY_');
+                      return !ev.event_type?.startsWith('LOGIN_') && !ev.event_type?.startsWith('SITE_') && !ev.event_type?.startsWith('SECURITY_');
+                    }).length === 0 ? (
+                    <div className="p-6 text-center bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-500 space-y-1">
+                      <Radio className="w-6 h-6 text-purple-500 mx-auto" />
+                      <p className="font-bold text-slate-800">Aucun événement enregistré pour ce filtre</p>
+                      <p className="text-[10px]">
+                        Toutes les tentatives de connexion (réussies ou refusées) et modifications critiques apparaîtront ici de manière immuable.
+                      </p>
+                    </div>
+                  ) : (
+                    auditEntries
+                      .filter((ev) => {
+                        if (auditFilter === 'ALL') return true;
+                        if (auditFilter === 'AUTH') return ev.event_type?.startsWith('LOGIN_');
+                        if (auditFilter === 'SITES_SEC') return ev.event_type?.startsWith('SITE_') || ev.event_type?.startsWith('SECURITY_');
+                        return !ev.event_type?.startsWith('LOGIN_') && !ev.event_type?.startsWith('SITE_') && !ev.event_type?.startsWith('SECURITY_');
+                      })
+                      .map((ev) => {
+                        const isCrit = ev.severity === 'CRITICAL';
+                        const isWarn = ev.severity === 'WARNING';
+                        const dt = new Date(ev.created_at);
+                        const dtStr = dt.toLocaleString('fr-FR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                        });
+                        const detailsSummary = ev.details && typeof ev.details === 'object'
+                          ? Object.entries(ev.details).map(([k, v]) => `${k}: ${v}`).join(' • ')
+                          : '';
+
+                        return (
+                          <div
+                            key={ev.id}
+                            className={`p-3 rounded-2xl border text-[11px] space-y-1.5 ${
+                              isCrit
+                                ? 'bg-rose-50/70 border-rose-200'
+                                : isWarn
+                                  ? 'bg-amber-50/60 border-amber-200'
+                                  : 'bg-slate-50 border-slate-200/80'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${
+                                isCrit
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : isWarn
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-blue-100 text-blue-800'
+                              }`}>
+                                {ev.event_type}
+                              </span>
+                              <span className="font-mono text-[10px] text-slate-500 shrink-0">{dtStr}</span>
+                            </div>
+
+                            <div className="text-slate-800 font-bold">
+                              👤 {ev.actor_name || 'Inconnu'} {ev.actor_identifier ? `(${ev.actor_identifier})` : ''}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-600">
+                              <span>🌐 IP : <strong className="font-mono text-slate-800">{ev.ip_address || 'Non transmise'}</strong></span>
+                              <span>💻 {ev.user_agent || 'Agent non transmis'}</span>
+                            </div>
+
+                            {detailsSummary && (
+                              <div className="text-[10px] text-slate-700 bg-white/80 rounded-lg px-2 py-1 border border-slate-200/60 break-words">
+                                {detailsSummary}
+                              </div>
+                            )}
+
+                            <div className="text-[9px] font-mono text-slate-400 truncate">
+                              🔒 Sceau SHA-256 : #{String(ev.entry_hash || '').slice(0, 16)}...
+                            </div>
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
+
+                {/* Pied : Export Excel officiel du journal d'audit */}
+                <div className="grid grid-cols-2 gap-2 pt-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={loadAuditLogs}
+                    className="py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition cursor-pointer"
+                  >
+                    ↻ Actualiser
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (auditEntries.length === 0) {
+                        triggerToast("Aucune entrée d'audit à exporter.");
+                        return;
+                      }
+                      const wb = XLSX.utils.book_new();
+                      const rows = auditEntries.map(ev => ({
+                        'Horodatage UTC': ev.created_at,
+                        'Événement': ev.event_type,
+                        'Sévérité': ev.severity,
+                        'Acteur': ev.actor_name || 'Inconnu',
+                        'Identifiant': ev.actor_identifier || '',
+                        'Adresse IP': ev.ip_address || 'Non transmise',
+                        'Terminal': ev.user_agent || '',
+                        'Détails': JSON.stringify(ev.details || {}),
+                        'Hash SHA-256': ev.entry_hash,
+                        'Hash Précédent': ev.prev_hash
+                      }));
+                      const ws = XLSX.utils.json_to_sheet(rows);
+                      XLSX.utils.book_append_sheet(wb, ws, 'Audit_Inviolable');
+                      XLSX.writeFile(wb, `Audit_Securite_${orgCode}_${toDateInputString(new Date())}.xlsx`);
+                      triggerToast("✓ Journal d'audit Excel téléchargé !");
+                    }}
+                    className="py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Exporter Audit</span>
+                  </button>
+                </div>
+
               </div>
             </div>
           )}

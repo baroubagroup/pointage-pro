@@ -30,10 +30,12 @@ interface SiteGeofenceMapProps {
   radiusMeters: number;
   wifiSsid?: string;
   onCoordinatesChange?: (lat: number, lon: number) => void;
+  onAddressChange?: (address: string) => void;
   interactive?: boolean;
   mode?: 'test' | 'picker';
   defaultStyle?: 'streets' | 'satellite' | 'googleHybrid';
   heightClassName?: string;
+  compact?: boolean;
 }
 
 interface SearchSuggestion {
@@ -72,10 +74,12 @@ export function SiteGeofenceMap({
   radiusMeters,
   wifiSsid,
   onCoordinatesChange,
+  onAddressChange,
   interactive = true,
   mode = 'test',
   defaultStyle = 'googleHybrid',
   heightClassName,
+  compact = false,
 }: SiteGeofenceMapProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -143,10 +147,12 @@ export function SiteGeofenceMap({
       if (data && data.display_name) {
         const parts = data.display_name.split(',').map((p: string) => p.trim());
         const shortAddr = parts.slice(0, 3).join(', ');
-        setResolvedAddress(shortAddr || data.display_name);
+        const finalAddr = shortAddr || data.display_name;
+        setResolvedAddress(finalAddr);
+        onAddressChange?.(finalAddr);
       }
     } catch {}
-  }, []);
+  }, [onAddressChange]);
 
   // Analyseur intelligent de coordonnées ou de liens Google Maps collés
   const parsePastedCoordinatesOrUrl = (text: string): { lat: number; lon: number } | null => {
@@ -286,17 +292,21 @@ export function SiteGeofenceMap({
       }).addTo(map);
       circleRef.current = circle;
 
-      // Pin central de l'établissement
+      // Pin central de l'établissement (sans étiquette encombrante en mode compact mobile)
       const icon = L.divIcon({
         className: 'custom-site-pin',
-        html: `
-          <div style="display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
-            <div style="background: #0f172a; color: white; padding: 4px 10px; border-radius: 10px; font-size: 11px; font-weight: 800; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.4); border: 1.5px solid #38bdf8; margin-bottom: 4px;">
-              🏢 ${name || 'Votre Établissement'}
+        html: compact
+          ? `
+            <div style="transform: translate(-50%, -50%); width: 18px; height: 18px; background: #2563eb; border: 3px solid #ffffff; border-radius: 50%; box-shadow: 0 2px 10px rgba(37,99,235,0.85);"></div>
+          `
+          : `
+            <div style="display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
+              <div style="background: #0f172a; color: white; padding: 4px 10px; border-radius: 10px; font-size: 11px; font-weight: 800; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.4); border: 1.5px solid #38bdf8; margin-bottom: 4px;">
+                🏢 ${name || 'Votre Établissement'}
+              </div>
+              <div style="width: 16px; height: 16px; background: #2563eb; border: 3px solid #ffffff; border-radius: 50%; box-shadow: 0 0 12px rgba(37,99,235,0.8);"></div>
             </div>
-            <div style="width: 16px; height: 16px; background: #2563eb; border: 3px solid #ffffff; border-radius: 50%; box-shadow: 0 0 12px rgba(37,99,235,0.8);"></div>
-          </div>
-        `,
+          `,
         iconSize: [0, 0],
       });
 
@@ -493,52 +503,57 @@ export function SiteGeofenceMap({
         </div>
       )}
 
-      {/* Barre de contrôles supérieure */}
-      <div className="absolute top-3 left-3 right-3 z-10 flex flex-col gap-2 pointer-events-none">
-        <div className="flex items-center justify-between gap-2">
+      {/* Barre de contrôles supérieure (ultra-allégée en mode compact mobile) */}
+      <div className="absolute top-2.5 left-2.5 right-2.5 z-10 flex flex-col gap-2 pointer-events-none">
+        <div className={`flex items-center ${compact ? 'justify-end' : 'justify-between'} gap-2`}>
           
-          {/* Badge d'informations WGS84 & Statut Réel */}
-          <div className="bg-slate-900/90 text-white backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-700/80 shadow-lg pointer-events-auto flex items-center gap-2 max-w-[200px] sm:max-w-xs">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-            <div className="text-[11px] leading-tight truncate">
-              <span className="font-extrabold text-white block truncate">
-                {name}
-              </span>
-              <span className="text-[10px] text-slate-300 font-mono block truncate">
-                Rayon : {radiusMeters}m • {city}
-              </span>
+          {/* Badge d'informations WGS84 (masqué sur mobile compact pour ne pas couvrir la vue satellite) */}
+          {!compact && (
+            <div className="bg-slate-900/90 text-white backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-700/80 shadow-lg pointer-events-auto flex items-center gap-2 max-w-[200px] sm:max-w-xs">
+              <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+              <div className="text-[11px] leading-tight truncate">
+                <span className="font-extrabold text-white block truncate">
+                  {name}
+                </span>
+                <span className="text-[10px] text-slate-300 font-mono block truncate">
+                  Rayon : {radiusMeters}m • {city}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Outils & Sélecteur de Couche Cartographique */}
-          <div className="flex items-center gap-1.5 pointer-events-auto bg-slate-900/90 backdrop-blur-md p-1 rounded-xl border border-slate-700/80 shadow-lg text-white">
+          <div className={`flex items-center gap-1 pointer-events-auto ${
+            compact
+              ? 'bg-white/90 text-slate-800 border-slate-200/80 shadow-md p-0.5 rounded-xl border backdrop-blur-md'
+              : 'bg-slate-900/90 text-white border-slate-700/80 shadow-lg p-1 rounded-xl border backdrop-blur-md'
+          }`}>
             <button
               type="button"
               onClick={() => handleToggleStyle('googleHybrid')}
-              title="Vue Satellite Haute Résolution avec rues et quartiers"
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+              title="Vue Satellite Haute Résolution"
+              className={`px-2 py-1 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${
                 mapStyle === 'googleHybrid'
                   ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                  : compact ? 'text-slate-600 hover:bg-slate-100' : 'text-slate-300 hover:text-white hover:bg-slate-800'
               }`}
             >
-              🛰️ Satellite Réel
+              {compact ? '🛰️ Satellite' : '🛰️ Satellite Réel'}
             </button>
             <button
               type="button"
               onClick={() => handleToggleStyle('streets')}
               title="Plan des Rues"
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+              className={`px-2 py-1 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${
                 mapStyle === 'streets'
                   ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                  : compact ? 'text-slate-600 hover:bg-slate-100' : 'text-slate-300 hover:text-white hover:bg-slate-800'
               }`}
             >
               🗺️ Plan
             </button>
 
-            {/* Toggle Viseur Toiture (Mode Picker) */}
-            {mode === 'picker' && (
+            {!compact && mode === 'picker' && (
               <button
                 type="button"
                 onClick={() => setCrosshairActive(prev => !prev)}
@@ -551,8 +566,7 @@ export function SiteGeofenceMap({
               </button>
             )}
 
-            {/* Sélecteur de Préréglages de Quartiers */}
-            {mode === 'picker' && (
+            {!compact && mode === 'picker' && (
               <button
                 type="button"
                 onClick={() => setShowPresets(prev => !prev)}
@@ -569,24 +583,28 @@ export function SiteGeofenceMap({
               type="button"
               onClick={handleRecenter}
               title="Recentrer sur le site"
-              className="p-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              className={`p-1 rounded-lg transition cursor-pointer ${
+                compact ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-300 hover:text-white hover:bg-slate-800'
+              }`}
             >
-              <Crosshair className="w-4 h-4 text-emerald-400" />
+              <Crosshair className="w-3.5 h-3.5" />
             </button>
-            <a
-              href={googleMapsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Ouvrir ces coordonnées directement dans Google Maps"
-              className="p-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer ml-0.5 border-l border-slate-700 pl-1.5"
-            >
-              <ExternalLink className="w-3.5 h-3.5 text-amber-400" />
-            </a>
+            {!compact && (
+              <a
+                href={googleMapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Ouvrir ces coordonnées directement dans Google Maps"
+                className="p-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer ml-0.5 border-l border-slate-700 pl-1.5"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-amber-400" />
+              </a>
+            )}
           </div>
         </div>
 
-        {/* Barre de Recherche Intégrée (Coller lien Google Maps / Recherche Nominatim) */}
-        {mode === 'picker' && (
+        {/* Barre de Recherche Intégrée (desktop uniquement pour garder la carte propre sur mobile) */}
+        {mode === 'picker' && !compact && (
           <div className="pointer-events-auto relative max-w-md">
             <div className="bg-white/95 backdrop-blur-md rounded-xl shadow-lg border border-slate-200/80 flex items-center px-3 py-1.5 gap-2">
               {searching ? (
@@ -729,8 +747,8 @@ export function SiteGeofenceMap({
         </div>
       )}
 
-      {/* Barre d'état inférieure avec Adresse physique résolue & Zoom rapide */}
-      {mode === 'picker' ? (
+      {/* Barre d'état inférieure (masquée en mode compact pour garder l'image satellite 100% lisible) */}
+      {!compact && (mode === 'picker' ? (
         <div className="absolute bottom-3 left-3 right-3 z-10 bg-slate-900/90 text-white text-[11px] font-semibold px-3 py-2 rounded-xl backdrop-blur-md border border-slate-700/60 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 pointer-events-auto">
           <div className="flex items-center gap-2 truncate min-w-0">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
@@ -791,7 +809,7 @@ export function SiteGeofenceMap({
             )}
           </div>
         )
-      )}
+      ))}
     </div>
   );
 }
