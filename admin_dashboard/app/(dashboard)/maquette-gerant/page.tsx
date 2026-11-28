@@ -45,7 +45,10 @@ import {
   Edit3,
   Fingerprint,
   Link2,
-  Phone
+  Phone,
+  Settings,
+  Calendar,
+  Upload
 } from 'lucide-react';
 
 const DynamicSiteGeofenceMap = dynamic(
@@ -171,10 +174,14 @@ export default function MaquetteGerantPage() {
   const [deviceFrame, setDeviceFrame] = useState<'iphone' | 'android' | 'fullscreen'>('iphone');
   const [isMobileScreen, setIsMobileScreen] = useState(false);
 
-  // 5 Onglets principaux de navigation mobile
-  const [activeTab, setActiveTab] = useState<'cockpit' | 'sites' | 'equipe' | 'plannings' | 'justifs'>('cockpit');
+  // 6 Onglets principaux de navigation mobile
+  const [activeTab, setActiveTab] = useState<'cockpit' | 'sites' | 'equipe' | 'plannings' | 'justifs' | 'parametres'>('cockpit');
 
-  // Filtres & Fiche détail pointage
+  // Filtres date & statut du Cockpit + Fiche détail pointage
+  const [cockpitDateMode, setCockpitDateMode] = useState<'today' | 'yesterday' | 'custom'>('today');
+  const [cockpitStartDate, setCockpitStartDate] = useState<string>(() => toDateInputString(new Date()));
+  const [cockpitEndDate, setCockpitEndDate] = useState<string>(() => toDateInputString(new Date()));
+  const [cockpitLogsLoading, setCockpitLogsLoading] = useState(false);
   const [filterType, setFilterType] = useState<'ALL' | 'PRESENT' | 'LATE' | 'ALERT' | 'ABSENT'>('ALL');
   const [selectedPunchDetail, setSelectedPunchDetail] = useState<DisplayPunch | null>(null);
   const [searchEmployeeQuery, setSearchEmployeeQuery] = useState('');
@@ -266,6 +273,11 @@ export default function MaquetteGerantPage() {
   const [orgName, setOrgName] = useState('NAFA BUSINESS');
   const [orgCode, setOrgCode] = useState('ORG-NB-2026-3653TB');
   const [orgLogo, setOrgLogo] = useState<string | null>(null);
+  const [orgSectorProfile, setOrgSectorProfile] = useState<string>('ENTREPRISE');
+  const [orgSupportContact, setOrgSupportContact] = useState<string>('');
+  const [orgTimezone, setOrgTimezone] = useState<string>('Africa/Ouagadougou');
+  const [orgCurrency, setOrgCurrency] = useState<string>('XOF');
+  const [savingOrgSettings, setSavingOrgSettings] = useState(false);
 
   // Données réelles chargées depuis Supabase
   const [loadingDb, setLoadingDb] = useState(true);
@@ -365,6 +377,10 @@ export default function MaquetteGerantPage() {
           setSecMockGpsBlocked(sc.hard_block_mock_gps !== false);
           setSecDeviceBindingStrict(sc.require_device_binding !== false);
           setSecWifiMandatory(sc.require_wifi_bssid === true);
+          if (sc.sector_profile) setOrgSectorProfile(sc.sector_profile);
+          if (sc.support_contact) setOrgSupportContact(sc.support_contact);
+          if (sc.timezone) setOrgTimezone(sc.timezone);
+          if (sc.currency) setOrgCurrency(sc.currency);
         }
       }
 
@@ -421,12 +437,43 @@ export default function MaquetteGerantPage() {
         setDbJustifications(justData);
       }
 
-      // F. Pointages récents pour le cockpit
+      // F. Pointages pour la date ou plage sélectionnée dans le Cockpit
+      await fetchCockpitLogsForRange(cockpitStartDate, cockpitEndDate, targetOrgId, true);
+    } catch (err) {
+      console.warn('Erreur chargement Supabase mobile:', err);
+    } finally {
+      setLoadingDb(false);
+    }
+  };
+
+  // Chargement filtré par date/plage pour le Cockpit (Aujourd'hui / Hier / Personnalisé)
+  const fetchCockpitLogsForRange = async (
+    startStr: string,
+    endStr: string,
+    explicitOrgId?: string | null,
+    skipSpinner = false
+  ) => {
+    if (!skipSpinner) setCockpitLogsLoading(true);
+    try {
+      const supabase = createClient();
+      const targetOrgId =
+        explicitOrgId !== undefined
+          ? explicitOrgId
+          : orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+
+      const safeStart = startStr <= endStr ? startStr : endStr;
+      const safeEnd = startStr <= endStr ? endStr : startStr;
+      const startIso = new Date(`${safeStart}T00:00:00`).toISOString();
+      const endIso = new Date(`${safeEnd}T23:59:59.999`).toISOString();
+
       let logsQuery = supabase
         .from('pointage_logs')
         .select('*, pointage_employees(id, full_name, employee_matricule, role, phone), pointage_establishments(name, radius_meters)')
+        .gte('recorded_at_utc', startIso)
+        .lte('recorded_at_utc', endIso)
         .order('recorded_at_utc', { ascending: false })
-        .limit(80);
+        .limit(300);
+
       if (targetOrgId) {
         logsQuery = logsQuery.eq('org_id', targetOrgId);
       }
@@ -435,9 +482,24 @@ export default function MaquetteGerantPage() {
         setDbPunches(logsData);
       }
     } catch (err) {
-      console.warn('Erreur chargement Supabase mobile:', err);
+      console.warn('Erreur filtrage pointages cockpit:', err);
     } finally {
-      setLoadingDb(false);
+      if (!skipSpinner) setCockpitLogsLoading(false);
+    }
+  };
+
+  const handleSelectCockpitDateMode = (mode: 'today' | 'yesterday' | 'custom') => {
+    setCockpitDateMode(mode);
+    if (mode === 'today') {
+      const today = toDateInputString(new Date());
+      setCockpitStartDate(today);
+      setCockpitEndDate(today);
+      fetchCockpitLogsForRange(today, today);
+    } else if (mode === 'yesterday') {
+      const yest = getDateDaysAgo(1);
+      setCockpitStartDate(yest);
+      setCockpitEndDate(yest);
+      fetchCockpitLogsForRange(yest, yest);
     }
   };
 
@@ -510,7 +572,11 @@ export default function MaquetteGerantPage() {
 
     return dbPunches.map((p, idx) => {
       const punchDate = new Date(p.recorded_at_utc || p.created_at);
-      const timeStr = punchDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      const isMultiDay = cockpitStartDate !== cockpitEndDate;
+      const clockStr = punchDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      const timeStr = isMultiDay
+        ? `${punchDate.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} ${clockStr}`
+        : clockStr;
       const empObj = dbEmployees.find(e => e.id === p.employee_id) || p.pointage_employees;
       const empName = p.pointage_employees?.full_name || empObj?.full_name || 'Collaborateur';
       const matricule = p.pointage_employees?.employee_matricule || empObj?.employee_matricule || `MAT-${String(idx + 1).padStart(3, '0')}`;
@@ -544,17 +610,12 @@ export default function MaquetteGerantPage() {
         employeeObj: empObj
       };
     });
-  }, [dbPunches, dbEmployees, activeEstablishment]);
+  }, [dbPunches, dbEmployees, activeEstablishment, cockpitStartDate, cockpitEndDate]);
 
-  // Employés actifs n'ayant pas encore pointé aujourd'hui ("Non pointés / Absents du jour")
+  // Employés actifs n'ayant pas pointé sur la date / plage sélectionnée
   const absentEmployees = useMemo(() => {
-    const todayKey = toDateInputString(new Date());
-    const presentTodayIds = new Set(
-      dbPunches
-        .filter(p => toDateInputString(new Date(p.recorded_at_utc || p.created_at)) === todayKey)
-        .map(p => p.employee_id)
-    );
-    return dbEmployees.filter(emp => !presentTodayIds.has(emp.id));
+    const presentIds = new Set(dbPunches.map(p => p.employee_id));
+    return dbEmployees.filter(emp => !presentIds.has(emp.id));
   }, [dbEmployees, dbPunches]);
 
   // 3. Transformation des justifications DB
@@ -1177,6 +1238,100 @@ export default function MaquetteGerantPage() {
       triggerToast(`Erreur sauvegarde sécurité : ${err.message}`);
     } finally {
       setSavingSecurity(false);
+    }
+  };
+
+  // D4. Upload & sauvegarde des Paramètres Entreprise (parité 100% avec /parametres)
+  const handleOrgLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      triggerToast("Le logo dépasse 2 Mo. Veuillez choisir un fichier plus léger.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const base64 = ev.target?.result as string;
+      setOrgLogo(base64);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('pointage_org_logo', base64);
+        window.dispatchEvent(new Event('pointage_org_updated'));
+      }
+      triggerToast("Logo importé ! Enregistrez pour synchroniser.");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveOrgLogo = () => {
+    setOrgLogo(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('pointage_org_logo');
+      window.dispatchEvent(new Event('pointage_org_updated'));
+    }
+    triggerToast("Logo retiré (enregistrez pour confirmer).");
+  };
+
+  const handleSaveOrgSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = orgName.trim();
+    const cleanCode = orgCode.trim().toUpperCase();
+    if (!cleanName || !cleanCode) {
+      triggerToast("Le nom et le code entreprise sont obligatoires.");
+      return;
+    }
+
+    const updatedConfig = {
+      ...orgSecurityConfigRaw,
+      sector_profile: orgSectorProfile,
+      support_contact: orgSupportContact.trim(),
+      timezone: orgTimezone,
+      currency: orgCurrency,
+      org_logo: orgLogo || undefined
+    };
+    setOrgSecurityConfigRaw(updatedConfig);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pointage_org_name', cleanName);
+      localStorage.setItem('pointage_org_code', cleanCode);
+      localStorage.setItem('pointage_org_logo', orgLogo || '');
+      localStorage.setItem('pointage_sector_profile', orgSectorProfile);
+      localStorage.setItem('pointage_security_config', JSON.stringify(updatedConfig));
+      window.dispatchEvent(new Event('pointage_org_updated'));
+    }
+
+    const targetOrgId = orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+    if (!targetOrgId) {
+      triggerToast("✓ Informations enregistrées localement.");
+      return;
+    }
+
+    setSavingOrgSettings(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('pointage_organizations')
+        .update({
+          name: cleanName,
+          org_code: cleanCode,
+          security_config: updatedConfig
+        })
+        .eq('id', targetOrgId);
+
+      if (error) throw error;
+      setOrgName(cleanName);
+      setOrgCode(cleanCode);
+      recordAuditEvent('ORG_SETTINGS_UPDATED', 'INFO', {
+        name: cleanName,
+        org_code: cleanCode,
+        sector_profile: orgSectorProfile,
+        timezone: orgTimezone,
+        currency: orgCurrency
+      });
+      triggerToast("✓ Paramètres entreprise mis à jour dans Supabase !");
+    } catch (err: any) {
+      triggerToast(`Erreur sauvegarde entreprise : ${err.message}`);
+    } finally {
+      setSavingOrgSettings(false);
     }
   };
 
@@ -1829,7 +1984,7 @@ export default function MaquetteGerantPage() {
                     className="w-8 h-8 rounded-xl object-cover border border-slate-200 bg-white shadow-xs shrink-0"
                   />
                 ) : (
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-xs shadow-sm shadow-blue-500/20 shrink-0">
+                  <div className="w-8 h-8 rounded-xl bg-[#1D4ED8] flex items-center justify-center text-white font-black text-xs shadow-sm shadow-blue-500/20 shrink-0">
                     {orgName.slice(0, 2).toUpperCase()}
                   </div>
                 )}
@@ -2032,6 +2187,16 @@ export default function MaquetteGerantPage() {
                       <Send className="w-4 h-4 text-amber-600" />
                       <span>Diffuser une Alerte Push</span>
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('parametres'); setIsSandwichOpen(false); }}
+                      className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-left cursor-pointer ${
+                        activeTab === 'parametres' ? 'bg-[#1D4ED8] text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Settings className={`w-4 h-4 ${activeTab === 'parametres' ? 'text-white' : 'text-blue-600'}`} />
+                      <span>Paramètres Entreprise</span>
+                    </button>
                   </div>
                 </div>
 
@@ -2066,20 +2231,23 @@ export default function MaquetteGerantPage() {
             {activeTab === 'cockpit' && (
               <div className="space-y-4 animate-fadeIn">
 
-                {/* Carte Hero Premium Bleu Vitre Dépolie (Frosted Glass Royal Blue) */}
-                <div className="bg-gradient-to-br from-blue-600/95 via-blue-700/95 to-indigo-800/95 backdrop-blur-xl border border-white/25 rounded-3xl p-4 shadow-xl shadow-blue-600/25 relative overflow-hidden text-white">
-                  {/* Reflets vitre lumineuse subtils */}
-                  <div className="absolute -top-12 -right-10 w-36 h-36 bg-white/15 rounded-full blur-2xl pointer-events-none" />
-                  <div className="absolute -bottom-12 -left-10 w-32 h-32 bg-cyan-300/15 rounded-full blur-2xl pointer-events-none" />
+                {/* Carte Hero Bleue Unie Sans Dégradé */}
+                <div className="bg-[#1D4ED8] border-2 border-[#60A5FA]/70 rounded-3xl p-4 shadow-[0_10px_28px_rgba(29,78,216,0.3)] relative overflow-hidden text-white">
 
                   <div className="relative z-10 flex items-center justify-between mb-3">
-                    <span className="text-[11px] font-extrabold text-white/95 flex items-center gap-1.5 min-w-0 pr-2">
+                    <span className="text-[11px] font-extrabold text-white flex items-center gap-1.5 min-w-0 pr-2">
                       <Building2 className="w-3.5 h-3.5 text-blue-100 shrink-0" />
                       <span className="truncate">{activeEstablishment?.name || 'Siège Principal'}</span>
                     </span>
-                    <span className="text-[10px] font-black text-white bg-white/15 backdrop-blur-md border border-white/25 px-2.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
-                      Télémétrie Live
+                    <span className="text-[10px] font-black text-white bg-white/15 border border-white/25 px-2.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                      <span className={`w-1.5 h-1.5 rounded-full ${cockpitDateMode === 'today' ? 'bg-emerald-300 animate-pulse' : 'bg-blue-200'}`} />
+                      {cockpitDateMode === 'today'
+                        ? 'Télémétrie Live'
+                        : cockpitDateMode === 'yesterday'
+                          ? 'Hier'
+                          : cockpitStartDate === cockpitEndDate
+                            ? cockpitStartDate
+                            : `${cockpitStartDate} → ${cockpitEndDate}`}
                     </span>
                   </div>
 
@@ -2183,14 +2351,92 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
 
-                {/* Filtres pointages + Non pointés du jour */}
+                {/* Filtres de date (Aujourd'hui / Hier / Personnalisé) + Filtres statut */}
                 <div className="space-y-2 pt-1">
-                  <div className="flex items-center justify-between px-0.5">
+                  <div className="flex items-center justify-between gap-2 px-0.5">
                     <span className="text-xs font-extrabold text-slate-900">
                       {filterType === 'ABSENT'
-                        ? `Non pointés aujourd'hui (${absentEmployees.length})`
-                        : `Pointages du Jour (${filteredPunches.length})`}
+                        ? `Non pointés ${cockpitDateMode === 'today' ? "aujourd'hui" : cockpitDateMode === 'yesterday' ? '(hier)' : '(période)'} (${absentEmployees.length})`
+                        : `${cockpitDateMode === 'today' ? 'Pointages du Jour' : cockpitDateMode === 'yesterday' ? "Pointages d'Hier" : 'Pointages (Période)'} (${filteredPunches.length})`}
                     </span>
+                  </div>
+
+                  {/* Sélecteur rapide de période Cockpit */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-1.5 space-y-2 shadow-xs">
+                    <div className="grid grid-cols-3 gap-1 text-[10px] font-extrabold">
+                      <button
+                        type="button"
+                        onClick={() => handleSelectCockpitDateMode('today')}
+                        className={`py-1.5 px-2 rounded-xl transition cursor-pointer ${
+                          cockpitDateMode === 'today'
+                            ? 'bg-[#1D4ED8] text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        Aujourd&apos;hui
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectCockpitDateMode('yesterday')}
+                        className={`py-1.5 px-2 rounded-xl transition cursor-pointer ${
+                          cockpitDateMode === 'yesterday'
+                            ? 'bg-[#1D4ED8] text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        Hier
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectCockpitDateMode('custom')}
+                        className={`py-1.5 px-2 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 ${
+                          cockpitDateMode === 'custom'
+                            ? 'bg-[#1D4ED8] text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <Calendar className="w-3 h-3" />
+                        <span>Personnalisé</span>
+                      </button>
+                    </div>
+
+                    {cockpitDateMode === 'custom' && (
+                      <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-100 animate-fadeIn">
+                        <div>
+                          <label className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5 px-1">Du (ou Date exacte)</label>
+                          <input
+                            type="date"
+                            value={cockpitStartDate}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (!val) return;
+                              const nextEnd = cockpitStartDate === cockpitEndDate || val > cockpitEndDate ? val : cockpitEndDate;
+                              setCockpitStartDate(val);
+                              setCockpitEndDate(nextEnd);
+                              fetchCockpitLogsForRange(val, nextEnd);
+                            }}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-[11px] font-mono text-slate-900 focus:outline-none focus:border-blue-600"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5 px-1">Au</label>
+                          <input
+                            type="date"
+                            value={cockpitEndDate}
+                            min={cockpitStartDate}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (!val) return;
+                              const nextStart = val < cockpitStartDate ? val : cockpitStartDate;
+                              setCockpitStartDate(nextStart);
+                              setCockpitEndDate(val);
+                              fetchCockpitLogsForRange(nextStart, val);
+                            }}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-[11px] font-mono text-slate-900 focus:outline-none focus:border-blue-600"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[10px] font-bold">
@@ -2243,7 +2489,7 @@ export default function MaquetteGerantPage() {
                 </div>
 
                 <div className="space-y-2.5">
-                  {loadingDb ? (
+                  {loadingDb || cockpitLogsLoading ? (
                     /* Squelettes animés haut de gamme */
                     <div className="space-y-2.5">
                       {[1, 2, 3].map((sk) => (
@@ -2784,18 +3030,224 @@ export default function MaquetteGerantPage() {
               </div>
             )}
 
+            {/* ===================== ONGLET 6 : PARAMÈTRES ENTREPRISE ===================== */}
+            {activeTab === 'parametres' && (
+              <div className="space-y-3.5 animate-fadeIn pb-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xs font-black text-slate-900">Paramètres de l&apos;Entreprise</h2>
+                    <p className="text-[10px] text-slate-500">Identité, logo et gouvernance synchronisés</p>
+                  </div>
+                  <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-blue-50 text-[#1D4ED8] border border-blue-200">
+                    Cloud Live
+                  </span>
+                </div>
+
+                {/* Formulaire Identité & Coordonnées Entreprise */}
+                <form onSubmit={handleSaveOrgSettings} className="bg-white border border-slate-200 rounded-3xl p-4 space-y-3.5 shadow-xs">
+                  {/* Logo de l'entreprise */}
+                  <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+                    {orgLogo ? (
+                      <img
+                        src={orgLogo}
+                        alt={orgName}
+                        className="w-14 h-14 rounded-2xl object-cover border border-slate-200 bg-white shadow-xs shrink-0"
+                      />
+                    ) : (
+                      <div className="w-14 h-14 rounded-2xl bg-[#1D4ED8] text-white flex items-center justify-center font-black text-base shrink-0 shadow-sm">
+                        {orgName.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <span className="text-[10px] font-extrabold uppercase text-slate-500 block">Logo Officiel</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <label className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] font-bold text-[10px] rounded-xl border border-blue-200 transition cursor-pointer inline-flex items-center gap-1">
+                          <Upload className="w-3 h-3" />
+                          <span>{orgLogo ? 'Changer le logo' : 'Importer un logo'}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleOrgLogoUpload}
+                            className="hidden"
+                          />
+                        </label>
+                        {orgLogo && (
+                          <button
+                            type="button"
+                            onClick={handleRemoveOrgLogo}
+                            className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[10px] rounded-xl border border-rose-200 transition cursor-pointer"
+                          >
+                            Retirer
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">
+                      Raison Sociale / Nom de l&apos;Entreprise
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={orgName}
+                      onChange={(e) => setOrgName(e.target.value)}
+                      placeholder="Ex: NAFA BUSINESS SARL"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-600"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-extrabold uppercase text-slate-500">
+                        Code Entreprise (Multi-Tenant)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof window !== 'undefined') {
+                            navigator.clipboard.writeText(orgCode);
+                            triggerToast("Code entreprise copié !");
+                          }
+                        }}
+                        className="text-[10px] font-bold text-[#1D4ED8] flex items-center gap-1 cursor-pointer"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>Copier</span>
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={orgCode}
+                      onChange={(e) => setOrgCode(e.target.value.toUpperCase())}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-blue-600"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Secteur</label>
+                      <select
+                        value={orgSectorProfile}
+                        onChange={(e) => setOrgSectorProfile(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-600"
+                      >
+                        <option value="ENTREPRISE">Entreprise / Bureau</option>
+                        <option value="CHANTIER">Chantier / BTP</option>
+                        <option value="SANTE">Clinique / Santé</option>
+                        <option value="COMMERCE">Commerce / Boutique</option>
+                        <option value="EDUCATION">École / Université</option>
+                        <option value="SECURITE">Sécurité / Gardiennage</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Téléphone Direction</label>
+                      <input
+                        type="tel"
+                        value={orgSupportContact}
+                        onChange={(e) => setOrgSupportContact(e.target.value)}
+                        placeholder="+226 70 00 00 00"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-600"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Fuseau Horaire</label>
+                      <select
+                        value={orgTimezone}
+                        onChange={(e) => setOrgTimezone(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-600"
+                      >
+                        <option value="Africa/Ouagadougou">Ouagadougou (UTC+0)</option>
+                        <option value="Africa/Abidjan">Abidjan (UTC+0)</option>
+                        <option value="Africa/Dakar">Dakar (UTC+0)</option>
+                        <option value="Africa/Bamako">Bamako (UTC+0)</option>
+                        <option value="Europe/Paris">Paris (UTC+1/+2)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Devise Paie</label>
+                      <select
+                        value={orgCurrency}
+                        onChange={(e) => setOrgCurrency(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-600"
+                      >
+                        <option value="XOF">FCFA (XOF)</option>
+                        <option value="XAF">FCFA (XAF)</option>
+                        <option value="EUR">Euro (€)</option>
+                        <option value="USD">Dollar ($)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={savingOrgSettings}
+                    className="w-full py-2.5 bg-[#1D4ED8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition cursor-pointer disabled:opacity-60 shadow-sm active:scale-95"
+                  >
+                    {savingOrgSettings ? 'Enregistrement dans Supabase...' : 'Enregistrer les Informations'}
+                  </button>
+                </form>
+
+                {/* Raccourcis Gouvernance & Sécurité */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-3.5 space-y-2 shadow-xs">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-1 block">
+                    Sécurité, Audit & Outils Système
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowSecurityDrawer(true)}
+                    className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-slate-50 hover:bg-blue-50/70 border border-slate-100 text-xs font-bold text-slate-800 transition cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-[#1D4ED8]" />
+                      <span>Règles Anti-Triche & Biométrie</span>
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAuditDrawer(true)}
+                    className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-slate-50 hover:bg-purple-50/70 border border-slate-100 text-xs font-bold text-slate-800 transition cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Radio className="w-4 h-4 text-purple-600" />
+                      <span>Journal d&apos;Audit Inviolable (SHA-256)</span>
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowPhoneQrModal(true)}
+                    className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-slate-50 hover:bg-emerald-50/70 border border-slate-100 text-xs font-bold text-slate-800 transition cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <QrCode className="w-4 h-4 text-emerald-600" />
+                      <span>Ouvrir sur Smartphone ({localNetworkIp})</span>
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+                </div>
+              </div>
+            )}
+
           </div>
 
           {/* BARRE DE NAVIGATION INFÉRIEURE FLOTTANTE BLEUE UNIE À BORDS ARRONDIS VISIBLES */}
           <div className="px-3 pt-1.5 pb-1 bg-[#F8FAFC] shrink-0 z-30">
-            <div className="bg-[#1D4ED8] border-2 border-[#60A5FA]/70 rounded-[26px] px-2 py-1.5 flex items-center justify-around shadow-[0_10px_28px_rgba(29,78,216,0.35)]">
+            <div className="bg-[#1D4ED8] border-2 border-[#60A5FA]/70 rounded-[26px] px-1.5 py-1.5 flex items-center justify-between gap-0.5 shadow-[0_10px_28px_rgba(29,78,216,0.35)]">
               {(
                 [
                   { id: 'cockpit', label: 'Cockpit', Icon: Activity, badge: 0 },
                   { id: 'sites', label: 'Sites', Icon: Building2, badge: 0 },
                   { id: 'equipe', label: 'Personnel', Icon: Users, badge: 0 },
                   { id: 'plannings', label: 'Couloirs', Icon: CalendarDays, badge: 0 },
-                  { id: 'justifs', label: 'Arbitrage', Icon: CheckCircle2, badge: pendingCount }
+                  { id: 'justifs', label: 'Arbitrage', Icon: CheckCircle2, badge: pendingCount },
+                  { id: 'parametres', label: 'Paramètres', Icon: Settings, badge: 0 }
                 ] as const
               ).map(({ id, label, Icon, badge }) => {
                 const isActive = activeTab === id;
@@ -2804,7 +3256,7 @@ export default function MaquetteGerantPage() {
                     key={id}
                     type="button"
                     onClick={() => setActiveTab(id)}
-                    className={`flex flex-col items-center py-1.5 px-2.5 rounded-2xl cursor-pointer relative transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] active:scale-90 ${
+                    className={`flex-1 min-w-0 flex flex-col items-center py-1.5 px-1 rounded-2xl cursor-pointer relative transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] active:scale-90 ${
                       isActive
                         ? 'bg-white text-[#1D4ED8] font-extrabold scale-105 -translate-y-0.5 shadow-md'
                         : 'text-blue-100 hover:text-white hover:bg-white/10 scale-95 hover:scale-100'
@@ -2818,7 +3270,7 @@ export default function MaquetteGerantPage() {
                         </span>
                       )}
                     </div>
-                    <span className={`text-[10px] tracking-tight transition-all duration-300 ${isActive ? 'font-extrabold' : 'font-medium'}`}>
+                    <span className={`text-[9px] tracking-tighter truncate max-w-full transition-all duration-300 ${isActive ? 'font-extrabold' : 'font-medium'}`}>
                       {label}
                     </span>
                   </button>
