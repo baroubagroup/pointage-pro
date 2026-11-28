@@ -1,32 +1,26 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { RealQrCode } from '@/components/real-qr-code';
-import { 
-  Smartphone, 
-  Users, 
-  MapPin, 
-  ShieldCheck, 
-  ShieldAlert, 
-  Clock, 
-  Bell, 
-  CheckCircle2, 
-  XCircle, 
-  QrCode, 
-  Send, 
-  RotateCw, 
-  Search, 
-  ChevronRight, 
-  Wifi, 
-  BatteryMedium, 
-  Signal, 
-  Calendar, 
-  AlertTriangle, 
-  ArrowUpRight, 
-  ExternalLink, 
-  SlidersHorizontal,
+import * as XLSX from 'xlsx';
+import {
+  Smartphone,
+  Users,
+  MapPin,
+  ShieldCheck,
+  Clock,
+  Bell,
+  CheckCircle2,
+  QrCode,
+  Send,
+  Search,
+  ChevronRight,
+  ChevronLeft,
+  Wifi,
+  BatteryMedium,
+  Signal,
   Activity,
   Check,
   X,
@@ -34,27 +28,20 @@ import {
   FileSpreadsheet,
   Building2,
   Sparkles,
-  PhoneCall,
   MessageCircle,
-  Eye,
   Maximize2,
-  Minimize2,
   Copy,
-  Share2,
   Menu,
-  ChevronDown,
-  Layers,
   LogOut,
-  Zap,
   Plus,
   CalendarDays,
   Unlink,
   Navigation,
   Download,
+  Printer,
+  Coffee,
   Trash2,
-  Sliders,
-  Filter,
-  CheckCheck
+  Edit3
 } from 'lucide-react';
 
 interface DisplayPunch {
@@ -81,14 +68,84 @@ interface DisplayJustif {
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
 }
 
+interface DayDetail {
+  dateKey: string;
+  dateLabel: string;
+  firstTime: string;
+  lastTime: string | null;
+  lateMinutes: number;
+  workedMinutes: number;
+  status: 'ON_TIME' | 'LATE' | 'ALERT' | 'SINGLE';
+  siteName: string;
+}
+
+interface EmployeeHrSummary {
+  employee: any;
+  presentDays: number;
+  lateDays: number;
+  totalLateMinutes: number;
+  totalWorkedMinutes: number;
+  punctualityRate: number;
+  days: DayDetail[];
+}
+
+const DAY_LABELS = [
+  { id: 1, short: 'L', full: 'Lun' },
+  { id: 2, short: 'M', full: 'Mar' },
+  { id: 3, short: 'M', full: 'Mer' },
+  { id: 4, short: 'J', full: 'Jeu' },
+  { id: 5, short: 'V', full: 'Ven' },
+  { id: 6, short: 'S', full: 'Sam' },
+  { id: 7, short: 'D', full: 'Dim' }
+];
+
+function toDateInputString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function getDateDaysAgo(daysAgo: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return toDateInputString(d);
+}
+
+function parseHHMMToMinutes(hhmm?: string | null): number | null {
+  if (!hhmm) return null;
+  const parts = hhmm.split(':');
+  if (parts.length < 2) return null;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+function formatMinutesAsHours(totalMinutes: number): string {
+  const m = Math.max(0, Math.round(totalMinutes));
+  const hours = Math.floor(m / 60);
+  const mins = m % 60;
+  return `${hours}h ${String(mins).padStart(2, '0')}m`;
+}
+
+function formatLateMinutes(totalMinutes: number): string {
+  const m = Math.max(0, Math.round(totalMinutes));
+  if (m === 0) return '0 min';
+  if (m < 60) return `${m} min`;
+  const hours = Math.floor(m / 60);
+  const mins = m % 60;
+  return `${hours}h ${String(mins).padStart(2, '0')}m`;
+}
+
 export default function MaquetteGerantPage() {
-  // Mode de cadrage & Détection mobile
+  // Mode de cadrage & Détection mobile réelle
   const [deviceFrame, setDeviceFrame] = useState<'iphone' | 'android' | 'fullscreen'>('iphone');
   const [isMobileScreen, setIsMobileScreen] = useState(false);
-  
+
   // 5 Onglets principaux de navigation mobile
   const [activeTab, setActiveTab] = useState<'cockpit' | 'sites' | 'equipe' | 'plannings' | 'justifs'>('cockpit');
-  
+
   // Filtres
   const [filterType, setFilterType] = useState<'ALL' | 'PRESENT' | 'LATE' | 'ALERT'>('ALL');
   const [searchEmployeeQuery, setSearchEmployeeQuery] = useState('');
@@ -108,7 +165,7 @@ export default function MaquetteGerantPage() {
   const [showSecurityDrawer, setShowSecurityDrawer] = useState(false);
   const [showPhoneQrModal, setShowPhoneQrModal] = useState(false);
 
-  // Formulaires
+  // Formulaires Employé
   const [broadcastText, setBroadcastText] = useState('');
   const [newEmpName, setNewEmpName] = useState('');
   const [newEmpPhone, setNewEmpPhone] = useState('');
@@ -116,19 +173,40 @@ export default function MaquetteGerantPage() {
   const [newEmpSiteId, setNewEmpSiteId] = useState('');
   const [newEmpScheduleId, setNewEmpScheduleId] = useState('');
 
+  // Formulaire Site & Géofencing + Détection Auto Wi-Fi
+  const [editingSiteId, setEditingSiteId] = useState<string | null>(null);
   const [newSiteName, setNewSiteName] = useState('');
   const [newSiteCity, setNewSiteCity] = useState('Bobo-Dioulasso');
   const [newSiteRadius, setNewSiteRadius] = useState<number>(80);
   const [newSiteLat, setNewSiteLat] = useState<string>('11.247051');
   const [newSiteLon, setNewSiteLon] = useState<string>('-4.291915');
-  const [newSiteWifiSsid, setNewSiteWifiSsid] = useState<string>('SAKO');
+  const [newSiteHasWifi, setNewSiteHasWifi] = useState<boolean>(true);
+  const [newSiteWifiSsid, setNewSiteWifiSsid] = useState<string>('');
+  const [newSiteWifiBssid, setNewSiteWifiBssid] = useState<string>('');
   const [isCalibratingGps, setIsCalibratingGps] = useState(false);
+  const [isDetectingWifi, setIsDetectingWifi] = useState(false);
+  const [wifiDetectNote, setWifiDetectNote] = useState<string | null>(null);
 
+  // Formulaire Couloir Horaire (Arrivée/Départ activables + Pause optionnelle + Jours)
   const [newSchedName, setNewSchedName] = useState('');
+  const [schedTrackArrival, setSchedTrackArrival] = useState<boolean>(true);
   const [newSchedMorningStart, setNewSchedMorningStart] = useState('08:00');
+  const [schedTrackDeparture, setSchedTrackDeparture] = useState<boolean>(true);
   const [newSchedAfternoonEnd, setNewSchedAfternoonEnd] = useState('17:00');
+  const [schedHasBreak, setSchedHasBreak] = useState<boolean>(false);
+  const [newSchedBreakStart, setNewSchedBreakStart] = useState('12:00');
+  const [newSchedBreakEnd, setNewSchedBreakEnd] = useState('13:30');
   const [newSchedTolerance, setNewSchedTolerance] = useState<number>(15);
   const [newSchedDays, setNewSchedDays] = useState<number[]>([1, 2, 3, 4, 5]);
+
+  // Relevés & Synthèse RH (Plage de dates personnalisable + Fiche individuelle)
+  const [hrPreset, setHrPreset] = useState<'7d' | '14d' | '30d' | '45d' | '60d' | 'custom'>('30d');
+  const [hrStartDate, setHrStartDate] = useState<string>(() => getDateDaysAgo(29));
+  const [hrEndDate, setHrEndDate] = useState<string>(() => toDateInputString(new Date()));
+  const [hrLogs, setHrLogs] = useState<any[]>([]);
+  const [hrLoading, setHrLoading] = useState(false);
+  const [selectedHrEmployeeId, setSelectedHrEmployeeId] = useState<string | null>(null);
+  const [hrDetailFilter, setHrDetailFilter] = useState<'ALL' | 'LATE'>('ALL');
 
   const [localNetworkIp, setLocalNetworkIp] = useState<string>('192.168.11.103');
   const [showDynamicIslandAlert, setShowDynamicIslandAlert] = useState(false);
@@ -155,9 +233,9 @@ export default function MaquetteGerantPage() {
   // Détection écran mobile réel
   useEffect(() => {
     const checkScreen = () => {
-      const isMobile = window.innerWidth < 768;
-      setIsMobileScreen(isMobile);
-      if (isMobile) {
+      const isMob = /iphone|ipad|ipod|android/i.test(navigator.userAgent) || window.innerWidth < 768;
+      setIsMobileScreen(isMob);
+      if (window.innerWidth < 768) {
         setDeviceFrame('fullscreen');
       }
     };
@@ -217,7 +295,7 @@ export default function MaquetteGerantPage() {
       } else {
         orgQuery = orgQuery.order('created_at', { ascending: false }).limit(1);
       }
-      const { data: orgData } = await orgQuery.single();
+      const { data: orgData } = await orgQuery.maybeSingle();
 
       let targetOrgId = storedOrgId;
       if (orgData) {
@@ -227,7 +305,7 @@ export default function MaquetteGerantPage() {
         setOrgCode(orgData.org_code);
       }
 
-      // B. Établissements réels (Tous les sites)
+      // B. Établissements réels
       let estQuery = supabase.from('pointage_establishments').select('*').eq('is_active', true);
       if (targetOrgId) {
         estQuery = estQuery.eq('org_id', targetOrgId);
@@ -240,8 +318,8 @@ export default function MaquetteGerantPage() {
         }
       }
 
-      // C. Plannings réels (Schedules)
-      let schedQuery = supabase.from('pointage_schedules').select('*');
+      // C. Plannings réels
+      let schedQuery = supabase.from('pointage_schedules').select('*').eq('is_active', true);
       if (targetOrgId) {
         schedQuery = schedQuery.eq('org_id', targetOrgId);
       }
@@ -253,10 +331,10 @@ export default function MaquetteGerantPage() {
         }
       }
 
-      // D. Employés réels de l'entreprise
+      // D. Employés réels
       let empQuery = supabase
         .from('pointage_employees')
-        .select('*, pointage_establishments(name), pointage_schedules(name, morning_start, afternoon_end)')
+        .select('*, pointage_establishments(name), pointage_schedules(name, morning_start, afternoon_end, tolerance_minutes)')
         .eq('is_active', true);
       if (targetOrgId) {
         empQuery = empQuery.eq('org_id', targetOrgId);
@@ -266,22 +344,26 @@ export default function MaquetteGerantPage() {
         setDbEmployees(empsData);
       }
 
-      // E. Justifications réelles
-      const { data: justData } = await supabase
+      // E. Justifications réelles (filtrées par organisation)
+      let justQuery = supabase
         .from('pointage_justifications')
         .select('*, pointage_employees(full_name, employee_matricule, phone)')
         .order('created_at', { ascending: false })
-        .limit(20);
+        .limit(30);
+      if (targetOrgId) {
+        justQuery = justQuery.eq('org_id', targetOrgId);
+      }
+      const { data: justData } = await justQuery;
       if (justData) {
         setDbJustifications(justData);
       }
 
-      // F. Pointages réels
+      // F. Pointages récents pour le cockpit
       let logsQuery = supabase
         .from('pointage_logs')
         .select('*, pointage_employees(full_name, employee_matricule, role), pointage_establishments(name)')
         .order('recorded_at_utc', { ascending: false })
-        .limit(50);
+        .limit(80);
       if (targetOrgId) {
         logsQuery = logsQuery.eq('org_id', targetOrgId);
       }
@@ -300,9 +382,66 @@ export default function MaquetteGerantPage() {
     loadLiveSupabaseData();
   }, []);
 
+  // Chargement spécifique des logs pour la plage de dates des Relevés RH
+  const fetchHrLogsForRange = async (startStr: string, endStr: string) => {
+    setHrLoading(true);
+    try {
+      const supabase = createClient();
+      const targetOrgId = orgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null);
+      const startIso = `${startStr}T00:00:00.000Z`;
+      const endIso = `${endStr}T23:59:59.999Z`;
+
+      let query = supabase
+        .from('pointage_logs')
+        .select('*, pointage_establishments(name)')
+        .gte('recorded_at_utc', startIso)
+        .lte('recorded_at_utc', endIso)
+        .order('recorded_at_utc', { ascending: false });
+
+      if (targetOrgId) {
+        query = query.eq('org_id', targetOrgId);
+      }
+      const { data } = await query;
+      if (data) {
+        setHrLogs(data);
+      }
+    } catch (err) {
+      console.warn('Erreur chargement logs RH:', err);
+    } finally {
+      setHrLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showRelevesDrawer) {
+      fetchHrLogsForRange(hrStartDate, hrEndDate);
+    }
+  }, [showRelevesDrawer, hrStartDate, hrEndDate, orgId]);
+
+  const applyHrPreset = (preset: '7d' | '14d' | '30d' | '45d' | '60d' | 'custom') => {
+    setHrPreset(preset);
+    const today = toDateInputString(new Date());
+    if (preset === '7d') {
+      setHrStartDate(getDateDaysAgo(6));
+      setHrEndDate(today);
+    } else if (preset === '14d') {
+      setHrStartDate(getDateDaysAgo(13));
+      setHrEndDate(today);
+    } else if (preset === '30d') {
+      setHrStartDate(getDateDaysAgo(29));
+      setHrEndDate(today);
+    } else if (preset === '45d') {
+      setHrStartDate(getDateDaysAgo(44));
+      setHrEndDate(today);
+    } else if (preset === '60d') {
+      setHrStartDate(getDateDaysAgo(59));
+      setHrEndDate(today);
+    }
+  };
+
   const activeEstablishment = dbEstablishments[0] || null;
 
-  // 2. Transformation des pointages DB
+  // 2. Transformation des pointages DB pour le flux Cockpit
   const punches: DisplayPunch[] = useMemo(() => {
     if (dbPunches.length === 0) return [];
 
@@ -340,7 +479,7 @@ export default function MaquetteGerantPage() {
         status,
         avatarColor: avatarColors[idx % avatarColors.length],
         device: p.device_model || 'Smartphone Déclaré',
-        wifiUsed: p.wifi_bssid ? (activeEstablishment?.wifi_ssid || 'SAKO') : undefined
+        wifiUsed: p.wifi_bssid ? (activeEstablishment?.wifi_ssid || 'Wi-Fi Bureau') : undefined
       };
     });
   }, [dbPunches, activeEstablishment]);
@@ -353,7 +492,7 @@ export default function MaquetteGerantPage() {
       const created = new Date(j.created_at);
       const timeStr = created.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
       const rawReason = j.reason_text || 'Retard signalé';
-      
+
       let category = 'Justification RH';
       let reason = rawReason;
       const catMatch = rawReason.match(/^\[(.*?)\]\s*(.*)$/);
@@ -374,9 +513,128 @@ export default function MaquetteGerantPage() {
     });
   }, [dbJustifications]);
 
-  // ==================== ACTIONS GÉRANT COMPLÈTES (PARITÉ WEB 100%) ====================
+  // 4. Calcul RH Réel par Collaborateur sur la plage de dates sélectionnée
+  const hrSummaries: EmployeeHrSummary[] = useMemo(() => {
+    return dbEmployees.map((emp) => {
+      const sched = dbSchedules.find(s => s.id === emp.schedule_id) || dbSchedules[0] || null;
+      const schedCategory = sched?.category || 'Continu';
+      const expectedStartMin = parseHHMMToMinutes(sched?.morning_start) ?? 8 * 60;
+      const toleranceMin = sched?.tolerance_minutes ?? 15;
 
-  // A. Créer un nouvel employé dans Supabase
+      // Durée de pause prévue si présente
+      const lStart = parseHHMMToMinutes(sched?.lunch_start);
+      const lEnd = parseHHMMToMinutes(sched?.lunch_end);
+      const breakDurationMin = (lStart !== null && lEnd !== null && lEnd > lStart) ? (lEnd - lStart) : 0;
+
+      const empLogs = hrLogs.filter(l => l.employee_id === emp.id);
+
+      // Grouper par date locale (YYYY-MM-DD)
+      const byDay: Record<string, any[]> = {};
+      for (const log of empLogs) {
+        const dt = new Date(log.recorded_at_utc || log.created_at);
+        const dayKey = toDateInputString(dt);
+        if (!byDay[dayKey]) byDay[dayKey] = [];
+        byDay[dayKey].push(log);
+      }
+
+      const dayDetails: DayDetail[] = Object.keys(byDay)
+        .sort((a, b) => b.localeCompare(a)) // Plus récent en premier
+        .map((dayKey) => {
+          const dayLogs = byDay[dayKey].sort((a, b) =>
+            new Date(a.recorded_at_utc || a.created_at).getTime() -
+            new Date(b.recorded_at_utc || b.created_at).getTime()
+          );
+
+          const firstLog = dayLogs[0];
+          const lastLog = dayLogs.length > 1 ? dayLogs[dayLogs.length - 1] : null;
+
+          const firstDt = new Date(firstLog.recorded_at_utc || firstLog.created_at);
+          const firstTime = firstDt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+          const firstMin = firstDt.getHours() * 60 + firstDt.getMinutes();
+
+          let lastTime: string | null = null;
+          let workedMinutes = 0;
+
+          if (lastLog) {
+            const lastDt = new Date(lastLog.recorded_at_utc || lastLog.created_at);
+            lastTime = lastDt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+            const lastMin = lastDt.getHours() * 60 + lastDt.getMinutes();
+            if (lastMin > firstMin) {
+              const rawDur = lastMin - firstMin;
+              workedMinutes = rawDur > 240 && breakDurationMin > 0
+                ? Math.max(0, rawDur - breakDurationMin)
+                : rawDur;
+            }
+          }
+
+          // Calcul du retard réel ce jour-là
+          let lateMinutes = 0;
+          if (schedCategory !== 'Départ seul') {
+            const diffFromStart = firstMin - expectedStartMin;
+            const isExplicitLate = dayLogs.some(l =>
+              l.status === 'LATE' ||
+              (Array.isArray(l.flag_reasons) && l.flag_reasons.some((r: string) => r.includes('RETARD') || r.includes('LATE')))
+            );
+            if (diffFromStart > toleranceMin) {
+              lateMinutes = diffFromStart;
+            } else if (isExplicitLate) {
+              lateMinutes = diffFromStart > 0 ? diffFromStart : 15;
+            }
+          }
+
+          const hasAlert = dayLogs.some(l => l.status === 'FLAGGED');
+          let status: DayDetail['status'] = 'ON_TIME';
+          if (hasAlert) status = 'ALERT';
+          else if (lateMinutes > 0) status = 'LATE';
+          else if (!lastLog) status = 'SINGLE';
+
+          const dateLabel = firstDt.toLocaleDateString('fr-FR', {
+            weekday: 'short',
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+          });
+
+          return {
+            dateKey: dayKey,
+            dateLabel,
+            firstTime,
+            lastTime,
+            lateMinutes,
+            workedMinutes,
+            status,
+            siteName: firstLog.pointage_establishments?.name || emp.pointage_establishments?.name || 'Siège'
+          };
+        });
+
+      const presentDays = dayDetails.length;
+      const lateDays = dayDetails.filter(d => d.lateMinutes > 0).length;
+      const totalLateMinutes = dayDetails.reduce((acc, d) => acc + d.lateMinutes, 0);
+      const totalWorkedMinutes = dayDetails.reduce((acc, d) => acc + d.workedMinutes, 0);
+      const punctualityRate = presentDays > 0
+        ? Math.round(((presentDays - lateDays) / presentDays) * 100)
+        : 100;
+
+      return {
+        employee: emp,
+        presentDays,
+        lateDays,
+        totalLateMinutes,
+        totalWorkedMinutes,
+        punctualityRate,
+        days: dayDetails
+      };
+    });
+  }, [dbEmployees, dbSchedules, hrLogs]);
+
+  const selectedHrSummary = useMemo(() => {
+    if (!selectedHrEmployeeId) return null;
+    return hrSummaries.find(s => s.employee.id === selectedHrEmployeeId) || null;
+  }, [hrSummaries, selectedHrEmployeeId]);
+
+  // ==================== ACTIONS GÉRANT COMPLÈTES ====================
+
+  // A. Créer un nouvel employé
   const handleCreateEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEmpName.trim()) {
@@ -402,7 +660,7 @@ export default function MaquetteGerantPage() {
           schedule_id: newEmpScheduleId || (dbSchedules[0]?.id || null),
           is_active: true
         })
-        .select('*, pointage_establishments(name), pointage_schedules(name)')
+        .select('*, pointage_establishments(name), pointage_schedules(name, morning_start, afternoon_end, tolerance_minutes)')
         .single();
 
       if (error) throw error;
@@ -412,15 +670,75 @@ export default function MaquetteGerantPage() {
         setShowAddEmployeeModal(false);
         setNewEmpName('');
         setNewEmpPhone('');
-        triggerToast(`✓ Collaborateur ${newEmp.full_name} créé avec matricule ${matricule} !`);
+        triggerToast(`✓ Collaborateur ${newEmp.full_name} créé (${matricule}) !`);
       }
     } catch (err: any) {
       triggerToast(`Erreur création: ${err.message}`);
     }
   };
 
-  // B. Créer un nouveau site / établissement dans Supabase
-  const handleCreateSite = async (e: React.FormEvent) => {
+  // B. Détection automatique du Wi-Fi pour un site
+  const handleDetectSiteWifi = async () => {
+    if (isMobileScreen) {
+      setWifiDetectNote(
+        "Sur navigateur web mobile, Chrome/Safari bloque la lecture du Wi-Fi par confidentialité : saisissez le nom du réseau ci-dessus. Dans l'APK natif Android/iOS, cette détection SSID + MAC est 100% automatique."
+      );
+      return;
+    }
+
+    setIsDetectingWifi(true);
+    setWifiDetectNote(null);
+    try {
+      const res = await fetch('/api/wifi/current?refresh=true');
+      const data = await res.json();
+      if (data && data.success && (data.ssid || data.bssid)) {
+        const detectedSsid = data.ssid || '';
+        const detectedBssid = data.bssid || '';
+        setNewSiteWifiSsid(detectedSsid);
+        setNewSiteWifiBssid(detectedBssid);
+        setWifiDetectNote(
+          `✓ Wi-Fi détecté : ${detectedSsid}${detectedBssid ? ` (${detectedBssid})` : ''}`
+        );
+        triggerToast(`✓ Box Wi-Fi "${detectedSsid}" détectée automatiquement !`);
+      } else {
+        setWifiDetectNote("Aucun réseau Wi-Fi actif détecté sur cette interface. Saisissez le nom manuellement.");
+      }
+    } catch (err: any) {
+      setWifiDetectNote("Détection locale indisponible. Saisissez le nom du Wi-Fi manuellement.");
+    } finally {
+      setIsDetectingWifi(false);
+    }
+  };
+
+  // Ouvrir modale création / édition de site
+  const openSiteModal = (siteToEdit?: any) => {
+    setWifiDetectNote(null);
+    if (siteToEdit) {
+      setEditingSiteId(siteToEdit.id);
+      setNewSiteName(siteToEdit.name || '');
+      setNewSiteCity(siteToEdit.city || 'Bobo-Dioulasso');
+      setNewSiteRadius(siteToEdit.radius_meters || 80);
+      setNewSiteLat(String(siteToEdit.latitude ?? '11.247051'));
+      setNewSiteLon(String(siteToEdit.longitude ?? '-4.291915'));
+      setNewSiteHasWifi(!!siteToEdit.wifi_ssid);
+      setNewSiteWifiSsid(siteToEdit.wifi_ssid || '');
+      setNewSiteWifiBssid(Array.isArray(siteToEdit.wifi_bssids) ? (siteToEdit.wifi_bssids[0] || '') : '');
+    } else {
+      setEditingSiteId(null);
+      setNewSiteName('');
+      setNewSiteCity('Bobo-Dioulasso');
+      setNewSiteRadius(80);
+      setNewSiteLat('11.247051');
+      setNewSiteLon('-4.291915');
+      setNewSiteHasWifi(true);
+      setNewSiteWifiSsid('');
+      setNewSiteWifiBssid('');
+    }
+    setShowAddSiteModal(true);
+  };
+
+  // C. Créer ou modifier un site dans Supabase
+  const handleSaveSite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSiteName.trim()) {
       triggerToast("Veuillez donner un nom au site.");
@@ -429,37 +747,62 @@ export default function MaquetteGerantPage() {
     try {
       const supabase = createClient();
       const targetOrgId = orgId || '53055b65-de5a-40af-9f1c-d27bd83e7c68';
+      const cleanSsid = newSiteHasWifi && newSiteWifiSsid.trim() ? newSiteWifiSsid.trim() : null;
+      const cleanBssids = newSiteHasWifi && newSiteWifiBssid.trim() ? [newSiteWifiBssid.trim()] : [];
 
-      const { data: newSite, error } = await supabase
-        .from('pointage_establishments')
-        .insert({
-          org_id: targetOrgId,
-          name: newSiteName.trim(),
-          city: newSiteCity.trim() || 'Principal',
-          latitude: parseFloat(newSiteLat) || 11.247051,
-          longitude: parseFloat(newSiteLon) || -4.291915,
-          radius_meters: newSiteRadius,
-          wifi_ssid: newSiteWifiSsid.trim() || 'SAKO',
-          wifi_bssids: ['6a:9e:29:2b:43:08'],
-          is_active: true
-        })
-        .select()
-        .single();
+      if (editingSiteId) {
+        const { data: updated, error } = await supabase
+          .from('pointage_establishments')
+          .update({
+            name: newSiteName.trim(),
+            city: newSiteCity.trim() || 'Principal',
+            latitude: parseFloat(newSiteLat) || 11.247051,
+            longitude: parseFloat(newSiteLon) || -4.291915,
+            radius_meters: newSiteRadius,
+            wifi_ssid: cleanSsid,
+            wifi_bssids: cleanBssids
+          })
+          .eq('id', editingSiteId)
+          .select()
+          .single();
 
-      if (error) throw error;
+        if (error) throw error;
+        if (updated) {
+          setDbEstablishments(prev => prev.map(s => s.id === editingSiteId ? updated : s));
+          setShowAddSiteModal(false);
+          triggerToast(`✓ Site "${updated.name}" mis à jour !`);
+        }
+      } else {
+        const { data: newSite, error } = await supabase
+          .from('pointage_establishments')
+          .insert({
+            org_id: targetOrgId,
+            name: newSiteName.trim(),
+            city: newSiteCity.trim() || 'Principal',
+            latitude: parseFloat(newSiteLat) || 11.247051,
+            longitude: parseFloat(newSiteLon) || -4.291915,
+            radius_meters: newSiteRadius,
+            wifi_ssid: cleanSsid,
+            wifi_bssids: cleanBssids,
+            is_active: true
+          })
+          .select()
+          .single();
 
-      if (newSite) {
-        setDbEstablishments(prev => [...prev, newSite]);
-        setShowAddSiteModal(false);
-        setNewSiteName('');
-        triggerToast(`✓ Site "${newSite.name}" (${newSite.radius_meters}m) créé avec succès !`);
+        if (error) throw error;
+        if (newSite) {
+          setDbEstablishments(prev => [...prev, newSite]);
+          setShowAddSiteModal(false);
+          setNewSiteName('');
+          triggerToast(`✓ Site "${newSite.name}" (${newSite.radius_meters}m) créé avec succès !`);
+        }
       }
     } catch (err: any) {
       triggerToast(`Erreur site: ${err.message}`);
     }
   };
 
-  // C. Calibrer la position GPS en direct avec le smartphone du dirigeant
+  // D. Calibrer la position GPS en direct
   const handleCalibrateGpsFromDevice = () => {
     if (!navigator.geolocation) {
       triggerToast("La géolocalisation n'est pas supportée par ce navigateur.");
@@ -476,7 +819,7 @@ export default function MaquetteGerantPage() {
         const acc = Math.round(pos.coords.accuracy);
         setNewSiteLat(lat);
         setNewSiteLon(lon);
-        triggerToast(`✓ GPS calé avec précision satellite ±${acc}m (${lat}, ${lon}) !`);
+        triggerToast(`✓ GPS calé avec précision ±${acc}m (${lat}, ${lon}) !`);
       },
       (err) => {
         setIsCalibratingGps(false);
@@ -486,7 +829,48 @@ export default function MaquetteGerantPage() {
     );
   };
 
-  // D. Créer un couloir horaire / planning dans Supabase
+  // Calcul net journalier pour la modale Couloir Horaire
+  const scheduleDailyPreview = useMemo(() => {
+    if (!schedTrackArrival && schedTrackDeparture) {
+      return `Départ seul contrôlé à ${newSchedAfternoonEnd}`;
+    }
+    if (schedTrackArrival && !schedTrackDeparture) {
+      return `Arrivée seule contrôlée à ${newSchedMorningStart} (+${newSchedTolerance}m tol.)`;
+    }
+    const arrM = parseHHMMToMinutes(newSchedMorningStart);
+    const depM = parseHHMMToMinutes(newSchedAfternoonEnd);
+    if (arrM === null || depM === null || depM <= arrM) {
+      return 'Plage horaire personnalisée';
+    }
+    let netMin = depM - arrM;
+    if (schedHasBreak) {
+      const bStart = parseHHMMToMinutes(newSchedBreakStart);
+      const bEnd = parseHHMMToMinutes(newSchedBreakEnd);
+      if (bStart !== null && bEnd !== null && bEnd > bStart) {
+        netMin = Math.max(0, netMin - (bEnd - bStart));
+      }
+    }
+    return `Temps de travail effectif : ${formatMinutesAsHours(netMin)} / jour`;
+  }, [
+    schedTrackArrival,
+    schedTrackDeparture,
+    newSchedMorningStart,
+    newSchedAfternoonEnd,
+    schedHasBreak,
+    newSchedBreakStart,
+    newSchedBreakEnd,
+    newSchedTolerance
+  ]);
+
+  const toggleSchedDay = (dayId: number) => {
+    setNewSchedDays(prev =>
+      prev.includes(dayId)
+        ? (prev.length > 1 ? prev.filter(d => d !== dayId) : prev)
+        : [...prev, dayId].sort((a, b) => a - b)
+    );
+  };
+
+  // E. Créer un couloir horaire flexible (Arrivée/Départ activables + Pause optionnelle)
   const handleCreateSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSchedName.trim()) {
@@ -497,18 +881,63 @@ export default function MaquetteGerantPage() {
       const supabase = createClient();
       const targetOrgId = orgId || '53055b65-de5a-40af-9f1c-d27bd83e7c68';
 
+      let category = 'Continu';
+      let morningStart = newSchedMorningStart;
+      let morningEnd = newSchedAfternoonEnd;
+      let lunchStart = newSchedMorningStart;
+      let lunchEnd = newSchedMorningStart;
+      let afternoonStart = newSchedMorningStart;
+      let afternoonEnd = newSchedAfternoonEnd;
+      let dailyNetMinutes = 480;
+
+      if (schedTrackArrival && !schedTrackDeparture) {
+        category = 'Arrivée seule';
+        morningEnd = newSchedMorningStart;
+        afternoonStart = newSchedMorningStart;
+        afternoonEnd = newSchedMorningStart;
+        dailyNetMinutes = 0;
+      } else if (!schedTrackArrival && schedTrackDeparture) {
+        category = 'Départ seul';
+        morningStart = newSchedAfternoonEnd;
+        morningEnd = newSchedAfternoonEnd;
+        lunchStart = newSchedAfternoonEnd;
+        lunchEnd = newSchedAfternoonEnd;
+        afternoonStart = newSchedAfternoonEnd;
+        dailyNetMinutes = 0;
+      } else if (schedHasBreak) {
+        category = 'Avec pause';
+        morningEnd = newSchedBreakStart;
+        lunchStart = newSchedBreakStart;
+        lunchEnd = newSchedBreakEnd;
+        afternoonStart = newSchedBreakEnd;
+        const arrM = parseHHMMToMinutes(morningStart) ?? 480;
+        const depM = parseHHMMToMinutes(afternoonEnd) ?? 1020;
+        const bStart = parseHHMMToMinutes(lunchStart) ?? 720;
+        const bEnd = parseHHMMToMinutes(lunchEnd) ?? 810;
+        dailyNetMinutes = Math.max(0, (depM - arrM) - Math.max(0, bEnd - bStart));
+      } else {
+        const arrM = parseHHMMToMinutes(morningStart) ?? 480;
+        const depM = parseHHMMToMinutes(afternoonEnd) ?? 1020;
+        dailyNetMinutes = Math.max(0, depM - arrM);
+      }
+
+      const weeklyHours = Math.round(((dailyNetMinutes * newSchedDays.length) / 60) * 10) / 10;
+
       const { data: newSched, error } = await supabase
         .from('pointage_schedules')
         .insert({
           org_id: targetOrgId,
           name: newSchedName.trim(),
-          category: 'Standard',
+          category,
           working_days: newSchedDays,
-          morning_start: newSchedMorningStart,
-          morning_end: '12:30',
-          afternoon_start: '13:30',
-          afternoon_end: newSchedAfternoonEnd,
-          tolerance_minutes: newSchedTolerance,
+          morning_start: morningStart,
+          morning_end: morningEnd,
+          lunch_start: lunchStart,
+          lunch_end: lunchEnd,
+          afternoon_start: afternoonStart,
+          afternoon_end: afternoonEnd,
+          tolerance_minutes: schedTrackArrival ? newSchedTolerance : 0,
+          weekly_hours: weeklyHours,
           is_active: true
         })
         .select()
@@ -520,14 +949,29 @@ export default function MaquetteGerantPage() {
         setDbSchedules(prev => [...prev, newSched]);
         setShowAddScheduleModal(false);
         setNewSchedName('');
-        triggerToast(`✓ Couloir horaire "${newSched.name}" créé (${newSched.morning_start} - ${newSched.afternoon_end}) !`);
+        triggerToast(`✓ Couloir "${newSched.name}" (${category}) créé !`);
       }
     } catch (err: any) {
       triggerToast(`Erreur planning: ${err.message}`);
     }
   };
 
-  // E. Délier l'appareil d'un salarié (Reset téléphone)
+  const handleDeleteSchedule = async (schedId: string, name: string) => {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('pointage_schedules')
+        .update({ is_active: false })
+        .eq('id', schedId);
+      if (error) throw error;
+      setDbSchedules(prev => prev.filter(s => s.id !== schedId));
+      triggerToast(`Couloir "${name}" supprimé.`);
+    } catch (err: any) {
+      triggerToast(`Erreur: ${err.message}`);
+    }
+  };
+
+  // F. Délier l'appareil d'un salarié
   const handleUnbindEmployee = async (empId: string, name: string) => {
     try {
       const supabase = createClient();
@@ -539,13 +983,13 @@ export default function MaquetteGerantPage() {
       if (error) throw error;
 
       setDbEmployees(prev => prev.map(e => e.id === empId ? { ...e, bound_device_id: null, device_model: null, is_enrolled: false } : e));
-      triggerToast(`✓ Téléphone de ${name} délié. Il peut désormais lier un nouvel appareil.`);
+      triggerToast(`✓ Téléphone de ${name} délié.`);
     } catch (err: any) {
       triggerToast(`Erreur: ${err.message}`);
     }
   };
 
-  // F. Arbitrage justifications
+  // G. Arbitrage justifications
   const handleApproveJustif = async (id: string, name: string) => {
     try {
       const supabase = createClient();
@@ -594,7 +1038,168 @@ export default function MaquetteGerantPage() {
     }
   };
 
-  // G. WhatsApp invitation magique
+  // H. Export réel Excel (.xlsx) global ou individuel
+  const handleExportExcel = (singleSummary?: EmployeeHrSummary) => {
+    try {
+      const targetList = singleSummary ? [singleSummary] : hrSummaries;
+      if (targetList.length === 0) {
+        triggerToast("Aucune donnée collaborateur à exporter sur cette plage.");
+        return;
+      }
+
+      const wb = XLSX.utils.book_new();
+
+      // Onglet 1 : Synthèse par employé
+      const summaryRows = targetList.map((s) => ({
+        'Entreprise': orgName,
+        'Période': `${hrStartDate} au ${hrEndDate}`,
+        'Matricule': s.employee.employee_matricule || 'N/A',
+        'Nom Complet': s.employee.full_name,
+        'Rôle': s.employee.role || 'Collaborateur',
+        'Site': s.employee.pointage_establishments?.name || 'Siège',
+        'Jours Présents': s.presentDays,
+        'Jours en Retard': s.lateDays,
+        'Cumul Retards (min)': s.totalLateMinutes,
+        'Cumul Retards (HhMm)': formatLateMinutes(s.totalLateMinutes),
+        'Heures Travaillées': formatMinutesAsHours(s.totalWorkedMinutes),
+        'Ponctualité (%)': `${s.punctualityRate}%`
+      }));
+      const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Synthèse RH');
+
+      // Onglet 2 : Détail journalier & jours de retard
+      const detailRows: any[] = [];
+      for (const s of targetList) {
+        if (s.days.length === 0) {
+          detailRows.push({
+            'Nom Complet': s.employee.full_name,
+            'Matricule': s.employee.employee_matricule || 'N/A',
+            'Date': 'Aucun pointage sur la période',
+            'Arrivée': '--',
+            'Départ': '--',
+            'Statut': 'Absent / Non pointé',
+            'Retard (min)': 0,
+            'Durée Travaillée': '0h 00m',
+            'Site': s.employee.pointage_establishments?.name || 'Siège'
+          });
+        } else {
+          for (const d of s.days) {
+            detailRows.push({
+              'Nom Complet': s.employee.full_name,
+              'Matricule': s.employee.employee_matricule || 'N/A',
+              'Date': d.dateKey,
+              'Jour': d.dateLabel,
+              'Arrivée': d.firstTime,
+              'Départ': d.lastTime || 'Non pointé',
+              'Statut': d.lateMinutes > 0 ? 'EN RETARD' : d.status === 'ALERT' ? 'ALERTE ZONE' : 'À L\'HEURE',
+              'Retard (min)': d.lateMinutes,
+              'Durée Travaillée': d.workedMinutes > 0 ? formatMinutesAsHours(d.workedMinutes) : 'Journée en cours',
+              'Site': d.siteName
+            });
+          }
+        }
+      }
+      const wsDetails = XLSX.utils.json_to_sheet(detailRows);
+      XLSX.utils.book_append_sheet(wb, wsDetails, 'Détail Journalier');
+
+      const safeOrg = orgName.replace(/[^a-z0-9]/gi, '_');
+      const fileName = singleSummary
+        ? `Fiche_RH_${singleSummary.employee.full_name.replace(/[^a-z0-9]/gi, '_')}_${hrStartDate}_${hrEndDate}.xlsx`
+        : `Releve_RH_${safeOrg}_${hrStartDate}_au_${hrEndDate}.xlsx`;
+
+      XLSX.writeFile(wb, fileName);
+      triggerToast(`✓ Fichier Excel "${fileName}" téléchargé !`);
+    } catch (err: any) {
+      triggerToast(`Erreur export Excel: ${err.message}`);
+    }
+  };
+
+  // Export imprimable / PDF propre dans un nouvel onglet
+  const handleExportPdfPrint = (singleSummary?: EmployeeHrSummary) => {
+    const targetList = singleSummary ? [singleSummary] : hrSummaries;
+    const htmlContent = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Relevé RH - ${orgName}</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #0f172a; padding: 28px; }
+    h1 { font-size: 20px; margin: 0 0 4px; color: #1e3a8a; }
+    .meta { font-size: 12px; color: #475569; margin-bottom: 18px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+    th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; }
+    th { background: #f1f5f9; font-weight: bold; }
+    .late { color: #b45309; font-weight: bold; }
+    .ok { color: #047857; font-weight: bold; }
+    h2 { font-size: 15px; margin-top: 24px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <h1>${orgName} — Relevé & Synthèse RH</h1>
+  <div class="meta">Période : du <strong>${hrStartDate}</strong> au <strong>${hrEndDate}</strong> • Code : ${orgCode}</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Collaborateur</th>
+        <th>Matricule</th>
+        <th>Jours Présents</th>
+        <th>Jours en Retard</th>
+        <th>Cumul Retards</th>
+        <th>Heures Travaillées</th>
+        <th>Ponctualité</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${targetList.map(s => `
+        <tr>
+          <td><strong>${s.employee.full_name}</strong></td>
+          <td>${s.employee.employee_matricule || 'N/A'}</td>
+          <td>${s.presentDays} j</td>
+          <td class="${s.lateDays > 0 ? 'late' : 'ok'}">${s.lateDays} j</td>
+          <td class="${s.totalLateMinutes > 0 ? 'late' : 'ok'}">${formatLateMinutes(s.totalLateMinutes)}</td>
+          <td>${formatMinutesAsHours(s.totalWorkedMinutes)}</td>
+          <td>${s.punctualityRate}%</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>
+  ${targetList.map(s => `
+    <h2>Détail : ${s.employee.full_name} (${s.employee.employee_matricule || 'N/A'})</h2>
+    <table>
+      <thead>
+        <tr><th>Date</th><th>Arrivée</th><th>Départ</th><th>Statut</th><th>Retard</th><th>Durée</th><th>Site</th></tr>
+      </thead>
+      <tbody>
+        ${s.days.length === 0
+          ? '<tr><td colspan="7">Aucun pointage enregistré sur cette période.</td></tr>'
+          : s.days.map(d => `
+            <tr>
+              <td>${d.dateLabel}</td>
+              <td>${d.firstTime}</td>
+              <td>${d.lastTime || '--:--'}</td>
+              <td class="${d.lateMinutes > 0 ? 'late' : 'ok'}">${d.lateMinutes > 0 ? 'EN RETARD' : 'À L\'HEURE'}</td>
+              <td>${d.lateMinutes > 0 ? `+${d.lateMinutes} min` : '0 min'}</td>
+              <td>${d.workedMinutes > 0 ? formatMinutesAsHours(d.workedMinutes) : 'En cours'}</td>
+              <td>${d.siteName}</td>
+            </tr>
+          `).join('')}
+      </tbody>
+    </table>
+  `).join('')}
+  <script>window.onload = () => window.print();</script>
+</body>
+</html>`;
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(htmlContent);
+      win.document.close();
+      triggerToast("Fiche PDF prête pour impression / sauvegarde !");
+    } else {
+      triggerToast("Autorisez l'ouverture de la fenêtre pour exporter en PDF.");
+    }
+  };
+
+  // I. WhatsApp invitation magique
   const handleOpenWhatsApp = (emp: any) => {
     const rawPhone = emp.phone || '';
     const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
@@ -610,7 +1215,7 @@ export default function MaquetteGerantPage() {
     triggerToast(`Lien magique WhatsApp ouvert pour ${emp.full_name}`);
   };
 
-  // H. Diffusion notification push
+  // J. Diffusion notification push
   const handleSendBroadcast = (e: React.FormEvent) => {
     e.preventDefault();
     if (!broadcastText.trim()) return;
@@ -622,12 +1227,12 @@ export default function MaquetteGerantPage() {
     setTimeout(() => setShowDynamicIslandAlert(false), 4000);
   };
 
-  // I. Simulation pointage réel
+  // K. Simulation pointage réel
   const handleSimulateNewPunch = async () => {
     try {
       const supabase = createClient();
       const targetOrgId = orgId || '53055b65-de5a-40af-9f1c-d27bd83e7c68';
-      
+
       const emps = dbEmployees.length > 0 ? dbEmployees : [
         { id: '79b7aef2-544e-4a70-ac6a-39ce3db1e57c', full_name: 'TRAORE Amadou', employee_matricule: 'MAT-2026-001' }
       ];
@@ -655,7 +1260,7 @@ export default function MaquetteGerantPage() {
           accuracy_meters: 1.9,
           distance_to_site_meters: dist,
           device_model: randomEmp.device_model || 'Smartphone Déclaré',
-          wifi_bssid: activeEstablishment?.wifi_bssids?.[0] || '6a:9e:29:2b:43:08',
+          wifi_bssid: activeEstablishment?.wifi_bssids?.[0] || null,
           status: 'VALIDATED',
           flag_reasons: ['WGS84_OPTIMAL', 'SIMULATION_DIRECTE_MOBILE']
         })
@@ -702,11 +1307,10 @@ export default function MaquetteGerantPage() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-900 flex flex-col font-sans select-none">
-      
-      {/* 1. BARRE DE COMMANDE SUPÉRIEURE (Sur grand écran, pour contrôler la maquette) */}
+
+      {/* 1. BARRE DE COMMANDE SUPÉRIEURE */}
       <header className={`border-b border-slate-800 bg-slate-950/90 text-white px-4 py-2.5 sticky top-0 z-50 ${isMobileScreen ? 'hidden' : 'block'}`}>
         <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3">
-          
           <div className="flex items-center space-x-3">
             <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-blue-500/20 font-black">
               <Smartphone className="w-4 h-4" />
@@ -729,7 +1333,6 @@ export default function MaquetteGerantPage() {
             </div>
           </div>
 
-          {/* Contrôles du Simulateur */}
           <div className="flex items-center space-x-2">
             <button
               type="button"
@@ -751,7 +1354,6 @@ export default function MaquetteGerantPage() {
               <span className="hidden sm:inline">Tester sur Mon Mobile</span>
             </button>
 
-            {/* Sélecteur Appareil */}
             <div className="bg-slate-800 p-0.5 rounded-xl border border-slate-700 flex items-center text-xs">
               <button
                 type="button"
@@ -795,8 +1397,7 @@ export default function MaquetteGerantPage() {
 
       {/* 2. ZONE CENTRALE : CHÂSSIS SMARTPHONE */}
       <main className="flex-1 flex items-center justify-center p-0 sm:p-6 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
-        
-        {/* Toast Flottant Lumineux */}
+
         {toastMsg && (
           <div className="fixed top-16 z-[70] bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-2xl font-bold text-xs flex items-center gap-2 border border-slate-700 animate-bounce">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -804,23 +1405,23 @@ export default function MaquetteGerantPage() {
           </div>
         )}
 
-        {/* CADRE DU TÉLÉPHONE (SUR FOND BLANC LUMINEUX PREMIUM) */}
-        <div 
+        {/* CADRE DU TÉLÉPHONE */}
+        <div
           className={`transition-all duration-300 ${
             deviceFrame === 'fullscreen' || isMobileScreen
-              ? 'w-full max-w-md h-screen sm:h-[92vh] rounded-none sm:rounded-3xl border-0 sm:border border-slate-200 shadow-2xl' 
+              ? 'w-full max-w-md h-screen sm:h-[92vh] rounded-none sm:rounded-3xl border-0 sm:border border-slate-200 shadow-2xl'
               : deviceFrame === 'iphone'
                 ? 'w-[395px] h-[825px] rounded-[50px] ring-[12px] ring-slate-800 shadow-[0_25px_70px_rgba(0,0,0,0.85)] border-[4px] border-slate-700'
                 : 'w-[400px] h-[825px] rounded-[36px] ring-[12px] ring-slate-800 shadow-[0_25px_70px_rgba(0,0,0,0.85)] border-[3px] border-slate-700'
           } bg-[#F8FAFC] text-slate-900 flex flex-col overflow-hidden relative shadow-2xl`}
         >
 
-          {/* DYNAMIC ISLAND (Sur iPhone uniquement) */}
+          {/* DYNAMIC ISLAND */}
           {deviceFrame === 'iphone' && !isMobileScreen && (
             <div className="absolute top-2.5 left-1/2 -translate-x-1/2 z-40 transition-all duration-300">
               <div className={`bg-black text-white rounded-full flex items-center justify-between px-3 py-1 transition-all ${
-                showDynamicIslandAlert 
-                  ? 'w-[270px] h-8 ring-2 ring-emerald-500/50 shadow-lg shadow-emerald-500/20' 
+                showDynamicIslandAlert
+                  ? 'w-[270px] h-8 ring-2 ring-emerald-500/50 shadow-lg shadow-emerald-500/20'
                   : 'w-[110px] h-6'
               }`}>
                 {showDynamicIslandAlert ? (
@@ -838,23 +1439,21 @@ export default function MaquetteGerantPage() {
             </div>
           )}
 
-          {/* BARRE D'ÉTAT SYSTÈME NATIVE (Style iOS / Android en fond clair) */}
+          {/* BARRE D'ÉTAT SYSTÈME */}
           <div className="pt-2.5 px-6 pb-1.5 flex items-center justify-between text-xs font-semibold text-slate-700 z-30 shrink-0 bg-white/80 backdrop-blur-md">
             <span className="font-extrabold tracking-tight text-[11px] text-slate-900">{currentTime}</span>
             <div className="flex items-center space-x-2 text-slate-700">
               <Signal className="w-3 h-3" />
               <div className="flex items-center text-[10px] font-extrabold text-blue-600">
                 <Wifi className="w-3 h-3 mr-0.5" />
-                <span className="truncate max-w-[80px]">{activeEstablishment?.wifi_ssid || 'SAKO'}</span>
+                <span className="truncate max-w-[80px]">{activeEstablishment?.wifi_ssid || 'Réseau'}</span>
               </div>
               <BatteryMedium className="w-4 h-4 text-emerald-600" />
             </div>
           </div>
 
-          {/* EN-TÊTE ÉPURÉ PREMIUM LUMINEUX AVEC MENU SANDWICH */}
+          {/* EN-TÊTE ÉPURÉ AVEC MENU SANDWICH */}
           <div className="px-4 py-2.5 border-b border-slate-200/80 bg-white/95 backdrop-blur-md flex items-center justify-between shrink-0 z-20 shadow-xs">
-            
-            {/* Gauche : Bouton Menu Sandwich (☰) + Identité Entreprise */}
             <div className="flex items-center space-x-2.5">
               <button
                 type="button"
@@ -880,7 +1479,6 @@ export default function MaquetteGerantPage() {
               </div>
             </div>
 
-            {/* Droite : Bouton Diffusion Push + Notifications */}
             <div className="flex items-center space-x-1.5">
               <button
                 type="button"
@@ -906,18 +1504,16 @@ export default function MaquetteGerantPage() {
             </div>
           </div>
 
-          {/* TIROIR COULISSANT DU MENU SANDWICH DE DIRECTION (FOND CLAIR HAUT DE GAMME) */}
+          {/* TIROIR COULISSANT MENU SANDWICH */}
           {isSandwichOpen && (
             <div className="absolute inset-0 z-50 flex animate-fadeIn">
-              <div 
+              <div
                 className="absolute inset-0 bg-slate-950/40 backdrop-blur-xs transition-opacity"
                 onClick={() => setIsSandwichOpen(false)}
               />
 
               <div className="relative w-4/5 max-w-[290px] bg-white border-r border-slate-200 h-full flex flex-col justify-between p-4 z-10 shadow-2xl">
                 <div className="space-y-4 overflow-y-auto pr-1">
-                  
-                  {/* Header Tiroir */}
                   <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                     <div className="flex items-center space-x-2.5">
                       <div className="w-9 h-9 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black text-xs shadow-md shadow-blue-500/20">
@@ -940,7 +1536,6 @@ export default function MaquetteGerantPage() {
                     </button>
                   </div>
 
-                  {/* Code Entreprise avec Copie 1 Clic */}
                   <div className="bg-blue-50/70 p-3 rounded-2xl border border-blue-100">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-700">Code Entreprise</span>
@@ -961,7 +1556,6 @@ export default function MaquetteGerantPage() {
                     <span className="font-mono text-xs font-black text-slate-900 block truncate">{orgCode}</span>
                   </div>
 
-                  {/* Modules Complets du Système */}
                   <div className="space-y-1 text-xs">
                     <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-2 block mb-1">
                       Modules Opérationnels
@@ -1030,18 +1624,17 @@ export default function MaquetteGerantPage() {
                     </button>
                   </div>
 
-                  {/* Outils Avancés Exécutifs */}
                   <div className="pt-2 border-t border-slate-100 space-y-1">
                     <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-2 block mb-1">
                       Outils & Rapports
                     </span>
                     <button
                       type="button"
-                      onClick={() => { setIsSandwichOpen(false); setShowRelevesDrawer(true); }}
+                      onClick={() => { setIsSandwichOpen(false); setSelectedHrEmployeeId(null); setShowRelevesDrawer(true); }}
                       className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-slate-700 hover:bg-slate-100 text-xs font-bold transition text-left cursor-pointer"
                     >
                       <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                      <span>Relevés & Heures Travaillées</span>
+                      <span>Relevés & Synthèse RH</span>
                     </button>
                     <button
                       type="button"
@@ -1060,17 +1653,15 @@ export default function MaquetteGerantPage() {
                       <span>Diffuser une Alerte Push</span>
                     </button>
                   </div>
-
                 </div>
 
-                {/* Footer Tiroir : Déconnexion & Sécurité */}
                 <div className="pt-3 border-t border-slate-100 space-y-2">
                   <div className="flex items-center justify-between text-[10px] text-slate-500 font-bold">
                     <span className="flex items-center gap-1 text-emerald-600">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                       WGS84 ±1m Satellite Actif
                     </span>
-                    <span className="font-mono text-slate-400">v3.0 Premium</span>
+                    <span className="font-mono text-slate-400">v3.1 Premium</span>
                   </div>
                   <button
                     type="button"
@@ -1088,14 +1679,13 @@ export default function MaquetteGerantPage() {
             </div>
           )}
 
-          {/* CONTENU PRINCIPAL DE L'APPLICATION (ÉPURÉ, LUMINEUX & COMPLET) */}
+          {/* CONTENU PRINCIPAL DE L'APPLICATION */}
           <div className="flex-1 overflow-y-auto px-4 py-3.5 space-y-4 scrollbar-none bg-[#F8FAFC]">
-            
+
             {/* ===================== ONGLET 1 : COCKPIT GÉRANT ===================== */}
             {activeTab === 'cockpit' && (
               <div className="space-y-4 animate-fadeIn">
-                
-                {/* 1. Carte Hero Épurée Lumineuse : Taux d'Assiduité */}
+
                 <div className="bg-white border border-slate-200/80 rounded-3xl p-4 shadow-sm relative overflow-hidden">
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-[11px] font-extrabold text-slate-700 flex items-center gap-1.5">
@@ -1161,7 +1751,7 @@ export default function MaquetteGerantPage() {
                   </div>
                 </div>
 
-                {/* 2. Boutons d'Action Rapide de Direction */}
+                {/* Actions rapides */}
                 <div className="grid grid-cols-4 gap-2">
                   <button
                     type="button"
@@ -1176,7 +1766,7 @@ export default function MaquetteGerantPage() {
 
                   <button
                     type="button"
-                    onClick={() => setShowAddSiteModal(true)}
+                    onClick={() => openSiteModal()}
                     className="p-2.5 bg-white border border-slate-200/80 hover:border-emerald-300 rounded-2xl flex flex-col items-center justify-center text-center transition active:scale-95 cursor-pointer shadow-xs"
                   >
                     <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-1">
@@ -1198,7 +1788,7 @@ export default function MaquetteGerantPage() {
 
                   <button
                     type="button"
-                    onClick={() => setShowRelevesDrawer(true)}
+                    onClick={() => { setSelectedHrEmployeeId(null); setShowRelevesDrawer(true); }}
                     className="p-2.5 bg-white border border-slate-200/80 hover:border-indigo-300 rounded-2xl flex flex-col items-center justify-center text-center transition active:scale-95 cursor-pointer shadow-xs"
                   >
                     <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-1">
@@ -1208,10 +1798,10 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
 
-                {/* 3. Filtre Segmenté et En-tête du Flux */}
+                {/* Filtres pointages */}
                 <div className="flex items-center justify-between px-0.5 pt-1">
                   <span className="text-xs font-extrabold text-slate-900">Pointages du Jour ({filteredPunches.length})</span>
-                  
+
                   <div className="flex bg-slate-200/80 p-0.5 rounded-xl text-[10px] font-bold">
                     <button
                       type="button"
@@ -1252,7 +1842,6 @@ export default function MaquetteGerantPage() {
                   </div>
                 </div>
 
-                {/* 4. Liste Épurée des Cartes de Pointages */}
                 <div className="space-y-2.5">
                   {loadingDb ? (
                     <div className="p-8 text-center text-slate-500 text-xs">
@@ -1272,12 +1861,12 @@ export default function MaquetteGerantPage() {
                       const isAlert = p.status === 'ALERT';
 
                       return (
-                        <div 
+                        <div
                           key={p.id}
                           className={`p-3.5 rounded-2xl border transition bg-white shadow-xs ${
-                            isAlert 
-                              ? 'border-rose-200 bg-rose-50/20' 
-                              : isLate 
+                            isAlert
+                              ? 'border-rose-200 bg-rose-50/20'
+                              : isLate
                                 ? 'border-amber-200 bg-amber-50/20'
                                 : 'border-slate-200 hover:border-slate-300'
                           }`}
@@ -1340,7 +1929,7 @@ export default function MaquetteGerantPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowAddSiteModal(true)}
+                    onClick={() => openSiteModal()}
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm cursor-pointer active:scale-95"
                   >
                     <Plus className="w-3.5 h-3.5" />
@@ -1381,32 +1970,24 @@ export default function MaquetteGerantPage() {
                             <Wifi className="w-3 h-3 text-emerald-600" />
                             Box Wi-Fi :
                           </span>
-                          <span className="font-bold text-slate-900">{site.wifi_ssid || 'SAKO'}</span>
+                          <span className="font-bold text-slate-900">
+                            {site.wifi_ssid ? site.wifi_ssid : 'Aucun Wi-Fi requis'}
+                          </span>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2 pt-1">
                         <button
                           type="button"
-                          onClick={() => {
-                            setNewSiteLat(String(site.latitude));
-                            setNewSiteLon(String(site.longitude));
-                            setNewSiteName(site.name);
-                            setNewSiteRadius(site.radius_meters || 80);
-                            triggerToast(`Coordonnées du site "${site.name}" chargées pour calibrage.`);
-                          }}
-                          className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
+                          onClick={() => openSiteModal(site)}
+                          className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
                         >
-                          <Navigation className="w-3 h-3 text-blue-600" />
-                          <span>Vérifier Position</span>
+                          <Edit3 className="w-3 h-3 text-blue-600" />
+                          <span>Calibrer GPS / Wi-Fi</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => triggerToast(`Rayon de ${site.name} : ${site.radius_meters}m certifié.`)}
-                          className="px-3 py-1.5 bg-blue-50 text-blue-700 font-bold text-[11px] rounded-xl border border-blue-100 cursor-pointer"
-                        >
+                        <span className="px-3 py-1.5 bg-blue-50 text-blue-700 font-bold text-[11px] rounded-xl border border-blue-100">
                           ±1m
-                        </button>
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -1417,7 +1998,7 @@ export default function MaquetteGerantPage() {
             {/* ===================== ONGLET 3 : PERSONNEL & ENRÔLEMENT RH ===================== */}
             {activeTab === 'equipe' && (
               <div className="space-y-3.5 animate-fadeIn">
-                
+
                 <div className="flex items-center justify-between px-0.5">
                   <div>
                     <h2 className="text-xs font-black text-slate-900">Collaborateurs ({filteredEmployees.length})</h2>
@@ -1433,7 +2014,6 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
 
-                {/* Barre de recherche */}
                 <div className="relative">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
@@ -1467,15 +2047,14 @@ export default function MaquetteGerantPage() {
                           </div>
 
                           <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
-                            isBound 
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                            isBound
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                               : 'bg-amber-50 text-amber-700 border border-amber-200'
                           }`}>
                             {isBound ? 'Téléphone Lié' : 'À Enrôler'}
                           </span>
                         </div>
 
-                        {/* Téléphone & Appareil */}
                         <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
                           <span className="truncate max-w-[160px]">
                             📞 {emp.phone || 'Non renseigné'}
@@ -1485,7 +2064,6 @@ export default function MaquetteGerantPage() {
                           </span>
                         </div>
 
-                        {/* Actions Collaborateur : WhatsApp, QR Code, Reset Appareil */}
                         <div className="grid grid-cols-3 gap-2 pt-1">
                           <button
                             type="button"
@@ -1530,7 +2108,7 @@ export default function MaquetteGerantPage() {
                 <div className="flex items-center justify-between px-0.5">
                   <div>
                     <h2 className="text-xs font-black text-slate-900">Couloirs Horaires ({dbSchedules.length})</h2>
-                    <p className="text-[10px] text-slate-500">Heures de service, tolérances et shifts</p>
+                    <p className="text-[10px] text-slate-500">Arrivée, départ, pauses et jours de service</p>
                   </div>
                   <button
                     type="button"
@@ -1542,42 +2120,93 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
 
-                <div className="space-y-3">
-                  {dbSchedules.map((sched) => (
-                    <div key={sched.id} className="p-4 bg-white border border-slate-200 rounded-3xl shadow-xs space-y-3">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center space-x-2.5">
-                          <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-                            <Clock className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <h3 className="font-extrabold text-xs text-slate-900">{sched.name}</h3>
-                            <span className="text-[10px] text-slate-500">Tolérance retard : +{sched.tolerance_minutes || 15} min</span>
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                          {sched.category || 'Standard'}
-                        </span>
-                      </div>
+                {dbSchedules.length === 0 ? (
+                  <div className="p-7 text-center bg-white rounded-3xl border border-slate-200 text-xs text-slate-500 space-y-2 shadow-xs">
+                    <Clock className="w-8 h-8 text-amber-500 mx-auto" />
+                    <p className="font-extrabold text-slate-900">Aucun couloir horaire configuré</p>
+                    <p className="text-[11px] text-slate-500">
+                      Créez vos horaires flexibles (avec ou sans pause, arrivée seule ou départ seul).
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {dbSchedules.map((sched) => {
+                      const isArrivalOnly = sched.category === 'Arrivée seule';
+                      const isDepartureOnly = sched.category === 'Départ seul';
+                      const hasBreak = sched.lunch_start && sched.lunch_end && sched.lunch_start !== sched.lunch_end;
+                      const activeDaysList: number[] = Array.isArray(sched.working_days) ? sched.working_days : [1, 2, 3, 4, 5];
+                      const activeDaysText = DAY_LABELS
+                        .filter(d => activeDaysList.includes(d.id))
+                        .map(d => d.full)
+                        .join(', ');
 
-                      <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-100 text-center">
-                        <div>
-                          <span className="text-[9px] font-extrabold text-slate-400 uppercase block">Arrivée Matin</span>
-                          <span className="text-sm font-black text-slate-900 font-mono">{sched.morning_start || '08:00'}</span>
-                        </div>
-                        <div>
-                          <span className="text-[9px] font-extrabold text-slate-400 uppercase block">Départ Soir</span>
-                          <span className="text-sm font-black text-slate-900 font-mono">{sched.afternoon_end || '17:00'}</span>
-                        </div>
-                      </div>
+                      return (
+                        <div key={sched.id} className="p-4 bg-white border border-slate-200 rounded-3xl shadow-xs space-y-3">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center space-x-2.5">
+                              <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                                <Clock className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <h3 className="font-extrabold text-xs text-slate-900">{sched.name}</h3>
+                                <span className="text-[10px] text-slate-500">
+                                  {isDepartureOnly
+                                    ? 'Contrôle au départ uniquement'
+                                    : `Tolérance retard : +${sched.tolerance_minutes ?? 15} min`}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                                {sched.category || 'Standard'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSchedule(sched.id, sched.name)}
+                                className="p-1 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                                title="Supprimer ce couloir"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
 
-                      <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1">
-                        <span className="font-medium">Jours actifs : Lun - Ven</span>
-                        <span className="text-emerald-700 font-bold">✓ Couloir strict actif</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                          <div className={`grid ${hasBreak ? 'grid-cols-3' : 'grid-cols-2'} gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-100 text-center`}>
+                            <div>
+                              <span className="text-[9px] font-extrabold text-slate-400 uppercase block">Arrivée</span>
+                              <span className={`text-xs font-black font-mono ${isDepartureOnly ? 'text-slate-400' : 'text-slate-900'}`}>
+                                {isDepartureOnly ? 'Libre' : (sched.morning_start || '08:00')}
+                              </span>
+                            </div>
+
+                            {hasBreak && (
+                              <div className="border-x border-slate-200 px-1">
+                                <span className="text-[9px] font-extrabold text-amber-600 uppercase block">Pause</span>
+                                <span className="text-[11px] font-black font-mono text-amber-700">
+                                  {sched.lunch_start}-{sched.lunch_end}
+                                </span>
+                              </div>
+                            )}
+
+                            <div>
+                              <span className="text-[9px] font-extrabold text-slate-400 uppercase block">Départ</span>
+                              <span className={`text-xs font-black font-mono ${isArrivalOnly ? 'text-slate-400' : 'text-slate-900'}`}>
+                                {isArrivalOnly ? 'Libre' : (sched.afternoon_end || '17:00')}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1">
+                            <span className="font-medium truncate max-w-[200px]">Jours : {activeDaysText || 'Lun - Ven'}</span>
+                            <span className="text-emerald-700 font-bold">
+                              {sched.weekly_hours ? `${sched.weekly_hours}h / sem` : '✓ Actif'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1604,7 +2233,6 @@ export default function MaquetteGerantPage() {
                   justifications.map((j) => {
                     const isPending = j.status === 'PENDING';
                     const isApproved = j.status === 'APPROVED';
-                    const isRejected = j.status === 'REJECTED';
 
                     return (
                       <div key={j.id} className="p-4 bg-white border border-slate-200 rounded-3xl space-y-3 shadow-xs">
@@ -1629,7 +2257,6 @@ export default function MaquetteGerantPage() {
                           &quot;{j.reason}&quot;
                         </div>
 
-                        {/* Boutons d'Arbitrage Flash */}
                         {isPending ? (
                           <div className="grid grid-cols-2 gap-2 pt-1">
                             <button
@@ -1663,9 +2290,8 @@ export default function MaquetteGerantPage() {
 
           </div>
 
-          {/* BARRE DE NAVIGATION INFÉRIEURE WHATSAPP STYLE (5 ONGLETS LUMINEUX) */}
+          {/* BARRE DE NAVIGATION INFÉRIEURE WHATSAPP STYLE */}
           <div className="border-t border-slate-200/80 bg-white/95 backdrop-blur-md px-2 py-1.5 flex items-center justify-around shrink-0 z-30 shadow-lg">
-            
             <button
               type="button"
               onClick={() => setActiveTab('cockpit')}
@@ -1727,10 +2353,8 @@ export default function MaquetteGerantPage() {
               </div>
               <span className="text-[10px]">Arbitrage</span>
             </button>
-
           </div>
 
-          {/* HOME BAR INDICATOR */}
           <div className="h-3.5 bg-white flex items-center justify-center shrink-0">
             <div className="w-24 h-1 bg-slate-300 rounded-full" />
           </div>
@@ -1748,7 +2372,7 @@ export default function MaquetteGerantPage() {
                     </div>
                     <span className="font-extrabold text-xs text-slate-900">Ajouter un Collaborateur</span>
                   </div>
-                  <button 
+                  <button
                     type="button"
                     onClick={() => setShowAddEmployeeModal(false)}
                     className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
@@ -1810,6 +2434,21 @@ export default function MaquetteGerantPage() {
                     </div>
                   </div>
 
+                  {dbSchedules.length > 0 && (
+                    <div>
+                      <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Couloir Horaire Assigné</label>
+                      <select
+                        value={newEmpScheduleId}
+                        onChange={(e) => setNewEmpScheduleId(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-500"
+                      >
+                        {dbSchedules.map(sc => (
+                          <option key={sc.id} value={sc.id}>{sc.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   <button
                     type="submit"
                     className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition shadow-md shadow-blue-500/20 active:scale-95 cursor-pointer mt-2"
@@ -1821,7 +2460,7 @@ export default function MaquetteGerantPage() {
             </div>
           )}
 
-          {/* MODALE 2 : CRÉER UN SITE AVEC CALIBRAGE GPS DIRECT */}
+          {/* MODALE 2 : CRÉER / CALIBRER UN SITE AVEC DÉTECTION AUTO DU WI-FI */}
           {showAddSiteModal && (
             <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 animate-fadeIn">
               <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -1830,9 +2469,11 @@ export default function MaquetteGerantPage() {
                     <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
                       <Building2 className="w-4 h-4" />
                     </div>
-                    <span className="font-extrabold text-xs text-slate-900">Créer un Site & Géofencing</span>
+                    <span className="font-extrabold text-xs text-slate-900">
+                      {editingSiteId ? 'Calibrer & Modifier le Site' : 'Créer un Site & Géofencing'}
+                    </span>
                   </div>
-                  <button 
+                  <button
                     type="button"
                     onClick={() => setShowAddSiteModal(false)}
                     className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
@@ -1841,7 +2482,7 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
 
-                <form onSubmit={handleCreateSite} className="space-y-3">
+                <form onSubmit={handleSaveSite} className="space-y-3">
                   <div>
                     <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Nom de l&apos;Établissement / Site</label>
                     <input
@@ -1877,18 +2518,19 @@ export default function MaquetteGerantPage() {
                         <option value={80}>80 mètres (Recommandé)</option>
                         <option value={100}>100 mètres</option>
                         <option value={150}>150 mètres</option>
+                        <option value={250}>250 mètres</option>
                       </select>
                     </div>
                   </div>
 
-                  {/* Bouton Magique : Calibrer GPS par Smartphone */}
+                  {/* Calibration GPS */}
                   <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-2xl space-y-2">
                     <span className="text-[10px] font-bold text-blue-900 block">Coordonnées Satellite WGS84 :</span>
                     <button
                       type="button"
                       onClick={handleCalibrateGpsFromDevice}
                       disabled={isCalibratingGps}
-                      className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                      className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-60"
                     >
                       <Navigation className="w-3.5 h-3.5" />
                       <span>{isCalibratingGps ? 'Calcul GNSS en cours...' : '📍 Caler ma Position GPS Actuelle'}</span>
@@ -1899,32 +2541,79 @@ export default function MaquetteGerantPage() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Nom Réseau Wi-Fi du Bureau (SSID)</label>
-                    <input
-                      type="text"
-                      value={newSiteWifiSsid}
-                      onChange={(e) => setNewSiteWifiSsid(e.target.value)}
-                      placeholder="Ex: SAKO_5G"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-500"
-                    />
+                  {/* Détection Automatique Wi-Fi & Switch optionnel */}
+                  <div className="p-3 bg-emerald-50/60 border border-emerald-100 rounded-2xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Wifi className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-[10px] font-extrabold uppercase text-slate-700">Box Wi-Fi du Site</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setNewSiteHasWifi(prev => !prev)}
+                        className={`w-10 h-5 rounded-full transition p-0.5 cursor-pointer ${newSiteHasWifi ? 'bg-emerald-600' : 'bg-slate-300'}`}
+                        title="Activer ou désactiver la détection Wi-Fi sur ce site"
+                      >
+                        <div className={`w-4 h-4 rounded-full bg-white transition-transform ${newSiteHasWifi ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+
+                    {newSiteHasWifi ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={newSiteWifiSsid}
+                            onChange={(e) => setNewSiteWifiSsid(e.target.value)}
+                            placeholder="Nom Wi-Fi (ex: Bureau_WiFi)"
+                            className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleDetectSiteWifi}
+                            disabled={isDetectingWifi}
+                            className="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-xl transition flex items-center gap-1 shrink-0 shadow-xs cursor-pointer disabled:opacity-60"
+                            title="Détecter automatiquement le réseau Wi-Fi actuel"
+                          >
+                            <Wifi className="w-3.5 h-3.5" />
+                            <span>{isDetectingWifi ? 'Scan...' : 'Détecter'}</span>
+                          </button>
+                        </div>
+
+                        {newSiteWifiBssid && (
+                          <span className="text-[10px] font-mono text-emerald-700 block">
+                            Signature BSSID : {newSiteWifiBssid}
+                          </span>
+                        )}
+
+                        {wifiDetectNote && (
+                          <p className="text-[10px] text-slate-700 bg-white/90 border border-emerald-200/80 rounded-xl p-2 leading-relaxed">
+                            {wifiDetectNote}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-slate-500">
+                        Site extérieur / sans Wi-Fi : le pointage se basera uniquement sur la position GPS.
+                      </p>
+                    )}
                   </div>
 
                   <button
                     type="submit"
                     className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20 active:scale-95 cursor-pointer mt-2"
                   >
-                    Valider & Enregistrer le Site
+                    {editingSiteId ? 'Enregistrer les Modifications' : 'Valider & Enregistrer le Site'}
                   </button>
                 </form>
               </div>
             </div>
           )}
 
-          {/* MODALE 3 : CRÉER UN COULOIR HORAIRE */}
+          {/* MODALE 3 : COULOIR HORAIRE FLEXIBLE (ARRIVÉE/DÉPART ACTIVABLES + PAUSE OPTIONNELLE) */}
           {showAddScheduleModal && (
             <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 animate-fadeIn">
-              <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto">
+              <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3 shadow-2xl max-h-[92vh] overflow-y-auto">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
@@ -1932,7 +2621,7 @@ export default function MaquetteGerantPage() {
                     </div>
                     <span className="font-extrabold text-xs text-slate-900">Nouveau Couloir Horaire</span>
                   </div>
-                  <button 
+                  <button
                     type="button"
                     onClick={() => setShowAddScheduleModal(false)}
                     className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
@@ -1943,51 +2632,174 @@ export default function MaquetteGerantPage() {
 
                 <form onSubmit={handleCreateSchedule} className="space-y-3">
                   <div>
-                    <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Intitulé du Planning</label>
+                    <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Intitulé du Planning / Événement</label>
                     <input
                       type="text"
                       required
                       value={newSchedName}
                       onChange={(e) => setNewSchedName(e.target.value)}
-                      placeholder="Ex: Équipe Matin Chantier"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
+                      placeholder="Ex: Bureau Standard, Équipe Chantier, Conférence..."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500"
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Heure Arrivée</label>
-                      <input
-                        type="time"
-                        value={newSchedMorningStart}
-                        onChange={(e) => setNewSchedMorningStart(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono"
-                      />
+                  {/* Heure d'Arrivée (Activable / Désactivable) */}
+                  <div className={`p-3 rounded-2xl border transition ${schedTrackArrival ? 'bg-slate-50 border-slate-200' : 'bg-slate-100/60 border-slate-200/60'}`}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-extrabold text-slate-800">Contrôler l&apos;Heure d&apos;Arrivée</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (schedTrackArrival && !schedTrackDeparture) {
+                            triggerToast("Gardez au moins l'arrivée ou le départ activé.");
+                            return;
+                          }
+                          setSchedTrackArrival(p => !p);
+                        }}
+                        className={`w-10 h-5 rounded-full transition p-0.5 cursor-pointer ${schedTrackArrival ? 'bg-emerald-600' : 'bg-slate-300'}`}
+                      >
+                        <div className={`w-4 h-4 rounded-full bg-white transition-transform ${schedTrackArrival ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
                     </div>
-                    <div>
-                      <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Heure Départ</label>
-                      <input
-                        type="time"
-                        value={newSchedAfternoonEnd}
-                        onChange={(e) => setNewSchedAfternoonEnd(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono"
-                      />
-                    </div>
+                    {schedTrackArrival ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[9px] font-bold uppercase text-slate-500 block mb-0.5">Arrivée prévue</label>
+                          <input
+                            type="time"
+                            value={newSchedMorningStart}
+                            onChange={(e) => setNewSchedMorningStart(e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-bold uppercase text-slate-500 block mb-0.5">Tolérance (min)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={120}
+                            value={newSchedTolerance}
+                            onChange={(e) => setNewSchedTolerance(Number(e.target.value))}
+                            className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-900"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-slate-500 italic block">
+                        Arrivée libre : le système vérifie uniquement le départ.
+                      </span>
+                    )}
                   </div>
 
+                  {/* Option Pause Déjeuner / Coupure */}
+                  {schedTrackArrival && schedTrackDeparture && (
+                    <div className={`p-3 rounded-2xl border transition ${schedHasBreak ? 'bg-amber-50/60 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Coffee className="w-3.5 h-3.5 text-amber-600" />
+                          <span className="text-[11px] font-extrabold text-slate-800">Ajouter une Plage de Pause</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSchedHasBreak(p => !p)}
+                          className={`w-10 h-5 rounded-full transition p-0.5 cursor-pointer ${schedHasBreak ? 'bg-amber-600' : 'bg-slate-300'}`}
+                        >
+                          <div className={`w-4 h-4 rounded-full bg-white transition-transform ${schedHasBreak ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                      </div>
+
+                      {schedHasBreak && (
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          <div>
+                            <label className="text-[9px] font-bold uppercase text-amber-800 block mb-0.5">Début pause</label>
+                            <input
+                              type="time"
+                              value={newSchedBreakStart}
+                              onChange={(e) => setNewSchedBreakStart(e.target.value)}
+                              className="w-full bg-white border border-amber-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-bold uppercase text-amber-800 block mb-0.5">Reprise</label>
+                            <input
+                              type="time"
+                              value={newSchedBreakEnd}
+                              onChange={(e) => setNewSchedBreakEnd(e.target.value)}
+                              className="w-full bg-white border border-amber-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 font-mono"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Heure de Départ (Activable / Désactivable) */}
+                  <div className={`p-3 rounded-2xl border transition ${schedTrackDeparture ? 'bg-slate-50 border-slate-200' : 'bg-slate-100/60 border-slate-200/60'}`}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-extrabold text-slate-800">Contrôler l&apos;Heure de Départ</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (schedTrackDeparture && !schedTrackArrival) {
+                            triggerToast("Gardez au moins l'arrivée ou le départ activé.");
+                            return;
+                          }
+                          setSchedTrackDeparture(p => !p);
+                        }}
+                        className={`w-10 h-5 rounded-full transition p-0.5 cursor-pointer ${schedTrackDeparture ? 'bg-blue-600' : 'bg-slate-300'}`}
+                      >
+                        <div className={`w-4 h-4 rounded-full bg-white transition-transform ${schedTrackDeparture ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+                    {schedTrackDeparture ? (
+                      <div>
+                        <label className="text-[9px] font-bold uppercase text-slate-500 block mb-0.5">Départ prévu</label>
+                        <input
+                          type="time"
+                          value={newSchedAfternoonEnd}
+                          onChange={(e) => setNewSchedAfternoonEnd(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 font-mono"
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-slate-500 italic block">
+                        Départ libre : utile pour un événement ou un pointage à l&apos;entrée uniquement.
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Jours Actifs */}
                   <div>
-                    <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Tolérance Retard (minutes)</label>
-                    <input
-                      type="number"
-                      value={newSchedTolerance}
-                      onChange={(e) => setNewSchedTolerance(Number(e.target.value))}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
-                    />
+                    <label className="text-[10px] font-extrabold uppercase text-slate-500 block mb-1.5">Jours Concernés</label>
+                    <div className="grid grid-cols-7 gap-1">
+                      {DAY_LABELS.map((d) => {
+                        const active = newSchedDays.includes(d.id);
+                        return (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onClick={() => toggleSchedDay(d.id)}
+                            className={`py-1.5 rounded-xl text-[11px] font-extrabold transition cursor-pointer ${
+                              active
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                            }`}
+                          >
+                            {d.short}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Résumé automatique */}
+                  <div className="text-[11px] font-bold text-blue-800 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-center">
+                    {scheduleDailyPreview}
                   </div>
 
                   <button
                     type="submit"
-                    className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl transition shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer mt-2"
+                    className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl transition shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer"
                   >
                     Activer ce Couloir Horaire
                   </button>
@@ -2002,7 +2814,7 @@ export default function MaquetteGerantPage() {
               <div className="bg-white border border-slate-200 w-full max-w-xs rounded-3xl p-5 space-y-4 text-center shadow-2xl">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <span className="font-extrabold text-xs text-slate-900">Enrôlement Mobile Salarié</span>
-                  <button 
+                  <button
                     type="button"
                     onClick={() => setShowQrModal(null)}
                     className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
@@ -2012,7 +2824,7 @@ export default function MaquetteGerantPage() {
                 </div>
 
                 <div className="p-3 bg-white rounded-2xl border-2 border-dashed border-blue-500 inline-flex mx-auto shadow-md">
-                  <RealQrCode 
+                  <RealQrCode
                     value={`${getPublicUrl('/apk')}?org=${orgCode}&mat=${showQrModal.employee_matricule}`}
                     size={170}
                   />
@@ -2049,7 +2861,7 @@ export default function MaquetteGerantPage() {
                     <Send className="w-3.5 h-3.5 text-blue-600" />
                     Diffuser une Annonce d&apos;Urgence
                   </span>
-                  <button 
+                  <button
                     type="button"
                     onClick={() => setShowBroadcastModal(false)}
                     className="text-slate-400 hover:text-slate-700 text-xs p-1 cursor-pointer"
@@ -2078,16 +2890,29 @@ export default function MaquetteGerantPage() {
             </div>
           )}
 
-          {/* TIROIR MODAL 6 : RELEVÉS RH & HEURES TRAVAILLÉES */}
+          {/* TIROIR MODAL 6 : RELEVÉS & SYNTHÈSE RH DÉTAILLÉS (PLAGE LIBRE + FICHE CLIQUABLE + EXPORT EXCEL/PDF) */}
           {showRelevesDrawer && (
-            <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 animate-fadeIn">
-              <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                    <span className="font-extrabold text-xs text-slate-900">Relevés & Synthèse RH du Mois</span>
-                  </div>
-                  <button 
+            <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-2 sm:p-3 animate-fadeIn">
+              <div className="bg-white border border-slate-200 w-full rounded-3xl p-4 space-y-3 shadow-2xl h-[92%] flex flex-col">
+
+                {/* En-tête */}
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 shrink-0">
+                  {selectedHrSummary ? (
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedHrEmployeeId(null); setHrDetailFilter('ALL'); }}
+                      className="flex items-center gap-1.5 text-xs font-extrabold text-blue-600 hover:text-blue-700 cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      <span>Retour Synthèse</span>
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                      <span className="font-extrabold text-xs text-slate-900">Relevés & Synthèse RH</span>
+                    </div>
+                  )}
+                  <button
                     type="button"
                     onClick={() => setShowRelevesDrawer(false)}
                     className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
@@ -2096,31 +2921,270 @@ export default function MaquetteGerantPage() {
                   </button>
                 </div>
 
-                <div className="space-y-2">
-                  {dbEmployees.map((emp) => (
-                    <div key={emp.id} className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between text-xs">
-                      <div>
-                        <span className="font-bold text-slate-900 block">{emp.full_name}</span>
-                        <span className="text-[10px] text-slate-500">{emp.employee_matricule}</span>
+                {/* VUE 1 : SYNTHÈSE GLOBALE AVEC CHOIX DE PLAGE DE DATES */}
+                {!selectedHrSummary ? (
+                  <>
+                    {/* Raccourcis de Période */}
+                    <div className="space-y-2 shrink-0">
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                        {[
+                          { id: '7d', label: '7 jours' },
+                          { id: '14d', label: '2 sem.' },
+                          { id: '30d', label: '1 mois' },
+                          { id: '45d', label: '45 jours' },
+                          { id: '60d', label: '2 mois' },
+                          { id: 'custom', label: 'Libre' }
+                        ].map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => applyHrPreset(p.id as any)}
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold shrink-0 transition cursor-pointer ${
+                              hrPreset === p.id
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
                       </div>
-                      <div className="text-right">
-                        <span className="font-mono font-bold text-emerald-700 block">38h 45min</span>
-                        <span className="text-[10px] text-amber-700 font-bold">15m retard</span>
+
+                      {/* Sélecteurs de dates exactes */}
+                      <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-200/80">
+                        <div>
+                          <label className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">Du</label>
+                          <input
+                            type="date"
+                            value={hrStartDate}
+                            onChange={(e) => { setHrPreset('custom'); setHrStartDate(e.target.value); }}
+                            className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-[11px] text-slate-900 font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-extrabold uppercase text-slate-400 block mb-0.5">Au</label>
+                          <input
+                            type="date"
+                            value={hrEndDate}
+                            onChange={(e) => { setHrPreset('custom'); setHrEndDate(e.target.value); }}
+                            className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-[11px] text-slate-900 font-mono"
+                          />
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    triggerToast("Téléchargement du rapport RH Excel/PDF lancé sur votre téléphone !");
-                  }}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Télécharger Rapport Complet (Excel / PDF)</span>
-                </button>
+                    {/* Liste Cliquable des Employés avec Vraies Stats */}
+                    <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">
+                      {hrLoading ? (
+                        <div className="p-8 text-center text-xs text-slate-500">
+                          <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                          Calcul des statistiques sur la période...
+                        </div>
+                      ) : hrSummaries.length === 0 ? (
+                        <div className="p-6 text-center text-xs text-slate-500">
+                          Aucun employé trouvé dans cette organisation.
+                        </div>
+                      ) : (
+                        hrSummaries.map((s) => (
+                          <button
+                            key={s.employee.id}
+                            type="button"
+                            onClick={() => setSelectedHrEmployeeId(s.employee.id)}
+                            className="w-full text-left p-3 bg-slate-50 hover:bg-blue-50/60 border border-slate-200/80 hover:border-blue-300 rounded-2xl flex items-center justify-between text-xs transition active:scale-[0.99] cursor-pointer group"
+                          >
+                            <div className="min-w-0 pr-2">
+                              <span className="font-extrabold text-slate-900 block truncate group-hover:text-blue-700">
+                                {s.employee.full_name}
+                              </span>
+                              <span className="text-[10px] text-slate-500 block">
+                                {s.employee.employee_matricule || 'N/A'} • {s.presentDays} j. présent{s.presentDays > 1 ? 's' : ''}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="text-right">
+                                <span className="font-mono font-extrabold text-emerald-700 block">
+                                  {formatMinutesAsHours(s.totalWorkedMinutes)}
+                                </span>
+                                {s.lateDays > 0 ? (
+                                  <span className="text-[10px] text-amber-700 font-bold block">
+                                    {s.lateDays} j. retard ({formatLateMinutes(s.totalLateMinutes)})
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-emerald-600 font-bold block">
+                                    ✓ 0 retard
+                                  </span>
+                                )}
+                              </div>
+                              <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600" />
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Boutons d'Export Réels */}
+                    <div className="grid grid-cols-3 gap-2 pt-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleExportExcel()}
+                        className="col-span-2 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 cursor-pointer active:scale-95"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Exporter Excel (.xlsx)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleExportPdfPrint()}
+                        className="py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1 cursor-pointer active:scale-95"
+                        title="Imprimer ou enregistrer en PDF"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>PDF</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  /* VUE 2 : FICHE DÉTAILLÉE D'UN COLLABORATEUR */
+                  <>
+                    <div className="shrink-0 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-black text-sm text-slate-900">{selectedHrSummary.employee.full_name}</h3>
+                          <span className="text-[10px] text-slate-500 block">
+                            {selectedHrSummary.employee.employee_matricule || 'N/A'} • Du {hrStartDate} au {hrEndDate}
+                          </span>
+                        </div>
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                          selectedHrSummary.lateDays === 0
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}>
+                          {selectedHrSummary.punctualityRate}% Ponctuel
+                        </span>
+                      </div>
+
+                      {/* 4 KPIs individuels */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-emerald-50/70 border border-emerald-100 p-2.5 rounded-2xl">
+                          <span className="text-[9px] font-extrabold uppercase text-emerald-700 block">Heures Travaillées</span>
+                          <span className="text-sm font-black font-mono text-slate-900">
+                            {formatMinutesAsHours(selectedHrSummary.totalWorkedMinutes)}
+                          </span>
+                        </div>
+                        <div className="bg-blue-50/70 border border-blue-100 p-2.5 rounded-2xl">
+                          <span className="text-[9px] font-extrabold uppercase text-blue-700 block">Jours Présents</span>
+                          <span className="text-sm font-black font-mono text-slate-900">
+                            {selectedHrSummary.presentDays} jour{selectedHrSummary.presentDays > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div className="bg-amber-50/70 border border-amber-100 p-2.5 rounded-2xl">
+                          <span className="text-[9px] font-extrabold uppercase text-amber-700 block">Jours de Retard</span>
+                          <span className="text-sm font-black font-mono text-amber-800">
+                            {selectedHrSummary.lateDays} jour{selectedHrSummary.lateDays > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div className="bg-rose-50/70 border border-rose-100 p-2.5 rounded-2xl">
+                          <span className="text-[9px] font-extrabold uppercase text-rose-700 block">Cumul Retards</span>
+                          <span className="text-sm font-black font-mono text-rose-800">
+                            {formatLateMinutes(selectedHrSummary.totalLateMinutes)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Filtre Tous les jours / Retards uniquement */}
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[11px] font-extrabold text-slate-800">Détail par Jour</span>
+                        <div className="flex bg-slate-100 p-0.5 rounded-xl text-[10px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setHrDetailFilter('ALL')}
+                            className={`px-2 py-0.5 rounded-lg cursor-pointer ${
+                              hrDetailFilter === 'ALL' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
+                            }`}
+                          >
+                            Tous ({selectedHrSummary.days.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setHrDetailFilter('LATE')}
+                            className={`px-2 py-0.5 rounded-lg cursor-pointer ${
+                              hrDetailFilter === 'LATE' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-500'
+                            }`}
+                          >
+                            Retards ({selectedHrSummary.lateDays})
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Liste des jours détaillés */}
+                    <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">
+                      {selectedHrSummary.days.filter(d => hrDetailFilter === 'ALL' || d.lateMinutes > 0).length === 0 ? (
+                        <div className="p-6 text-center bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-500">
+                          {hrDetailFilter === 'LATE'
+                            ? 'Aucun retard enregistré sur cette période !'
+                            : 'Aucun pointage enregistré sur cette plage de dates.'}
+                        </div>
+                      ) : (
+                        selectedHrSummary.days
+                          .filter(d => hrDetailFilter === 'ALL' || d.lateMinutes > 0)
+                          .map((day) => (
+                            <div
+                              key={day.dateKey}
+                              className={`p-3 rounded-2xl border text-xs space-y-1 ${
+                                day.lateMinutes > 0
+                                  ? 'bg-amber-50/40 border-amber-200'
+                                  : 'bg-slate-50 border-slate-200/70'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-extrabold text-slate-900 capitalize">{day.dateLabel}</span>
+                                {day.lateMinutes > 0 ? (
+                                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                    ⏰ Retard +{formatLateMinutes(day.lateMinutes)}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                                    ✓ À l&apos;heure
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-between text-[11px] text-slate-600">
+                                <span className="font-mono">
+                                  {day.firstTime} → {day.lastTime || 'En cours'}
+                                </span>
+                                <span className="font-bold text-slate-800">
+                                  {day.workedMinutes > 0 ? formatMinutesAsHours(day.workedMinutes) : '1 seul pointage'}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 block">📍 {day.siteName}</span>
+                            </div>
+                          ))
+                      )}
+                    </div>
+
+                    {/* Export individuel */}
+                    <div className="grid grid-cols-3 gap-2 pt-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleExportExcel(selectedHrSummary)}
+                        className="col-span-2 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Exporter sa Fiche Excel</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleExportPdfPrint(selectedHrSummary)}
+                        className="py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>PDF</span>
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -2134,7 +3198,7 @@ export default function MaquetteGerantPage() {
                     <ShieldCheck className="w-4 h-4 text-blue-600" />
                     <span className="font-extrabold text-xs text-slate-900">Règles Anti-Triche & Sécurité</span>
                   </div>
-                  <button 
+                  <button
                     type="button"
                     onClick={() => setShowSecurityDrawer(false)}
                     className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
@@ -2232,16 +3296,16 @@ export default function MaquetteGerantPage() {
             </div>
 
             <div className="p-3 bg-white rounded-2xl border-2 border-dashed border-blue-500 inline-flex items-center justify-center shadow-md mx-auto">
-              <RealQrCode 
-                value={getPublicUrl('/maquette-gerant')} 
-                size={180} 
+              <RealQrCode
+                value={getPublicUrl('/maquette-gerant')}
+                size={180}
               />
             </div>
 
             <div className="space-y-1">
               <span className="font-bold text-slate-900 text-xs block">Scannez ce QR Code avec l&apos;appareil photo</span>
               <span className="text-[11px] text-blue-700 font-bold block bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full">
-                📶 Connecté au Wi-Fi &quot;{activeEstablishment?.wifi_ssid || 'SAKO'}&quot;
+                📶 Ouvrir sur le réseau local ({localNetworkIp})
               </span>
             </div>
 
