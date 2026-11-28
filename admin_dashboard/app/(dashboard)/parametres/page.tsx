@@ -7,6 +7,7 @@ import { Header } from '@/components/header';
 import { createClient } from '@/lib/supabase/client';
 import { RealQrCode } from '@/components/real-qr-code';
 import { downloadQrCodePng, downloadA4EnrollmentPosterPdf } from '@/lib/qr-poster-export';
+import * as XLSX from 'xlsx';
 import { 
   Building2, 
   Shield, 
@@ -66,7 +67,8 @@ import {
   Image as ImageIcon,
   KeyRound,
   Link as LinkIcon,
-  Navigation
+  Navigation,
+  Edit3
 } from 'lucide-react';
 
 // ==================== INTERFACES ====================
@@ -114,6 +116,15 @@ interface Schedule {
   is_active: boolean;
 }
 
+interface ScheduleDayOverride {
+  dayId: number; // 1=Lun .. 7=Dim
+  morning_start: string;
+  afternoon_end: string;
+  has_break: boolean;
+  lunch_start?: string;
+  lunch_end?: string;
+}
+
 interface SecurityConfig {
   require_wifi_bssid: boolean;
   hard_block_mock_gps: boolean;
@@ -133,6 +144,7 @@ interface SecurityConfig {
   org_logo?: string;
   holidays?: HolidayExemption[];
   last_code_regenerated_at?: string;
+  schedule_day_overrides?: Record<string, Record<number, ScheduleDayOverride>>;
 }
 
 // Générateur canonique de code d'organisation anti-collision et anti-devinette
@@ -416,9 +428,10 @@ function ParametresContent() {
   const [modalWifiError, setModalWifiError] = useState<string | null>(null);
   const [detectingSiteCardWifi, setDetectingSiteCardWifi] = useState(false);
 
-  // State Plannings
+  // State Plannings + Jours Spéciaux
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [showAddScheduleModal, setShowAddScheduleModal] = useState(false);
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [newSchedName, setNewSchedName] = useState('');
   const [newSchedCategory, setNewSchedCategory] = useState<'Fractionné' | 'Continu' | 'Personnalisé'>('Fractionné');
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]);
@@ -430,6 +443,22 @@ function ParametresContent() {
   const [afternoonEnd, setAfternoonEnd] = useState('17:30');
   const [toleranceMinutes, setToleranceMinutes] = useState(15);
   const [submittingSchedule, setSubmittingSchedule] = useState(false);
+  const [schedDayOverrides, setSchedDayOverrides] = useState<Record<number, ScheduleDayOverride>>({});
+  const [scheduleOverridesMap, setScheduleOverridesMap] = useState<Record<string, Record<number, ScheduleDayOverride>>>({});
+  const [showOverrideEditor, setShowOverrideEditor] = useState(false);
+  const [overrideDayId, setOverrideDayId] = useState<number>(6);
+  const [overrideStart, setOverrideStart] = useState('07:30');
+  const [overrideEnd, setOverrideEnd] = useState('14:00');
+  const [overrideHasBreak, setOverrideHasBreak] = useState(false);
+  const [overrideBreakStart, setOverrideBreakStart] = useState('12:00');
+  const [overrideBreakEnd, setOverrideBreakEnd] = useState('13:00');
+
+  // Journal d'Audit Inviolable SHA-256 (parité mobile)
+  const [auditEntries, setAuditEntries] = useState<any[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditChainIntact, setAuditChainIntact] = useState(true);
+  const [auditStorageMode, setAuditStorageMode] = useState<'supabase_immutable' | 'local_ledger'>('local_ledger');
+  const [auditFilter, setAuditFilter] = useState<'ALL' | 'AUTH' | 'SITES_SEC' | 'OPS'>('ALL');
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
@@ -494,11 +523,23 @@ function ParametresContent() {
             if (Array.isArray(orgData.security_config.holidays)) {
               setHolidays(orgData.security_config.holidays);
             }
+            if (orgData.security_config.schedule_day_overrides && typeof orgData.security_config.schedule_day_overrides === 'object') {
+              setScheduleOverridesMap(orgData.security_config.schedule_day_overrides);
+            }
           }
         }
 
         // Compléter avec le cache local pour réactivité maximale
         if (typeof window !== 'undefined') {
+          const localOv = localStorage.getItem('pointage_schedule_overrides');
+          if (localOv) {
+            try {
+              const parsedOv = JSON.parse(localOv);
+              if (parsedOv && typeof parsedOv === 'object') {
+                setScheduleOverridesMap(prev => Object.keys(prev).length > 0 ? prev : parsedOv);
+              }
+            } catch {}
+          }
           const localLogo = localStorage.getItem('pointage_org_logo');
           if (localLogo) setOrgLogo(localLogo);
           const localCode = localStorage.getItem('pointage_org_code');
@@ -1181,7 +1222,112 @@ function ParametresContent() {
 
   const calculatedWeeklyHours = Math.round(calculatedDailyHours * selectedDays.length * 10) / 10;
 
-  // Création planning
+  // Journal d'Audit Inviolable (chargé lorsque l'onglet Sécurité est actif)
+  const fetchAuditLogs = async () => {
+    setAuditLoading(true);
+    try {
+      const targetOrgId = currentOrgId || (typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : '') || '';
+      const res = await fetch(`/api/audit/log${targetOrgId ? `?org_id=${encodeURIComponent(targetOrgId)}` : ''}`);
+      const data = await res.json();
+      if (data && data.success) {
+        setAuditEntries(Array.isArray(data.entries) ? data.entries : []);
+        setAuditChainIntact(data.chainIntact !== false);
+        setAuditStorageMode(data.storage === 'supabase_immutable' ? 'supabase_immutable' : 'local_ledger');
+      }
+    } catch {} finally {
+      setAuditLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'securite') {
+      fetchAuditLogs();
+    }
+  }, [activeTab, currentOrgId]);
+
+  const persistScheduleOverrides = async (schedId: string, overrides: Record<number, ScheduleDayOverride>) => {
+    const nextMap = { ...scheduleOverridesMap };
+    if (Object.keys(overrides).length > 0) {
+      nextMap[schedId] = overrides;
+    } else {
+      delete nextMap[schedId];
+    }
+    setScheduleOverridesMap(nextMap);
+    const nextCfg: SecurityConfig = { ...securityConfig, schedule_day_overrides: nextMap };
+    setSecurityConfig(nextCfg);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pointage_schedule_overrides', JSON.stringify(nextMap));
+      localStorage.setItem('pointage_security_config', JSON.stringify(nextCfg));
+    }
+    if (currentOrgId) {
+      try {
+        const supabase = createClient();
+        await supabase.from('pointage_organizations').update({ security_config: nextCfg }).eq('id', currentOrgId);
+      } catch {}
+    }
+  };
+
+  const openScheduleModal = (sched?: Schedule) => {
+    if (sched) {
+      setEditingScheduleId(sched.id);
+      setNewSchedName(sched.name || '');
+      const cat = sched.category === 'Continu' ? 'Continu' : sched.category === 'Personnalisé' ? 'Personnalisé' : 'Fractionné';
+      setNewSchedCategory(cat);
+      setSelectedDays(Array.isArray(sched.working_days) && sched.working_days.length > 0 ? sched.working_days : [1, 2, 3, 4, 5]);
+      setMorningStart((sched.morning_start || '07:30').slice(0, 5));
+      setMorningEnd((sched.morning_end || '12:00').slice(0, 5));
+      setLunchStart((sched.lunch_start || '12:00').slice(0, 5));
+      setLunchEnd((sched.lunch_end || '13:30').slice(0, 5));
+      setAfternoonStart((sched.afternoon_start || '13:30').slice(0, 5));
+      setAfternoonEnd((sched.afternoon_end || '17:30').slice(0, 5));
+      setToleranceMinutes(sched.tolerance_minutes ?? 15);
+      setSchedDayOverrides(scheduleOverridesMap[sched.id] || {});
+    } else {
+      setEditingScheduleId(null);
+      setNewSchedName('');
+      setNewSchedCategory('Fractionné');
+      setSelectedDays([1, 2, 3, 4, 5]);
+      setMorningStart('07:30');
+      setMorningEnd('12:00');
+      setLunchStart('12:00');
+      setLunchEnd('13:30');
+      setAfternoonStart('13:30');
+      setAfternoonEnd('17:30');
+      setToleranceMinutes(15);
+      setSchedDayOverrides({});
+    }
+    setShowOverrideEditor(false);
+    setShowAddScheduleModal(true);
+  };
+
+  const handleAddDayOverride = () => {
+    const ov: ScheduleDayOverride = {
+      dayId: overrideDayId,
+      morning_start: overrideStart,
+      afternoon_end: overrideEnd,
+      has_break: overrideHasBreak,
+      lunch_start: overrideHasBreak ? overrideBreakStart : undefined,
+      lunch_end: overrideHasBreak ? overrideBreakEnd : undefined
+    };
+    setSchedDayOverrides(prev => ({ ...prev, [overrideDayId]: ov }));
+    if (!selectedDays.includes(overrideDayId)) {
+      setSelectedDays(prev => [...prev, overrideDayId].sort((a, b) => a - b));
+    }
+    setShowOverrideEditor(false);
+  };
+
+  const handleDeleteSchedule = async (sched: Schedule) => {
+    if (!confirm(`Supprimer le planning "${sched.name}" ?`)) return;
+    try {
+      const supabase = createClient();
+      await supabase.from('pointage_schedules').update({ is_active: false }).eq('id', sched.id);
+      setSchedules(prev => prev.filter(s => s.id !== sched.id));
+      setToastMsg(`Planning "${sched.name}" supprimé.`);
+      setTimeout(() => setToastMsg(null), 3000);
+    } catch {}
+  };
+
+  // Création / Mise à jour planning
   const handleCreateSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSchedName.trim()) return;
@@ -1194,8 +1340,7 @@ function ParametresContent() {
       const actualMorningEnd = newSchedCategory === 'Continu' ? afternoonEnd : morningEnd;
       const actualAfternoonStart = newSchedCategory === 'Continu' ? morningStart : lunchEnd;
 
-      const { data, error } = await supabase.from('pointage_schedules').insert({
-        org_id: currentOrgId,
+      const payload = {
         name: newSchedName.trim(),
         category: newSchedCategory,
         working_days: selectedDays,
@@ -1206,20 +1351,44 @@ function ParametresContent() {
         afternoon_start: actualAfternoonStart,
         afternoon_end: afternoonEnd,
         tolerance_minutes: toleranceMinutes,
-        weekly_hours: calculatedWeeklyHours,
-        is_active: true
-      }).select().single();
+        weekly_hours: calculatedWeeklyHours
+      };
 
-      if (data) {
-        setSchedules(prev => [...prev, { ...data, assignedCount: 0 }]);
-        setShowAddScheduleModal(false);
-        setNewSchedName('');
-        setToastMsg(`Planning "${newSchedName}" créé avec succès !`);
-        setTimeout(() => setToastMsg(null), 3500);
+      if (editingScheduleId) {
+        const { data, error } = await supabase
+          .from('pointage_schedules')
+          .update(payload)
+          .eq('id', editingScheduleId)
+          .select()
+          .single();
+        if (error) throw error;
+        if (data) {
+          await persistScheduleOverrides(data.id, schedDayOverrides);
+          setSchedules(prev => prev.map(s => (s.id === editingScheduleId ? { ...data, assignedCount: s.assignedCount ?? 0 } : s)));
+          setToastMsg(`Planning "${data.name}" mis à jour avec succès !`);
+        }
+      } else {
+        const { data, error } = await supabase.from('pointage_schedules').insert({
+          org_id: currentOrgId,
+          ...payload,
+          is_active: true
+        }).select().single();
+        if (error) throw error;
+        if (data) {
+          await persistScheduleOverrides(data.id, schedDayOverrides);
+          setSchedules(prev => [...prev, { ...data, assignedCount: 0 }]);
+          setToastMsg(`Planning "${newSchedName}" créé avec succès !`);
+        }
       }
+
+      setShowAddScheduleModal(false);
+      setEditingScheduleId(null);
+      setSchedDayOverrides({});
+      setNewSchedName('');
+      setTimeout(() => setToastMsg(null), 3500);
     } catch (e: any) {
       console.error(e);
-      setToastMsg(`Erreur lors de la création : ${e.message}`);
+      setToastMsg(`Erreur lors de l'enregistrement : ${e.message}`);
     } finally {
       setSubmittingSchedule(false);
     }
@@ -2174,7 +2343,7 @@ function ParametresContent() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowAddScheduleModal(true)}
+                  onClick={() => openScheduleModal()}
                   className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-sm cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
@@ -2185,17 +2354,35 @@ function ParametresContent() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {schedules.map((sched) => (
                   <div key={sched.id} className="bg-white rounded-3xl border border-slate-200/80 shadow-xs p-6 space-y-4">
-                    <div className="flex items-start justify-between">
+                    <div className="flex items-start justify-between gap-2">
                       <div>
                         <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
                           {sched.category} • {sched.weekly_hours}h / semaine
                         </span>
                         <h4 className="font-black text-base text-slate-900 mt-1.5">{sched.name}</h4>
                       </div>
-                      <span className="text-xs font-bold text-slate-500 font-mono flex items-center gap-1 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200">
-                        <Users className="w-3.5 h-3.5 text-blue-600" />
-                        {sched.assignedCount ?? 0} affectés
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-xs font-bold text-slate-500 font-mono flex items-center gap-1 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200">
+                          <Users className="w-3.5 h-3.5 text-blue-600" />
+                          {sched.assignedCount ?? 0}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => openScheduleModal(sched)}
+                          title="Modifier ce planning"
+                          className="p-2 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 transition cursor-pointer"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSchedule(sched)}
+                          title="Supprimer ce planning"
+                          className="p-2 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Jours travaillés */}
@@ -2233,6 +2420,24 @@ function ParametresContent() {
                         <span className="font-mono font-bold text-slate-800">{sched.afternoon_start} - {sched.afternoon_end}</span>
                       </div>
                     </div>
+
+                    {/* Jours Spéciaux configurés */}
+                    {scheduleOverridesMap[sched.id] && Object.keys(scheduleOverridesMap[sched.id]).length > 0 && (
+                      <div className="pt-2 border-t border-slate-100 flex flex-wrap gap-1.5">
+                        {Object.values(scheduleOverridesMap[sched.id]).map((ov) => {
+                          const dLbl = DAY_LABELS.find(d => d.day === ov.dayId)?.full || `Jour ${ov.dayId}`;
+                          return (
+                            <span
+                              key={ov.dayId}
+                              className="text-[11px] font-bold px-2.5 py-1 rounded-xl bg-amber-50 text-amber-800 border border-amber-200"
+                            >
+                              Jour spécial — {dLbl} : {ov.morning_start} - {ov.afternoon_end}{' '}
+                              {ov.has_break ? `(Pause ${ov.lunch_start}-${ov.lunch_end})` : '(Sans pause)'}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -2568,6 +2773,140 @@ function ParametresContent() {
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* SECTION AUDIT INVIOLABLE SHA-256 (PARITÉ WEB <-> MOBILE) */}
+          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                  <Radio className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900">Journal d&apos;Audit Inviolable (SHA-256)</h3>
+                  <p className="text-xs text-slate-500">Connexions, tentatives refusées et modifications sensibles chaînées cryptographiquement</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className={`text-[11px] font-bold px-3 py-1 rounded-full border flex items-center gap-1.5 ${
+                  auditChainIntact
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border-rose-200'
+                }`}>
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>
+                    {auditChainIntact ? 'Chaîne SHA-256 intègre' : 'Alerte intégrité'} •{' '}
+                    {auditStorageMode === 'supabase_immutable' ? 'Cloud PostgreSQL' : 'Serveur Local'}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={fetchAuditLogs}
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer transition"
+                  title="Actualiser le journal d'audit"
+                >
+                  <RefreshCw className={`w-4 h-4 ${auditLoading ? 'animate-spin' : ''}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const wb = XLSX.utils.book_new();
+                    const rows = auditEntries.map(ev => ({
+                      Date: ev.created_at,
+                      Evenement: ev.event_type,
+                      Severite: ev.severity,
+                      Acteur: ev.actor_name || '',
+                      Identifiant: ev.actor_identifier || '',
+                      IP: ev.ip_address || '',
+                      Terminal: ev.user_agent || '',
+                      Details: JSON.stringify(ev.details || {}),
+                      Hash_SHA256: ev.entry_hash
+                    }));
+                    const ws = XLSX.utils.json_to_sheet(rows);
+                    XLSX.utils.book_append_sheet(wb, ws, 'Audit_SHA256');
+                    XLSX.writeFile(wb, `Audit_Inviolable_${orgCode}.xlsx`);
+                  }}
+                  className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Exporter (.xlsx)</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {[
+                { id: 'ALL', label: `Tous (${auditEntries.length})` },
+                { id: 'AUTH', label: 'Connexions' },
+                { id: 'SITES_SEC', label: 'Sites & Sécurité' },
+                { id: 'OPS', label: 'RH & Collaborateurs' }
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setAuditFilter(f.id as any)}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                    auditFilter === f.id ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {auditLoading ? (
+              <div className="space-y-2 py-2">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="h-14 rounded-2xl bg-slate-100 animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                {auditEntries
+                  .filter((ev) => {
+                    if (auditFilter === 'ALL') return true;
+                    if (auditFilter === 'AUTH') return ev.event_type?.startsWith('LOGIN_');
+                    if (auditFilter === 'SITES_SEC') return ev.event_type?.startsWith('SITE_') || ev.event_type?.startsWith('SECURITY_') || ev.event_type?.startsWith('ORG_');
+                    return !ev.event_type?.startsWith('LOGIN_') && !ev.event_type?.startsWith('SITE_') && !ev.event_type?.startsWith('SECURITY_');
+                  })
+                  .map((ev) => (
+                    <div key={ev.id} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                            ev.severity === 'CRITICAL'
+                              ? 'bg-rose-100 text-rose-800'
+                              : ev.severity === 'WARNING'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-blue-100 text-blue-800'
+                          }`}>
+                            {ev.event_type}
+                          </span>
+                          <span className="font-bold text-slate-900 truncate">{ev.actor_name || 'Direction'}</span>
+                          {ev.actor_identifier && <span className="font-mono text-[11px] text-slate-500">({ev.actor_identifier})</span>}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          IP : <span className="font-mono font-semibold text-slate-700">{ev.ip_address || 'Non transmise'}</span> • {ev.user_agent || 'Navigateur'}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[11px] font-mono text-slate-600 block">
+                          {new Date(ev.created_at).toLocaleString('fr-FR')}
+                        </span>
+                        <span className="text-[10px] font-mono text-purple-700">
+                          SHA-256 : {String(ev.entry_hash || '').slice(0, 14)}…
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                {auditEntries.length === 0 && (
+                  <div className="p-6 text-center text-xs text-slate-500 bg-slate-50 rounded-2xl border border-slate-100">
+                    Aucun événement enregistré pour l&apos;instant. Toutes vos prochaines connexions et actions sensibles seront scellées ici.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -3062,8 +3401,10 @@ function ParametresContent() {
                   <CalendarDays className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-black text-base text-slate-900">Nouveau Régime de Planning</h3>
-                  <p className="text-xs text-slate-500">Configurez les plages de travail, pause déjeuner et tolérances</p>
+                  <h3 className="font-black text-base text-slate-900">
+                    {editingScheduleId ? 'Modifier le Régime de Planning' : 'Nouveau Régime de Planning'}
+                  </h3>
+                  <p className="text-xs text-slate-500">Configurez les plages standard, jours spéciaux et tolérances</p>
                 </div>
               </div>
               <button 
@@ -3295,6 +3636,126 @@ function ParametresContent() {
                 </div>
               </div>
 
+              {/* Horaires Spéciaux par Jour (ex: Samedi 07:30-14:00 sans pause) */}
+              <div className="p-4 rounded-2xl border border-amber-200 bg-amber-50/40 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="font-extrabold text-xs text-slate-900 block">Jours Spéciaux / Exceptions par Jour</span>
+                    <span className="text-[11px] text-slate-500 block">
+                      Ex: Mercredi ou Samedi avec une heure de départ différente et sans pause
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowOverrideEditor(v => !v)}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl cursor-pointer transition shrink-0"
+                  >
+                    {showOverrideEditor ? 'Fermer' : '+ Ajouter Jour Spécial'}
+                  </button>
+                </div>
+
+                {Object.values(schedDayOverrides).length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {Object.values(schedDayOverrides).map((ov) => {
+                      const lbl = DAY_LABELS.find(d => d.day === ov.dayId)?.full || `Jour ${ov.dayId}`;
+                      return (
+                        <span
+                          key={ov.dayId}
+                          className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-white border border-amber-300 text-xs font-bold text-slate-800"
+                        >
+                          <span>
+                            {lbl} : {ov.morning_start} - {ov.afternoon_end} {ov.has_break ? `(Pause ${ov.lunch_start}-${ov.lunch_end})` : '(Sans pause)'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSchedDayOverrides(prev => {
+                                const copy = { ...prev };
+                                delete copy[ov.dayId];
+                                return copy;
+                              })
+                            }
+                            className="text-rose-500 hover:text-rose-700 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {showOverrideEditor && (
+                  <div className="p-3 bg-white border border-amber-200 rounded-2xl space-y-3 animate-fadeIn">
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Jour</label>
+                        <select
+                          value={overrideDayId}
+                          onChange={(e) => setOverrideDayId(Number(e.target.value))}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 font-bold text-slate-800"
+                        >
+                          {DAY_LABELS.map(d => (
+                            <option key={d.day} value={d.day}>{d.full}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Arrivée</label>
+                        <input
+                          type="time"
+                          value={overrideStart}
+                          onChange={(e) => setOverrideStart(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 font-mono font-bold text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Départ</label>
+                        <input
+                          type="time"
+                          value={overrideEnd}
+                          onChange={(e) => setOverrideEnd(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 font-mono font-bold text-slate-800"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={overrideHasBreak}
+                          onChange={(e) => setOverrideHasBreak(e.target.checked)}
+                        />
+                        <span>Inclure une pause ce jour-là</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleAddDayOverride}
+                        className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl cursor-pointer"
+                      >
+                        Appliquer ce jour
+                      </button>
+                    </div>
+                    {overrideHasBreak && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="time"
+                          value={overrideBreakStart}
+                          onChange={(e) => setOverrideBreakStart(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 font-mono"
+                        />
+                        <input
+                          type="time"
+                          value={overrideBreakEnd}
+                          onChange={(e) => setOverrideBreakEnd(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 font-mono"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Synthèse calculée en temps réel */}
               <div className="p-3.5 bg-blue-50/60 rounded-2xl border border-blue-200/80 flex items-center justify-between text-xs">
                 <div>
@@ -3335,7 +3796,7 @@ function ParametresContent() {
                   ) : (
                     <>
                       <Check className="w-4 h-4" />
-                      <span>Créer le Planning</span>
+                      <span>{editingScheduleId ? 'Mettre à jour le Planning' : 'Créer le Planning'}</span>
                     </>
                   )}
                 </button>

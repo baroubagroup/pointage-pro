@@ -75,48 +75,137 @@ export default function RelevesPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
+  const parseHHMMToMin = (hhmm?: string | null): number | null => {
+    if (!hhmm) return null;
+    const m = String(hhmm).match(/^(\d{1,2}):(\d{2})/);
+    if (!m) return null;
+    return Number(m[1]) * 60 + Number(m[2]);
+  };
+
+  const toLocalDayKey = (dt: Date): string => {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
   const fetchRecords = async () => {
     setLoading(true);
     try {
       const supabase = createClient();
       const activeOrgId = typeof window !== 'undefined' ? localStorage.getItem('pointage_org_id') : null;
 
+      let orgQuery = supabase.from('pointage_organizations').select('id, name, security_config');
+      if (activeOrgId) {
+        orgQuery = orgQuery.eq('id', activeOrgId);
+      } else {
+        orgQuery = orgQuery.order('created_at', { ascending: false }).limit(1);
+      }
+      const { data: orgData } = await orgQuery.maybeSingle();
+      const resolvedOrgId = orgData?.id || activeOrgId;
+      const sc = orgData?.security_config && typeof orgData.security_config === 'object' ? orgData.security_config : {};
+      const dayOverridesMap: Record<string, Record<string, any>> = sc.schedule_day_overrides || {};
+      const orgHolidaysList: any[] = Array.isArray(sc.holidays) ? sc.holidays : [];
+      if (orgHolidaysList.length > 0) setHolidays(orgHolidaysList);
+      const holidayDateSet = new Set(orgHolidaysList.map((h: any) => h.date));
+
       let empQuery = supabase
         .from('pointage_employees')
         .select('*, pointage_establishments(name)')
+        .eq('is_active', true)
         .order('full_name');
+      if (resolvedOrgId) empQuery = empQuery.eq('org_id', resolvedOrgId);
 
-      if (activeOrgId) {
-        empQuery = empQuery.eq('org_id', activeOrgId);
-      }
-      const { data: emps, error } = await empQuery;
+      let schedQuery = supabase.from('pointage_schedules').select('*').eq('is_active', true);
+      if (resolvedOrgId) schedQuery = schedQuery.eq('org_id', resolvedOrgId);
 
-      // Récupérer les pointages réels pour calculer les heures réelles et retards
       let logsQuery = supabase
         .from('pointage_logs')
-        .select('employee_id, punch_type, status, flag_reasons, recorded_at_utc');
+        .select('employee_id, punch_type, status, flag_reasons, recorded_at_utc')
+        .order('recorded_at_utc', { ascending: true });
+      if (resolvedOrgId) logsQuery = logsQuery.eq('org_id', resolvedOrgId);
 
-      if (activeOrgId) {
-        logsQuery = logsQuery.eq('org_id', activeOrgId);
-      }
-      const { data: logs } = await logsQuery;
+      const [{ data: emps }, { data: scheds }, { data: logs }] = await Promise.all([
+        empQuery,
+        schedQuery,
+        logsQuery
+      ]);
 
       if (emps && emps.length > 0) {
         const mapped: AttendanceRecord[] = emps.map((e: any, idx: number) => {
+          const sched = (scheds || []).find((s: any) => s.id === e.schedule_id) || (scheds || [])[0] || null;
+          const schedCategory = sched?.category || 'Continu';
+          const defaultStartMin = parseHHMMToMin(sched?.morning_start) ?? 8 * 60;
+          const toleranceMin = sched?.tolerance_minutes ?? 15;
+          const lStart = parseHHMMToMin(sched?.lunch_start);
+          const lEnd = parseHHMMToMin(sched?.lunch_end);
+          const defaultBreakMin = (lStart !== null && lEnd !== null && lEnd > lStart) ? (lEnd - lStart) : 0;
+          const schedOverrides = (sched?.id && dayOverridesMap[sched.id]) ? dayOverridesMap[sched.id] : {};
+
           const empLogs = (logs || []).filter((l: any) => l.employee_id === e.id);
-          const empPunchCount = empLogs.length;
+          const byDay: Record<string, any[]> = {};
+          for (const log of empLogs) {
+            const dt = new Date(log.recorded_at_utc);
+            const k = toLocalDayKey(dt);
+            if (!byDay[k]) byDay[k] = [];
+            byDay[k].push(log);
+          }
 
-          const lateLogs = empLogs.filter((l: any) => {
-            const reasons = l.flag_reasons || [];
-            return l.status === 'LATE' || reasons.some((r: string) => r.includes('RETARD') || r.includes('LATE'));
-          });
-          const lateMin = lateLogs.length * 15;
+          let totalWorkedMin = 0;
+          let totalLateMin = 0;
 
-          const actualH = empPunchCount > 0
-            ? 160 + Math.max(-8, Math.min(20, Math.round((empPunchCount * 1.5 - 2) * 10) / 10))
-            : 160;
-          const overtime = Math.max(0, actualH - 160);
-          const rate = lateMin === 0 ? 100 : Math.max(85, Math.round((1 - lateMin / 600) * 1000) / 10);
+          for (const dayKey of Object.keys(byDay)) {
+            const dayLogs = byDay[dayKey];
+            const firstDt = new Date(dayLogs[0].recorded_at_utc);
+            const firstMin = firstDt.getHours() * 60 + firstDt.getMinutes();
+            const schedDayId = String(firstDt.getDay() === 0 ? 7 : firstDt.getDay());
+            const dayOv = schedOverrides[schedDayId] || null;
+
+            const dayStartMin = dayOv ? (parseHHMMToMin(dayOv.morning_start) ?? defaultStartMin) : defaultStartMin;
+            const dayBreakMin = dayOv
+              ? (dayOv.has_break && dayOv.lunch_start && dayOv.lunch_end
+                  ? Math.max(0, (parseHHMMToMin(dayOv.lunch_end) ?? 0) - (parseHHMMToMin(dayOv.lunch_start) ?? 0))
+                  : 0)
+              : defaultBreakMin;
+
+            if (dayLogs.length > 1) {
+              const lastDt = new Date(dayLogs[dayLogs.length - 1].recorded_at_utc);
+              const lastMin = lastDt.getHours() * 60 + lastDt.getMinutes();
+              if (lastMin > firstMin) {
+                const rawDur = lastMin - firstMin;
+                totalWorkedMin += (rawDur > 240 && dayBreakMin > 0) ? Math.max(0, rawDur - dayBreakMin) : rawDur;
+              }
+            }
+
+            if (!holidayDateSet.has(dayKey) && schedCategory !== 'Départ seul') {
+              const diff = firstMin - dayStartMin;
+              const explicitLate = dayLogs.some((l: any) =>
+                l.status === 'LATE' ||
+                (Array.isArray(l.flag_reasons) && l.flag_reasons.some((r: string) => r.includes('RETARD') || r.includes('LATE')))
+              );
+              if (diff > toleranceMin) {
+                totalLateMin += diff;
+              } else if (explicitLate) {
+                totalLateMin += diff > 0 ? diff : 15;
+              }
+            }
+          }
+
+          const plannedH = sched?.weekly_hours ? Math.round(Number(sched.weekly_hours) * 4 * 10) / 10 : 160;
+          const actualH = Math.round((totalWorkedMin / 60) * 10) / 10;
+          const overtime = Math.max(0, Math.round((actualH - plannedH) * 10) / 10);
+          const presentDays = Object.keys(byDay).length;
+          const lateDaysCount = Object.keys(byDay).filter((dayKey) => {
+            if (holidayDateSet.has(dayKey) || schedCategory === 'Départ seul') return false;
+            const dLogs = byDay[dayKey];
+            const fDt = new Date(dLogs[0].recorded_at_utc);
+            const fMin = fDt.getHours() * 60 + fDt.getMinutes();
+            const dId = String(fDt.getDay() === 0 ? 7 : fDt.getDay());
+            const dOv = schedOverrides[dId] || null;
+            const dStart = dOv ? (parseHHMMToMin(dOv.morning_start) ?? defaultStartMin) : defaultStartMin;
+            return (fMin - dStart) > toleranceMin || dLogs.some((l: any) => l.status === 'LATE');
+          }).length;
+          const rate = presentDays === 0 ? 100 : Math.max(0, Math.round(((presentDays - lateDaysCount) / presentDays) * 1000) / 10);
 
           return {
             id: e.id,
@@ -125,10 +214,10 @@ export default function RelevesPage() {
             role: e.role === 'EMPLOYEE' ? 'Collaborateur' : (e.role || 'Collaborateur'),
             department: e.department || (idx % 2 === 0 ? 'Opérations & Terrain' : 'Administration & Direction'),
             site: e.pointage_establishments?.name || 'Siège Principal Ouagadougou',
-            plannedHours: 160,
-            actualHours: Math.round(actualH * 10) / 10,
-            overtimeHours: Math.round(overtime * 10) / 10,
-            totalLateMinutes: lateMin,
+            plannedHours: plannedH,
+            actualHours: actualH,
+            overtimeHours: overtime,
+            totalLateMinutes: totalLateMin,
             breakOverrunMinutes: 0,
             unjustifiedAbsences: 0,
             attendanceRate: rate
@@ -139,7 +228,7 @@ export default function RelevesPage() {
         setRecords([]);
       }
     } catch (err) {
-      console.warn('Fallback releves error:', err);
+      console.warn('Erreur calcul releves:', err);
       setRecords([]);
     } finally {
       setLoading(false);
