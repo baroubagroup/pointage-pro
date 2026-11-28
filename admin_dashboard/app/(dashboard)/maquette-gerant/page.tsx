@@ -2786,46 +2786,48 @@ export default function MaquetteGerantPage() {
 
           </div>
 
-          {/* BARRE DE NAVIGATION INFÉRIEURE AVEC ZOOM FLUIDE AU CLIC */}
-          <div className="border-t border-slate-200/80 bg-white/95 backdrop-blur-md px-2 py-1.5 flex items-center justify-around shrink-0 z-30 shadow-lg">
-            {(
-              [
-                { id: 'cockpit', label: 'Cockpit', Icon: Activity, badge: 0 },
-                { id: 'sites', label: 'Sites', Icon: Building2, badge: 0 },
-                { id: 'equipe', label: 'Personnel', Icon: Users, badge: 0 },
-                { id: 'plannings', label: 'Couloirs', Icon: CalendarDays, badge: 0 },
-                { id: 'justifs', label: 'Arbitrage', Icon: CheckCircle2, badge: pendingCount }
-              ] as const
-            ).map(({ id, label, Icon, badge }) => {
-              const isActive = activeTab === id;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setActiveTab(id)}
-                  className={`flex flex-col items-center py-1.5 px-2.5 rounded-2xl cursor-pointer relative transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] active:scale-90 ${
-                    isActive
-                      ? 'bg-blue-50/95 text-blue-600 font-extrabold scale-110 -translate-y-0.5 shadow-xs ring-1 ring-blue-200/70'
-                      : 'text-slate-400 hover:text-slate-700 scale-95 hover:scale-100'
-                  }`}
-                >
-                  <div className={`relative transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isActive ? 'scale-110' : ''}`}>
-                    <Icon className="w-4 h-4 mb-0.5" />
-                    {badge > 0 && (
-                      <span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full bg-rose-500 text-white text-[8px] font-black flex items-center justify-center">
-                        {badge}
-                      </span>
-                    )}
-                  </div>
-                  <span className={`text-[10px] tracking-tight transition-all duration-300 ${isActive ? 'font-extrabold' : 'font-medium'}`}>
-                    {label}
-                  </span>
-                </button>
-              );
-            })}
+          {/* BARRE DE NAVIGATION INFÉRIEURE FLOTTANTE BLEUE UNIE À BORDS ARRONDIS VISIBLES */}
+          <div className="px-3 pt-1.5 pb-1 bg-[#F8FAFC] shrink-0 z-30">
+            <div className="bg-[#1D4ED8] border-2 border-[#60A5FA]/70 rounded-[26px] px-2 py-1.5 flex items-center justify-around shadow-[0_10px_28px_rgba(29,78,216,0.35)]">
+              {(
+                [
+                  { id: 'cockpit', label: 'Cockpit', Icon: Activity, badge: 0 },
+                  { id: 'sites', label: 'Sites', Icon: Building2, badge: 0 },
+                  { id: 'equipe', label: 'Personnel', Icon: Users, badge: 0 },
+                  { id: 'plannings', label: 'Couloirs', Icon: CalendarDays, badge: 0 },
+                  { id: 'justifs', label: 'Arbitrage', Icon: CheckCircle2, badge: pendingCount }
+                ] as const
+              ).map(({ id, label, Icon, badge }) => {
+                const isActive = activeTab === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setActiveTab(id)}
+                    className={`flex flex-col items-center py-1.5 px-2.5 rounded-2xl cursor-pointer relative transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] active:scale-90 ${
+                      isActive
+                        ? 'bg-white text-[#1D4ED8] font-extrabold scale-105 -translate-y-0.5 shadow-md'
+                        : 'text-blue-100 hover:text-white hover:bg-white/10 scale-95 hover:scale-100'
+                    }`}
+                  >
+                    <div className={`relative transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isActive ? 'scale-110' : ''}`}>
+                      <Icon className="w-4 h-4 mb-0.5" />
+                      {badge > 0 && (
+                        <span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full bg-rose-500 text-white text-[8px] font-black flex items-center justify-center ring-1 ring-white">
+                          {badge}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`text-[10px] tracking-tight transition-all duration-300 ${isActive ? 'font-extrabold' : 'font-medium'}`}>
+                      {label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="h-3.5 bg-white flex items-center justify-center shrink-0">
+          <div className="h-3.5 bg-[#F8FAFC] flex items-center justify-center shrink-0">
             <div className="w-24 h-1 bg-slate-300 rounded-full" />
           </div>
 
