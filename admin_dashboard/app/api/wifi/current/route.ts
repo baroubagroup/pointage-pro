@@ -6,17 +6,20 @@ import { createClient } from '@/lib/supabase/client';
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
 
-// Cache mémoire serveur (5 minutes) pour éviter les blocages de pilotes radio sous Windows
+// Cache mémoire serveur court (10 secondes) pour éviter les blocages de pilotes radio
 let cachedWifi: {
   ssid: string;
   bssid: string | null;
   timestamp: number;
 } | null = null;
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    // 0. Si un Wi-Fi réel a été scanné il y a moins de 5 minutes, le retourner instantanément
-    if (cachedWifi && Date.now() - cachedWifi.timestamp < 300000) {
+    const url = new URL(req.url);
+    const forceRefresh = url.searchParams.get('refresh') === 'true';
+
+    // 0. Si un Wi-Fi réel a été scanné il y a moins de 10 secondes et pas de forceRefresh
+    if (!forceRefresh && cachedWifi && Date.now() - cachedWifi.timestamp < 10000) {
       return NextResponse.json({
         success: true,
         ssid: cachedWifi.ssid,
@@ -27,11 +30,12 @@ export async function GET() {
       });
     }
 
-    // 1. Détection matérielle directe sur Windows (netsh.exe sans shell intermédiaire)
+    // 1. Détection matérielle directe sur Windows (netsh.exe)
     if (process.platform === 'win32') {
       let stdout = '';
+      const netshPath = process.env.SystemRoot ? `${process.env.SystemRoot}\\System32\\netsh.exe` : 'netsh.exe';
       try {
-        const res = await execFileAsync('netsh.exe', ['wlan', 'show', 'interfaces'], {
+        const res = await execFileAsync(netshPath, ['wlan', 'show', 'interfaces'], {
           encoding: 'utf8',
           timeout: 10000
         });
@@ -111,16 +115,26 @@ export async function GET() {
       } catch {}
     }
 
-    // 3. Fallback automatique : Récupérer le Wi-Fi certifié de l'établissement dans la base Supabase
+    // 3. Fallback automatique : Récupérer le Wi-Fi certifié de l'établissement de CETTE entreprise
     try {
+      const cookieHeader = req.headers.get('cookie') || '';
+      const orgMatch = cookieHeader.match(/pointage_active_org_id=([^;]+)/);
+      const activeOrgId = orgMatch ? orgMatch[1].trim() : null;
+
       const supabase = createClient();
-      const { data: estData } = await supabase
+      let query = supabase
         .from('pointage_establishments')
         .select('wifi_ssid, wifi_bssids')
-        .not('wifi_ssid', 'is', null)
+        .not('wifi_ssid', 'is', null);
+
+      if (activeOrgId) {
+        query = query.eq('org_id', activeOrgId);
+      }
+
+      const { data: estData } = await query
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (estData && estData.wifi_ssid) {
         const regSsid = estData.wifi_ssid;
@@ -132,7 +146,7 @@ export async function GET() {
           bssid: regBssid,
           verified: true,
           source: 'registered_establishment',
-          message: `Box Wi-Fi enregistrée : ${regSsid}`
+          message: `Box Wi-Fi configurée : ${regSsid}`
         });
       }
     } catch (dbErr) {

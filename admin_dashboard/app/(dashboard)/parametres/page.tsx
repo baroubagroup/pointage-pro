@@ -827,7 +827,7 @@ function ParametresContent() {
     setModalWifiError(null);
     setModalWifiSuccess(null);
     try {
-      const res = await fetch('/api/wifi/current');
+      const res = await fetch('/api/wifi/current?refresh=true');
       const data = await res.json();
       if (data && data.success && (data.ssid || data.bssid)) {
         setNewSiteWifiSsid(data.ssid || '');
@@ -849,7 +849,7 @@ function ParametresContent() {
     if (!selectedSiteId) return;
     setDetectingSiteCardWifi(true);
     try {
-      const res = await fetch('/api/wifi/current');
+      const res = await fetch('/api/wifi/current?refresh=true');
       const data = await res.json();
       if (data && data.success && (data.ssid || data.bssid)) {
         const ssid = data.ssid || 'Wi-Fi_Bureau';
