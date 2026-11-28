@@ -188,16 +188,20 @@ export default function MaquetteEmployePage() {
     const hhmm = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     if (workPhase === 'notArrived') {
       setWorkPhase('working');
-      setDayTimeline((p) => ({ ...p, checkIn: hhmm }));
+      setDayTimeline({ checkIn: hhmm });
       showToast(`✅ Arrivée enregistrée à ${hhmm} (GPS + Wi-Fi certifiés)`);
-    } else if (workPhase === 'working') {
+    } else if (workPhase === 'working' && !dayTimeline.breakStart) {
       setWorkPhase('onBreak');
       setDayTimeline((p) => ({ ...p, breakStart: hhmm }));
       showToast(`☕ Départ en pause enregistré à ${hhmm}`);
     } else if (workPhase === 'onBreak') {
+      setWorkPhase('working');
+      setDayTimeline((p) => ({ ...p, breakEnd: hhmm }));
+      showToast(`⚡ Reprise de poste enregistrée à ${hhmm}`);
+    } else if (workPhase === 'working' && dayTimeline.breakEnd) {
       setWorkPhase('completed');
-      setDayTimeline((p) => ({ ...p, breakEnd: hhmm, checkOut: undefined }));
-      showToast(`⚡ Reprise enregistrée à ${hhmm}`);
+      setDayTimeline((p) => ({ ...p, checkOut: hhmm }));
+      showToast(`🏁 Fin de journée certifiée à ${hhmm}`);
     } else {
       setWorkPhase('notArrived');
       setDayTimeline({});
@@ -598,142 +602,204 @@ export default function MaquetteEmployePage() {
                 </button>
               )}
 
-              {/* ONGLET 1 : POINTAGE */}
+              {/* ONGLET 1 : POINTAGE — ZONE DU POUCE CENTRÉE & VIVANTE */}
               {activeTab === 'pointage' && (
-                <div className="space-y-3 animate-fadeIn">
-                  {/* Hero Statut + Horloge + Géofence unifiés */}
-                  <div className="bg-linear-to-br from-[#1D4ED8] via-[#2563EB] to-[#3B82F6] rounded-[26px] p-4 text-white shadow-lg shadow-blue-500/20 space-y-3">
-                    <div className="flex items-center justify-between">
+                <div className="min-h-full flex flex-col justify-between gap-3 animate-fadeIn">
+                  {/* PARTIE HAUTE : CONTEXTE RAPIDE + TIMELINE 4 TEMPS */}
+                  <div className="space-y-2.5">
+                    {/* Bandeau Horloge + Géofence compact */}
+                    <div className="bg-linear-to-r from-[#1D4ED8] via-[#2563EB] to-[#3B82F6] rounded-3xl px-4 py-3 text-white shadow-md shadow-blue-500/20 flex items-center justify-between gap-2">
                       <div>
-                        <span className="text-[10px] uppercase tracking-wider text-blue-100 font-bold block">
-                          Horloge Certifiée
+                        <span className="text-[9px] uppercase tracking-wider text-blue-100 font-bold block">
+                          Horloge Satellite • {currentEmp.pointage_establishments?.name || 'Siège Principal'}
                         </span>
-                        <span className="font-mono font-black text-2xl tracking-tight">{nowClock}</span>
+                        <span className="font-mono font-black text-xl tracking-tight leading-tight block">
+                          {nowClock}
+                        </span>
                       </div>
-                      <div className="w-14 h-14 rounded-2xl bg-white/15 border border-white/25 flex flex-col items-center justify-center">
-                        <span className="font-black text-sm">{progressPct}%</span>
-                        <span className="text-[8px] uppercase text-blue-100">Shift</span>
+                      <div className="flex flex-col items-end gap-1 text-[9.5px] font-extrabold">
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
+                            isInZone ? 'bg-emerald-500/30 text-emerald-50' : 'bg-rose-500/45 text-rose-50'
+                          }`}
+                        >
+                          <MapPin className="w-3 h-3" />
+                          {isInZone ? `Zone OK (${distanceMeters}m)` : `Hors zone (${distanceMeters}m)`}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-white/15 text-blue-50 flex items-center gap-1">
+                          <Wifi className="w-2.5 h-2.5" />
+                          {wifiConnected ? 'Wi-Fi OK' : 'GPS seul'} • {progressPct}%
+                        </span>
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
-                      <span
-                        className={`px-2.5 py-1 rounded-full flex items-center gap-1 ${
-                          isInZone ? 'bg-emerald-500/25 text-emerald-100' : 'bg-rose-500/35 text-rose-100'
-                        }`}
+                    {/* Timeline 4 Temps du Jour */}
+                    <div className="bg-white border border-slate-200/90 rounded-3xl p-3 space-y-2 shadow-xs">
+                      <div className="flex items-center justify-between px-0.5">
+                        <span className="text-[11px] font-black text-slate-900 flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                          Ma Journée en Direct (4 Temps)
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-400">07h30 – 17h30</span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5 text-center">
+                        {[
+                          { label: 'Arrivée', val: dayTimeline.checkIn },
+                          { label: 'Pause', val: dayTimeline.breakStart },
+                          { label: 'Reprise', val: dayTimeline.breakEnd },
+                          { label: 'Départ', val: dayTimeline.checkOut }
+                        ].map((slot) => (
+                          <div
+                            key={slot.label}
+                            className={`py-2 px-1 rounded-2xl border transition ${
+                              slot.val
+                                ? 'bg-emerald-50/80 border-emerald-200 text-emerald-800'
+                                : 'bg-slate-50 border-slate-100 text-slate-400'
+                            }`}
+                          >
+                            <span className="text-[8.5px] font-bold uppercase block">{slot.label}</span>
+                            <span className="font-mono font-black text-xs mt-0.5 block">
+                              {slot.val || '--:--'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Raccourcis compacts */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowJustifModal(true)}
+                        className="px-3 py-2 rounded-2xl bg-white border border-slate-200 hover:border-blue-300 flex items-center gap-2 shadow-2xs cursor-pointer transition"
                       >
-                        <MapPin className="w-3 h-3" />
-                        {isInZone ? `Dans la zone (${distanceMeters}m)` : `Hors zone (${distanceMeters}m)`}
-                      </span>
-                      <span className="px-2.5 py-1 rounded-full bg-white/15 text-blue-50 flex items-center gap-1">
-                        <Wifi className="w-3 h-3" />
-                        {wifiConnected ? 'Wi-Fi Site OK' : 'GPS seul'}
-                      </span>
+                        <span className="w-7 h-7 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                          <FileCheck2 className="w-3.5 h-3.5" />
+                        </span>
+                        <span className="text-left min-w-0">
+                          <span className="font-extrabold text-[11px] text-slate-900 block leading-tight">Justifier</span>
+                          <span className="text-[9.5px] text-slate-500 block truncate">Retard / Absence</span>
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowColleagueModal(true)}
+                        className="px-3 py-2 rounded-2xl bg-white border border-slate-200 hover:border-blue-300 flex items-center gap-2 shadow-2xs cursor-pointer transition"
+                      >
+                        <span className="w-7 h-7 rounded-xl bg-blue-50 text-[#1D4ED8] flex items-center justify-center shrink-0">
+                          <Users className="w-3.5 h-3.5" />
+                        </span>
+                        <span className="text-left min-w-0">
+                          <span className="font-extrabold text-[11px] text-slate-900 block leading-tight">Aider Collègue</span>
+                          <span className="text-[9.5px] text-slate-500 block truncate">Pointage assisté</span>
+                        </span>
+                      </button>
                     </div>
                   </div>
 
-                  {/* Carte Action Héroïque du Pouce */}
-                  <div className="bg-white border border-slate-200/90 rounded-[26px] p-4 shadow-xs flex items-center justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={handleSimulatePunch}
-                      className={`w-16 h-16 rounded-full flex items-center justify-center text-white shadow-lg shrink-0 transition active:scale-95 cursor-pointer ${
-                        workPhase === 'notArrived'
-                          ? 'bg-emerald-600 shadow-emerald-500/30'
-                          : workPhase === 'working'
-                            ? 'bg-[#1D4ED8] shadow-blue-500/30'
-                            : workPhase === 'onBreak'
-                              ? 'bg-indigo-600 shadow-indigo-500/30'
-                              : 'bg-slate-600 shadow-slate-500/25'
+                  {/* PARTIE BASSE — GRANDE ZONE DU POUCE CENTRÉE & VIVANTE */}
+                  <div className="bg-white border border-slate-200/90 rounded-[32px] px-4 py-5 shadow-[0_12px_36px_rgba(29,78,216,0.08)] flex flex-col items-center text-center relative overflow-hidden">
+                    <span
+                      className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full mb-2 ${
+                        !isInZone
+                          ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                          : workPhase === 'notArrived'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : workPhase === 'working'
+                              ? 'bg-blue-50 text-[#1D4ED8] border border-blue-200'
+                              : workPhase === 'onBreak'
+                                ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                : 'bg-slate-100 text-slate-700 border border-slate-200'
                       }`}
                     >
-                      <Fingerprint className="w-7 h-7" />
-                    </button>
+                      {!isInZone
+                        ? 'Rapprochez-vous du site'
+                        : workPhase === 'notArrived'
+                          ? 'Prêt à démarrer'
+                          : workPhase === 'working'
+                            ? 'En poste actuellement'
+                            : workPhase === 'onBreak'
+                              ? 'Pause déjeuner en cours'
+                              : 'Journée complétée'}
+                    </span>
 
-                    <div className="flex-1 min-w-0">
-                      <span className="font-black text-sm text-slate-900 block">
-                        {workPhase === 'notArrived'
-                          ? 'Pointer mon Arrivée'
+                    <h3 className="font-black text-base text-slate-900 tracking-tight">
+                      {workPhase === 'notArrived'
+                        ? 'Pointer mon Arrivée'
+                        : workPhase === 'working' && dayTimeline.breakEnd
+                          ? 'Pointer mon Départ (Sortie)'
                           : workPhase === 'working'
                             ? 'Départ Pause Déjeuner'
                             : workPhase === 'onBreak'
                               ? 'Reprise de Poste'
-                              : 'Journée en cours / Clôturer'}
-                      </span>
-                      <span className="text-[11px] text-slate-500 block mt-0.5">
-                        Site : {currentEmp.pointage_establishments?.name || 'Siège Principal'} • 07h30 - 17h30
-                      </span>
+                              : 'Journée Terminée • Réinitialiser'}
+                    </h3>
+
+                    {/* GRAND CAPTEUR EMPREINTE VIVANT DANS LA ZONE DU POUCE */}
+                    <div className="relative my-4 flex items-center justify-center w-44 h-44">
+                      {/* Onde radar externe pulsante */}
+                      <span
+                        className={`absolute inset-1 rounded-full animate-ping opacity-20 ${
+                          workPhase === 'notArrived'
+                            ? 'bg-emerald-500'
+                            : workPhase === 'working'
+                              ? 'bg-[#2563EB]'
+                              : workPhase === 'onBreak'
+                                ? 'bg-indigo-500'
+                                : 'bg-slate-400'
+                        }`}
+                        style={{ animationDuration: '2.4s' }}
+                      />
+                      {/* Anneau intermédiaire respirant */}
+                      <span
+                        className={`absolute inset-3.5 rounded-full animate-pulse border-2 ${
+                          workPhase === 'notArrived'
+                            ? 'border-emerald-300/80 bg-emerald-50/70'
+                            : workPhase === 'working'
+                              ? 'border-blue-300/80 bg-blue-50/70'
+                              : workPhase === 'onBreak'
+                                ? 'border-indigo-300/80 bg-indigo-50/70'
+                                : 'border-slate-300 bg-slate-100/70'
+                        }`}
+                      />
+                      {/* Bouton Empreinte Tactile Géant */}
+                      <button
+                        type="button"
+                        onClick={handleSimulatePunch}
+                        aria-label="Poser le pouce pour pointer"
+                        className={`relative z-10 w-32 h-32 rounded-full flex flex-col items-center justify-center text-white shadow-2xl transition-all duration-200 hover:scale-105 active:scale-90 cursor-pointer ring-4 ring-white ${
+                          !isInZone
+                            ? 'bg-linear-to-br from-rose-500 to-rose-600 shadow-rose-500/35'
+                            : workPhase === 'notArrived'
+                              ? 'bg-linear-to-br from-emerald-500 via-emerald-600 to-teal-600 shadow-emerald-500/40'
+                              : workPhase === 'working'
+                                ? 'bg-linear-to-br from-[#1D4ED8] via-[#2563EB] to-[#3B82F6] shadow-blue-500/40'
+                                : workPhase === 'onBreak'
+                                  ? 'bg-linear-to-br from-indigo-500 to-blue-700 shadow-indigo-500/40'
+                                  : 'bg-linear-to-br from-slate-600 to-slate-700 shadow-slate-500/30'
+                        }`}
+                      >
+                        <Fingerprint className="w-16 h-16 stroke-[1.75] drop-shadow-sm" />
+                        <span className="text-[9px] font-black uppercase tracking-widest mt-1 text-white/90">
+                          Toucher
+                        </span>
+                      </button>
                     </div>
+
+                    <p className="text-[11px] font-bold text-slate-500">
+                      Posez votre pouce sur l&apos;empreinte pour valider
+                    </p>
 
                     {workPhase !== 'notArrived' && !dayTimeline.checkOut && (
                       <button
                         type="button"
                         onClick={handleCloseDay}
-                        className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-extrabold cursor-pointer shrink-0"
+                        className="mt-2.5 px-4 py-1.5 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10.5px] font-extrabold cursor-pointer transition"
                       >
-                        Sortie
+                        Clôturer ma journée (Sortie définitive)
                       </button>
                     )}
-                  </div>
-
-                  {/* NOUVEAUTÉ PROPOSITION : Timeline 4 Temps du Jour */}
-                  <div className="bg-white border border-slate-200/90 rounded-3xl p-3.5 space-y-2.5 shadow-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black text-slate-900 flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-[#1D4ED8]" />
-                        Ma Journée en Direct (4 Temps)
-                      </span>
-                      <span className="text-[10px] font-bold text-slate-400">Aujourd&apos;hui</span>
-                    </div>
-                    <div className="grid grid-cols-4 gap-1.5 text-center">
-                      {[
-                        { label: 'Arrivée', val: dayTimeline.checkIn },
-                        { label: 'Pause', val: dayTimeline.breakStart },
-                        { label: 'Reprise', val: dayTimeline.breakEnd },
-                        { label: 'Départ', val: dayTimeline.checkOut }
-                      ].map((slot) => (
-                        <div
-                          key={slot.label}
-                          className={`p-2 rounded-2xl border ${
-                            slot.val
-                              ? 'bg-emerald-50/70 border-emerald-200 text-emerald-800'
-                              : 'bg-slate-50 border-slate-100 text-slate-400'
-                          }`}
-                        >
-                          <span className="text-[9px] font-bold uppercase block">{slot.label}</span>
-                          <span className="font-mono font-black text-xs mt-0.5 block">
-                            {slot.val || '--:--'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* NOUVEAUTÉ PROPOSITION : Raccourcis Rapides (Alignés Cockpit Gérant) */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowJustifModal(true)}
-                      className="p-3 rounded-2xl bg-white border border-slate-200 hover:border-blue-300 text-left space-y-1 shadow-2xs cursor-pointer transition"
-                    >
-                      <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                        <FileCheck2 className="w-4 h-4" />
-                      </div>
-                      <span className="font-extrabold text-xs text-slate-900 block">Justifier</span>
-                      <span className="text-[10px] text-slate-500 block">Retard ou absence</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowColleagueModal(true)}
-                      className="p-3 rounded-2xl bg-white border border-slate-200 hover:border-blue-300 text-left space-y-1 shadow-2xs cursor-pointer transition"
-                    >
-                      <div className="w-8 h-8 rounded-xl bg-blue-50 text-[#1D4ED8] flex items-center justify-center">
-                        <Users className="w-4 h-4" />
-                      </div>
-                      <span className="font-extrabold text-xs text-slate-900 block">Aider Collègue</span>
-                      <span className="text-[10px] text-slate-500 block">Pointage assisté</span>
-                    </button>
                   </div>
                 </div>
               )}
